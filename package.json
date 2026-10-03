@@ -1,0 +1,19 @@
+{
+  "name": "lightwell-card",
+  "version": "0.1.0",
+  "description": "Lightwell: a living floor plan card for Home Assistant, with lights in their colours, the sun and daylight through your windows, and your devices.",
+  "license": "MIT",
+  "author": "Viktor Balog",
+  "private": true,
+  "type": "module",
+  "keywords": ["home-assistant", "lovelace", "custom-card", "floor-plan", "hacs"],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "test": "node --test src/*.test.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "yaml": "^2.9.1"
+  }
+}

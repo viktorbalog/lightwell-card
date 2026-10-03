@@ -1,0 +1,5 @@
+node_modules/
+# Snapshots of a real home's states and location (tools/simulator/snapshot.sh), and scratch files.
+tools/simulator/states.js
+tools/simulator/states-ref.js
+.preview/

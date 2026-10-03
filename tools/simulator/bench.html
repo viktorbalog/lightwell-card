@@ -1,0 +1,63 @@
+<!doctype html><meta charset="utf-8"><title>Floorplan bench</title>
+<!-- One card fed the states (?states, tool.js), for measuring how much work it does: ?scene=evening|day|static&dark=1, and
+     ?card, ?tag and ?home for another card (tool.js). How to measure: step 4 of
+     the README's Tools section, and trace-report.cjs. window.bench(ms) counts frames, then times
+     HA's frequent hass sets with an unrelated entity changing. ?fit=1 fits each blur filter's region to its shape. -->
+<style> body { margin: 0; padding: 8px; font-family: sans-serif; } .col { width: 420px; }
+  ha-card { display: block; border-radius: 12px; background: #fff; } </style>
+<script>
+  customElements.define('ha-card', class extends HTMLElement {});
+  customElements.define('ha-icon', class extends HTMLElement {
+    connectedCallback() { const d = document.createElement('div');
+      d.style.cssText = 'width: var(--mdc-icon-size); height: var(--mdc-icon-size); background: currentColor; border-radius: 30%';
+      this.appendChild(d); } });
+</script>
+<script src="tool.js"></script>
+<div class="col" id="c"></div>
+<script>
+  const q = Q, PLAN = TOOL.plan(), SUN = PLAN.sun.entity;
+  const states = structuredClone(STATES);
+  const scene = q.get('scene') || 'evening';
+  // evening: media and lamps on, sun down; day: sun in, lights off; static: lights on, media players off, no effects.
+  states[SUN] ||= {state: 'above_horizon', attributes: {}};
+  if (scene === 'day') { states[SUN].attributes = {elevation: 20, azimuth: 230};
+    for (const id in states) if (/^(light|media_player)\./.test(id)) states[id] = {...states[id], state: 'off'}; }
+  else states[SUN].attributes = {elevation: -10, azimuth: 290};
+  if (scene === 'static') for (const id in states) if (id.startsWith('media_player.')) states[id] = {...states[id], state: 'off'};
+  for (const id in states) if (states[id].attributes?.effect) states[id].attributes.effect = null;
+  const c = TOOL.card$();
+  const hass = () => ({states, themes: {darkMode: q.get('dark') === '1'}, callService() {}});
+  c.hass = hass();
+  document.getElementById('c').appendChild(c);
+  // Frames over `ms`, and the cost of HA's frequent `hass` sets (an unrelated entity changing).
+  window.bench = (ms = 5000) => new Promise(res => {
+    let n = 0, worst = 0, last = performance.now(); const t0 = last;
+    const f = t => { n++; worst = Math.max(worst, t - last); last = t; if (t - t0 < ms) requestAnimationFrame(f); else done(); };
+    requestAnimationFrame(f);
+    function done() {
+      const t1 = performance.now();
+      for (let i = 0; i < 50; i++) { states['sensor.unrelated'] = {state: String(i), attributes: {}}; c.hass = hass(); c.shadowRoot.querySelector('svg').getBBox(); }
+      const set = (performance.now() - t1) / 50;
+      res({fps: +(n / (ms / 1000)).toFixed(1), worstFrame: +worst.toFixed(1), hassSetMs: +set.toFixed(2)});
+    }
+  });
+</script>
+<script>
+  if (q.get('fit')) requestAnimationFrame(() => {
+    const r = c.shadowRoot, defs = r.querySelector('defs'), ns = 'http://www.w3.org/2000/svg';
+    let n = 0;
+    // Blurred elements: the glow layers' children (CSS filter) and anything with a filter attribute.
+    const els = [...r.querySelectorAll('#glows > *, #glows-top > *, #glows-over > *, [filter]')];
+    for (const el of els) {
+      const id = (el.getAttribute('filter') || 'url(#blur)').match(/#([\w-]+)/)[1];
+      const f = r.getElementById(id); if (!f || el.closest('filter')) continue;
+      const sd = +f.querySelector('feGaussianBlur').getAttribute('stdDeviation');
+      const b = el.getBBox(), pad = 3 * sd + 20;
+      const g = f.cloneNode(true); g.id = `fit-${n++}`;
+      Object.entries({x: b.x - pad, y: b.y - pad, width: b.width + 2 * pad, height: b.height + 2 * pad}).forEach(([k, v]) => g.setAttribute(k, v));
+      defs.appendChild(g);
+      if (el.hasAttribute('filter')) el.setAttribute('filter', `url(#${g.id})`); else el.style.filter = `url(#${g.id})`;
+    }
+    console.log('fitted', n);
+  });
+</script>

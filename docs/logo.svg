@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Lightwell">
+  <!-- Lightwell's mark: a room seen from above, and the light falling into it from a window in its top wall. -->
+  <defs>
+    <linearGradient id="shaft" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe7a3"/>
+      <stop offset="1" stop-color="#ffb24d" stop-opacity="0.15"/>
+    </linearGradient>
+    <radialGradient id="pool" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffd27a" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#ffd27a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="#1d2433"/>
+  <!-- the walls, with the window in the top one -->
+  <path d="M50 30 H24 V104 H104 V30 H78" fill="none" stroke="#e9e4d4" stroke-width="7" stroke-linejoin="round"
+        stroke-linecap="round"/>
+  <rect x="50" y="27" width="28" height="6" rx="2" fill="#7fd3d3"/>
+  <!-- the light through it -->
+  <polygon points="50,33 78,33 98,92 58,92" fill="url(#shaft)"/>
+  <ellipse cx="78" cy="88" rx="22" ry="9" fill="url(#pool)"/>
+</svg>

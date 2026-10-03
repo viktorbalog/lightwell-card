@@ -1,0 +1,42 @@
+<!doctype html><meta charset="utf-8"><title>Floorplan reference</title>
+<!-- Fixed scenes (no effects, no TV) in light and dark, for comparing builds pixel by pixel: ?card, ?tag and ?home
+     (tool.js; dist/'s card and the example by default). It uses the example's made-up states unless ?states says otherwise (a frozen snapshot: `snapshot.sh
+     --home <file> states-ref.js`), so that two screenshots differ only by the card. Screenshot the page at 1224 px wide and compare with pngdiff.cjs. -->
+<style> body { margin: 0; padding: 4px; display: grid; grid-template-columns: repeat(4, 300px); gap: 4px; background: #888; }
+  ha-card { display: block; background: #fff; } .dark ha-card { background: #1c1c1c; } </style>
+<script>
+  customElements.define('ha-card', class extends HTMLElement {});
+  customElements.define('ha-icon', class extends HTMLElement {
+    connectedCallback() { const d = document.createElement('div');
+      d.style.cssText = 'width: var(--mdc-icon-size); height: var(--mdc-icon-size); background: currentColor; border-radius: 30%';
+      this.appendChild(d); } });
+</script>
+<script src="tool.js"></script>
+<body>
+<script>
+  const PLAN = TOOL.plan(), SUN = PLAN.sun.entity, WEATHER = PLAN.sun.weather;
+  // The openings' shutters, in order: a scene's shutter positions go to them by index.
+  const SHUT = PLAN.openings.map(o => o.shutter);
+  const base = structuredClone(STATES);
+  for (const id in base) if (base[id].attributes?.effect) base[id].attributes.effect = null;
+  for (const id in base) if (id.startsWith('media_player.')) base[id] = {...base[id], state: 'off'};
+  base[SUN] ||= {state: 'above_horizon', attributes: {}};
+  const shut = (s, pos) => pos.forEach((p, i) => { const id = SHUT[i]; if (id) s[id] = {...s[id], attributes: {...s[id]?.attributes, current_position: p}}; });
+  const off = s => { for (const id in s) if (/^light\./.test(id)) s[id] = {...s[id], state: 'off'}; };
+  const SCENES = {
+    evening: s => { s[SUN].attributes = {elevation: -10, azimuth: 290}; },
+    sunny: s => { s[SUN].attributes = {elevation: 25, azimuth: 225}; off(s); },
+    trees: s => { s[SUN].attributes = {elevation: 10, azimuth: 262}; off(s);
+      s[WEATHER] = {...s[WEATHER], state: 'partlycloudy', attributes: {...s[WEATHER]?.attributes, cloud_coverage: 40}};
+      shut(s, [50, 30, 100, 0]); },
+    night: s => { s[SUN].attributes = {elevation: -25, azimuth: 330};
+      shut(s, [30, 10]); },
+  };
+  for (const dark of [false, true]) for (const [name, f] of Object.entries(SCENES)) {
+    const s = structuredClone(base); f(s);
+    const div = document.createElement('div'); if (dark) div.className = 'dark';
+    const c = TOOL.card$();
+    div.appendChild(c); document.body.appendChild(div);
+    for (let i = 0; i < 3; i++) c.hass = {states: s, themes: {darkMode: dark}, callService() {}};
+  }
+</script>

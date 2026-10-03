@@ -1,0 +1,73 @@
+<!doctype html><meta charset="utf-8"><title>Lightwell capture</title>
+<!-- Cards for the README's pictures, one per hour of a day (?date=YYYY-MM-DD, default 20 April), in a grid:
+     ?dark=1 for the dark theme. Each tile carries its time. scripts/pictures.sh screenshots this page and cuts the
+     tiles into docs/ (the GIF and the stills). Same ?card, ?tag, ?home and ?states as the other pages (tool.js). -->
+<style>
+  body { margin: 0; padding: 8px; display: grid; grid-template-columns: repeat(4, 480px); gap: 8px; background: #fff;
+         font: 600 18px sans-serif; color: #444; }
+  body.dark { background: #111; color: #ccc; }
+  .tile { padding: 8px; } .tile p { margin: 0 0 6px; }
+  ha-card { display: block; border-radius: 12px; background: #fff; }
+  .dark ha-card { background: #1c1c1c; }
+</style>
+<script>
+  customElements.define('ha-card', class extends HTMLElement {});
+  customElements.define('ha-icon', class extends HTMLElement {
+    connectedCallback() {
+      const name = this.getAttribute('icon').replace('mdi:', '');
+      this.style.display = 'inline-block';
+      const d = document.createElement('div');
+      d.style.cssText = `width: var(--mdc-icon-size); height: var(--mdc-icon-size); background: currentColor;
+        -webkit-mask: url(https://cdn.jsdelivr.net/npm/@mdi/svg/svg/${name}.svg) center/contain no-repeat`;
+      this.appendChild(d);
+    }
+  });
+</script>
+<script src="tool.js"></script>
+<body>
+<script>
+  // The sun's position (degrees; azimuth clockwise from north), as in the simulator.
+  function sunPos(date, lat, lon) {
+    const rad = Math.PI / 180, n = date.getTime() / 86400000 + 2440587.5 - 2451545.0;
+    const L = (280.460 + 0.9856474 * n) % 360, g = ((357.528 + 0.9856003 * n) % 360) * rad;
+    const lambda = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * rad, eps = (23.439 - 0.0000004 * n) * rad;
+    const ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
+    const dec = Math.asin(Math.sin(eps) * Math.sin(lambda));
+    const ha = ((18.697374558 + 24.06570982441908 * n) % 24 * 15 + lon) * rad - ra, la = lat * rad;
+    const el = Math.asin(Math.sin(la) * Math.sin(dec) + Math.cos(la) * Math.cos(dec) * Math.cos(ha));
+    const az = Math.atan2(-Math.sin(ha), Math.tan(dec) * Math.cos(la) - Math.sin(la) * Math.cos(ha));
+    return {elevation: el / rad, azimuth: (az / rad + 360) % 360};
+  }
+  const dark = Q.get('dark') === '1', [y, m, d] = (Q.get('date') || '2026-04-20').split('-').map(Number);
+  document.body.classList.toggle('dark', dark);
+  const PLAN = TOOL.plan(), SCENES = PLAN.simulator.scenes || {};
+  // Which of the home's scenes (simulator.scenes) each hour shows.
+  const presetAt = h => (h < 6 ? 'Night' : h < 7 ? 'Sunrise' : h < 11 ? 'Morning' : h < 14 ? 'Noon' : h < 17 ? 'Afternoon'
+    : h < 18 ? 'Golden hour' : h < 19 ? 'Sunset' : h < 20 ? 'Dusk' : 'Evening');
+  const scene = h => { let sc = SCENES[presetAt(h)]; if (typeof sc === 'string') sc = SCENES[sc]; return sc || {}; };
+  window.tiles = [];
+  for (let h = 6; h <= 21; h++) {
+    const states = structuredClone(STATES), sc = scene(h);
+    const sun = sunPos(new Date(y, m - 1, d, h), HOME.latitude, HOME.longitude);
+    states[PLAN.sun.entity] = {state: sun.elevation > 0 ? 'above_horizon' : 'below_horizon', attributes: sun};
+    for (const id in states) {
+      if (id.startsWith('light.') && sc.lights) states[id] = {...states[id], state: sc.lights};
+      if (id.startsWith('media_player.') && sc.media) states[id] = {...states[id], state: sc.media};
+      // No effects: the frames must not depend on when they were taken.
+      if (states[id].attributes?.effect) states[id] = {...states[id], attributes: {...states[id].attributes, effect: null}};
+    }
+    for (const o of PLAN.openings) if (o.shutter) {
+      states[o.shutter] = {...states[o.shutter], attributes: {...states[o.shutter]?.attributes, current_position: sc.shutters?.[o.shutter] ?? 100}};
+    }
+    const tile = document.createElement('div');
+    tile.className = 'tile';
+    tile.innerHTML = `<p>${String(h).padStart(2, '0')}:00</p>`;
+    const c = TOOL.card$();
+    c.hass = {states, themes: {darkMode: dark}, callService() {}};
+    tile.appendChild(c);
+    document.body.appendChild(tile);
+  }
+  // The tiles' positions in CSS pixels, for cutting them out of a screenshot.
+  window.rects = () => [...document.querySelectorAll('.tile')].map(t => { const r = t.getBoundingClientRect();
+    return [Math.round(r.x), Math.round(r.y + scrollY), Math.round(r.width), Math.round(r.height)]; });
+</script>

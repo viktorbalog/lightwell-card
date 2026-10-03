@@ -1,0 +1,233 @@
+<!doctype html><meta charset="utf-8"><title>Floorplan sun simulator</title>
+<!-- Lightwell with a made-up sun: pick a date and time (the sun's position is worked out for the home's location),
+     which way the plan faces, the cloud coverage, the shutters and the lights. It shows the card, home and states
+     given by ?card, ?tag, ?home and ?states (tool.js): by default dist/'s card with the example home and its made-up
+     states; ?states=states.js for a snapshot of your own (snapshot.sh). Open this file in a browser. -->
+<style>
+  body { font-family: sans-serif; display: flex; gap: 24px; padding: 16px; margin: 0; }
+  .col { width: 420px; } .dark { background: #111; padding: 8px; }
+  ha-card { display: block; border-radius: 12px; background: var(--card-background-color, #fff); }
+  .dark ha-card { --card-background-color: #1c1c1c; }
+  form { width: 320px; display: grid; grid-template-columns: auto 1fr auto; gap: 8px 10px; align-items: center;
+         align-content: start; font-size: 14px; }
+  form output { font-variant-numeric: tabular-nums; min-width: 4em; text-align: right; }
+  #readout { grid-column: 1 / -1; font-size: 15px; padding: 8px; background: #f3f3f3; border-radius: 8px; }
+  h3 { grid-column: 1 / -1; margin: 8px 0 0; font-size: 14px; }
+  .presets { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; }
+  .presets button { font: 12px sans-serif; padding: 3px 7px; border: 1px solid #ccc; border-radius: 12px; background: #fafafa;
+                    cursor: pointer; }
+  .presets button:hover { background: #eee; } .presets button.on { background: #1e88e5; border-color: #1e88e5; color: #fff; }
+</style>
+<script>
+  customElements.define('ha-card', class extends HTMLElement {});
+  customElements.define('ha-icon', class extends HTMLElement {
+    connectedCallback() {
+      const name = this.getAttribute('icon').replace('mdi:', '');
+      this.style.display = 'inline-block';
+      const d = document.createElement('div');
+      d.style.cssText = `width: var(--mdc-icon-size); height: var(--mdc-icon-size); background: currentColor;
+        -webkit-mask: url(https://cdn.jsdelivr.net/npm/@mdi/svg/svg/${name}.svg) center/contain no-repeat`;
+      this.appendChild(d);
+    }
+  });
+</script>
+<script src="tool.js"></script>
+<script>
+  // Without states: everything unknown (lights off), and the sun over Greenwich.
+  window.NO_SNAPSHOT = !window.STATES;
+  window.STATES = window.STATES || {};
+  window.HOME = window.HOME || {latitude: 51.4779, longitude: 0};
+</script>
+<form id="f">
+  <label for="date">Date</label><input id="date" type="date"><span></span>
+  <div class="presets" id="dates"></div>
+  <label for="time">Time</label><input id="time" type="range" min="0" max="1439" step="1"><output id="time-o"></output>
+  <div class="presets" id="times"></div>
+  <label for="facing" title="The compass bearing of the top of the plan (north: 0°)">Plan's top faces</label><input id="facing" type="range" min="0" max="359"><output id="facing-o"></output>
+  <label for="lights" title="Tap a light on the card to toggle it">Lights off</label><input id="lights" type="checkbox" style="justify-self: start"><span></span>
+  <label for="clouds">Clouds</label><input id="clouds" type="range" min="0" max="100" value="0"><output id="clouds-o"></output>
+  <div class="presets" id="weathers"></div>
+  <h3>Shutters (100 = open)</h3>
+  <div id="shutters" style="display: contents"></div>
+  <div id="readout"></div>
+  <p id="no-snapshot" style="grid-column: 1 / -1; margin: 0; color: #b00" hidden>No states: run tools/simulator/snapshot.sh and
+    open this page with ?states=states.js.</p>
+  <p style="grid-column: 1 / -1; margin: 0; color: #666">The time presets can also set the lights, media players and
+    shutters for that time of day, as the home's simulator.scenes say ("Now": as saved in HA). Tap a marker on the
+    card: lights and media players switch, shutters open or close, the weather changes. Only here; nothing is sent to
+    HA.</p>
+</form>
+<div class="col"><div id="light"></div></div>
+<div class="col dark"><div id="dark"></div></div>
+<script>
+  // From the card's home: which way the plan faces, the shutters, the sun and weather entities, the scenes.
+  const PLAN = TOOL.plan(), SUN = PLAN.sun.entity, WEATHER_ID = PLAN.sun.weather;
+  const SHUTTERS = [...new Set(PLAN.openings.map(o => o.shutter).filter(Boolean))].map(entity => ({entity}));
+  // The way each wall side faces, from the plan's top (for the readout).
+  const SIDE_TURN = {top: 0, right: 90, bottom: 180, left: 270}, SIDES = [...new Set(PLAN.openings.map(o => o.wall))];
+  // The sun's position (degrees; azimuth clockwise from north), accurate to about half a degree.
+  function sunPos(date, lat, lon) {
+    const rad = Math.PI / 180, n = date.getTime() / 86400000 + 2440587.5 - 2451545.0;
+    const L = (280.460 + 0.9856474 * n) % 360, g = ((357.528 + 0.9856003 * n) % 360) * rad;
+    const lambda = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * rad, eps = (23.439 - 0.0000004 * n) * rad;
+    const ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
+    const dec = Math.asin(Math.sin(eps) * Math.sin(lambda));
+    const ha = ((18.697374558 + 24.06570982441908 * n) % 24 * 15 + lon) * rad - ra, la = lat * rad;
+    const el = Math.asin(Math.sin(la) * Math.sin(dec) + Math.cos(la) * Math.cos(dec) * Math.cos(ha));
+    const az = Math.atan2(-Math.sin(ha), Math.tan(dec) * Math.cos(la) - Math.sin(la) * Math.cos(ha));
+    return {elevation: el / rad, azimuth: (az / rad + 360) % 360};
+  }
+  const compass = b => ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(b / 45) % 8];
+  const $ = id => document.getElementById(id);
+  const now = new Date();
+  $('date').valueAsDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  $('time').value = now.getHours() * 60 + now.getMinutes();
+  $('facing').value = PLAN.sun.north;
+  $('clouds').value = STATES[WEATHER_ID]?.attributes.cloud_coverage ?? 0;
+  for (const s of SHUTTERS) {
+    const pos = STATES[s.entity]?.attributes.current_position ?? 100;
+    const name = STATES[s.entity]?.attributes.friendly_name || s.entity.replace(/^cover\.|_shutter$/g, '').replace(/_/g, ' ');
+    $('shutters').insertAdjacentHTML('beforeend', `<label for="${s.entity}">${name}</label><input id="${s.entity}"
+      type="range" min="0" max="100" value="${pos}"><output></output>`);
+  }
+  const cards = [['light', false], ['dark', true]].map(([id, dark]) => {
+    const c = TOOL.card$();
+    $(id).appendChild(c);
+    // Taps that open the details on the dashboard act here instead: the weather steps through its conditions, a shutter
+    // opens or closes, a media player switches on or off.
+    c.addEventListener('hass-more-info', e => {
+      const id = e.detail.entityId;
+      if (id === WEATHER_ID) {
+        const k = (WEATHER.findIndex(([w]) => w === condition) + 1) % WEATHER.length;
+        [condition, $('clouds').value] = WEATHER[k];
+      } else if (SHUTTERS.some(s => s.entity === id)) $(id).value = +$(id).value > 0 ? 0 : 100;
+      else if (id.startsWith('media_player.')) toggled[id] = shown[id]?.state === 'on' ? 'off' : 'on';
+      else return;
+      update();
+    });
+    return [c, dark];
+  });
+  // The weather conditions a tap steps through, with their cloud coverage. `condition` null: from the Clouds slider.
+  const WEATHER = [['sunny', 0], ['partlycloudy', 40], ['cloudy', 90], ['rainy', 95], ['fog', 100], ['snowy', 95]];
+  let condition = null;
+  const WEATHER_NAMES = {sunny: 'Sunny', partlycloudy: 'Partly cloudy', cloudy: 'Cloudy', rainy: 'Rainy', fog: 'Foggy', snowy: 'Snowy'};
+  for (const [w, cc] of WEATHER) {
+    const b = Object.assign(document.createElement('button'), {type: 'button', textContent: WEATHER_NAMES[w]});
+    b.dataset.weather = w;
+    b.onclick = () => { condition = w; $('clouds').value = cc; update(); };
+    $('weathers').appendChild(b);
+  }
+  // Times of day for the chosen date, from the sun: [label, minutes after midnight].
+  function dayTimes() {
+    const [y, m, d] = $('date').value.split('-').map(Number);
+    const el = Array.from({length: 1440}, (_, t) => sunPos(new Date(y, m - 1, d, 0, t), HOME.latitude, HOME.longitude).elevation);
+    const up = x => el.findIndex((e, t) => t && el[t - 1] < x && e >= x), down = x => el.findIndex((e, t) => t && el[t - 1] >= x && e < x);
+    const noon = el.indexOf(Math.max(...el)), rise = up(0), set = down(0);
+    return [['Night', 120], ['Dawn', up(-6)], ['Sunrise', rise], ['Morning', rise + 120], ['Noon', noon],
+      ['Afternoon', Math.round((noon + set) / 2)], ['Golden hour', set - 60], ['Sunset', set], ['Dusk', down(-6)],
+      ['Evening', 22 * 60]].filter(([, t]) => t > 0);
+  }
+  function timeButtons() {
+    const now = new Date(), box = $('times');
+    box.textContent = '';
+    for (const [label, t] of [['Now', now.getHours() * 60 + now.getMinutes()], ...dayTimes()]) {
+      const b = Object.assign(document.createElement('button'), {type: 'button', textContent: label,
+        title: `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`});
+      b.dataset.time = t;
+      b.onclick = () => { $('time').value = t; scene(label); update(); };
+      box.appendChild(b);
+    }
+  }
+  // What each time preset switches, from the home's simulator.scenes: {Preset: {lights, media, shutters}} (lights and
+  // media players 'on' or 'off', shutters by entity; any not named are open), or another preset's name. Presets
+  // without a scene only move the sun. "Now" goes back to the states as saved in HA (the snapshot), weather included.
+  const SCENES = PLAN.simulator.scenes || {};
+  function scene(label) {
+    for (const id in toggled) delete toggled[id];
+    $('lights').checked = false;
+    if (label === 'Now') {
+      for (const s of SHUTTERS) $(s.entity).value = STATES[s.entity]?.attributes.current_position ?? 100;
+      condition = null;
+      $('clouds').value = STATES[WEATHER_ID]?.attributes.cloud_coverage ?? 0;
+      return;
+    }
+    let sc = SCENES[label];
+    if (typeof sc === 'string') sc = SCENES[sc];
+    if (!sc) return;
+    for (const id in STATES) {
+      if (id.startsWith('light.') && sc.lights) toggled[id] = sc.lights;
+      if (id.startsWith('media_player.') && sc.media) toggled[id] = sc.media;
+    }
+    for (const s of SHUTTERS) $(s.entity).value = sc.shutters?.[s.entity] ?? 100;
+  }
+  timeButtons();
+  // A new date: the time presets are worked out again, and an active one (say Sunset) moves to its time on that date.
+  function dateChanged() {
+    const active = document.querySelector('[data-time].on')?.textContent;
+    timeButtons();
+    const b = [...document.querySelectorAll('[data-time]')].find(b => b.textContent === active);
+    if (b && active !== 'Now') $('time').value = b.dataset.time;
+  }
+  // Dates: today, and the equinoxes and solstices of this year (the sun's highest, lowest and middle paths).
+  const year = new Date().getFullYear();
+  for (const [label, md] of [['Today', null], ['Spring equinox', '03-20'], ['Summer solstice', '06-21'],
+      ['Autumn equinox', '09-22'], ['Winter solstice', '12-21']]) {
+    const n = new Date(), value = md ? `${year}-${md}` : `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+    const b = Object.assign(document.createElement('button'), {type: 'button', textContent: label, title: value});
+    b.dataset.date = value;
+    b.onclick = () => { $('date').value = value; dateChanged(); update(); };
+    $('dates').appendChild(b);
+  }
+  // Tapping a light on the card toggles it here (only in the simulator; nothing is sent to HA).
+  const toggled = {};
+  let shown = STATES;
+  const callService = (domain, service, data) => {
+    if (service !== 'toggle') return;
+    toggled[data.entity_id] = shown[data.entity_id]?.state === 'on' ? 'off' : 'on';
+    update();
+  };
+  function update() {
+    const [y, m, d] = $('date').value.split('-').map(Number), t = +$('time').value;
+    const when = new Date(y, m - 1, d, Math.floor(t / 60), t % 60);
+    const sun = sunPos(when, HOME.latitude, HOME.longitude), facing = +$('facing').value;
+    const states = structuredClone(STATES);
+    states[SUN] = {entity_id: SUN, state: sun.elevation > 0 ? 'above_horizon' : 'below_horizon', attributes: sun};
+    const weather = condition || (+$('clouds').value > 60 ? 'cloudy' : +$('clouds').value > 20 ? 'partlycloudy' : 'sunny');
+    states[WEATHER_ID] = {...states[WEATHER_ID], state: weather === 'sunny' && sun.elevation <= 0 ? 'clear-night' : weather,
+      attributes: {...states[WEATHER_ID]?.attributes, cloud_coverage: +$('clouds').value}};
+    // Lights off: every light and media player, so only the sun and the daylight show.
+    if ($('lights').checked) for (const id in states) if (/^(light|media_player)\./.test(id)) states[id] = {...states[id], state: 'off'};
+    for (const [id, state] of Object.entries(toggled)) states[id] = {...states[id], state};
+    shown = states;
+    for (const s of SHUTTERS) {
+      states[s.entity] = {...states[s.entity], attributes: {...states[s.entity]?.attributes, current_position: +$(s.entity).value}};
+      $(s.entity).nextElementSibling.textContent = `${$(s.entity).value}%`;
+    }
+    $('time-o').textContent = when.toTimeString().slice(0, 5);
+    $('facing-o').textContent = `${facing}° ${compass(facing)}`;
+    $('clouds-o').textContent = `${$('clouds').value}%`;
+    document.querySelectorAll('[data-time]').forEach(b => b.classList.toggle('on', +b.dataset.time === t));
+    document.querySelectorAll('[data-date]').forEach(b => b.classList.toggle('on', b.dataset.date === $('date').value));
+    document.querySelectorAll('[data-weather]').forEach(b => b.classList.toggle('on', b.dataset.weather === condition));
+    // Which of the walls with openings the sun is in front of, and how squarely.
+    const lit = SIDES.map(side => [side, ((sun.azimuth - facing - SIDE_TURN[side] + 540) % 360) - 180])
+      .filter(([, rel]) => Math.abs(rel) < 87);
+    $('readout').innerHTML = `Sun: azimuth <b>${sun.azimuth.toFixed(1)}° ${compass(sun.azimuth)}</b>, elevation
+      <b>${sun.elevation.toFixed(1)}°</b><br>${sun.elevation <= 0 ? 'Below the horizon.' : lit.length
+      ? lit.map(([side, rel]) => `In front of the ${side} side, ${Math.abs(rel).toFixed(0)}° off straight on.`).join('<br>')
+      : 'Behind the building: no direct sun through any opening.'}`;
+    for (const [c, dark] of cards) {
+      c.setConfig(TOOL.config({north: facing}));
+      c.hass = {states, themes: {darkMode: dark}, callService};
+    }
+  }
+  $('f').addEventListener('input', e => {
+    // "Lights off" starts again from all off (or all as they were), forgetting the lights tapped since.
+    if (e.target.id === 'lights') for (const id in toggled) delete toggled[id];
+    if (e.target.id === 'clouds') condition = null;
+    if (e.target.id === 'date') dateChanged();
+    update();
+  });
+  $('no-snapshot').hidden = !NO_SNAPSHOT;
+  update();
+</script>
