@@ -46,12 +46,14 @@ and in either theme. It saves the same YAML (or JSON) the card reads.
 - **The YAML document is the model.** The editor keeps the file as a `yaml` Document (the library the build already
   uses) and applies every edit as a change at a path (`furniture.sofa.shape.rect`), so **comments and layout
   survive**: the Taksony flat's YAML is half comments. The home object the card gets is derived from the document
-  after each edit. Undo and redo keep a list of documents (cheap at this size).
+  after each edit. Undo and redo keep the text of each version (cheap at this size; done in step 1 instead of a
+  list of documents).
 - **One description of the fields**, `src/schema.js`: each field's type, whether it's required, its default, its
   unit and a line of help. The property panel's forms are generated from it. A test checks that it and `defineHome`
   agree, so they can't drift; later it could generate the README's tables too.
 - **The simulator's controls become a module** (date, time and its presets, facing, clouds, shutters, lights off),
-  shared by the simulator page and the editor, so both stay one implementation.
+  shared by the simulator page and the editor, so both stay one implementation (`src/editor/controls.js`; the
+  simulator, opened from `file://` where modules don't load, gets it built as `tools/simulator/controls.js`).
 - **An overlay for editing:** a transparent SVG with the same `viewBox` laid over the card, carrying the selection,
   handles, guides and the grid. Pointer positions are converted to the drawing's units through its screen matrix.
   Hit testing uses the home's geometry (shapes, furniture outlines, opening spans, pool circles, marker positions),

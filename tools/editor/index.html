@@ -1,0 +1,23 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lightwell editor</title>
+<!-- The editor for homes (src/editor/, built into dist/lightwell-editor.js): open a home file (YAML or JSON) or start
+     from the example, edit it, see the card follow under any sun, and save it. Open this file in a browser; nothing
+     needs a server. The states it shows: the example's made-up ones, or ?states=<script> for a snapshot of your own
+     (tools/simulator/snapshot.sh), which also gives the location the sun is worked out for. -->
+<style>
+  html, body { height: 100%; margin: 0; }
+  lightwell-editor { height: 100%; }
+</style>
+<script>
+  const Q = new URLSearchParams(location.search);
+  document.write(`<script src="${Q.get('states') || '../../example/states.js'}"><\/script>`);
+</script>
+<script src="../../dist/lightwell-editor.js"></script>
+<body>
+<script>
+  // The states and location are set before the editor starts.
+  const editor = document.createElement('lightwell-editor');
+  editor.states = window.STATES || {};
+  if (window.HOME) editor.location = window.HOME;
+  document.body.appendChild(editor);
+</script>

@@ -10,7 +10,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "watch": "node scripts/build.mjs --watch",
-    "test": "node --test src/*.test.js"
+    "test": "node --test src/*.test.js src/editor/*.test.js"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

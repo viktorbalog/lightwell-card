@@ -9,10 +9,15 @@ HACS. The README describes it for users; read it first.
 - `src/`: the card, plain ES modules. `home.js` describes and checks a home (`defineHome`); `card.js` is the custom
   element; `sun.js`, `effects.js`, `markers.js`, `openings.js`, `furniture.js`, `shapes.js`, `geometry.js` are pure
   and tested (`*.test.js` next to them). `index.js` registers `lightwell-card`.
+- `src/editor/`: the editor for homes (`<lightwell-editor>`, bundled on its own into `dist/lightwell-editor.js`, so the
+  card's bundle doesn't grow): `model.js` keeps the home as a `yaml` Document (comments survive edits), `controls.js`
+  the simulator's controls (also built into `tools/simulator/controls.js` for the simulator), `files.js` opening and
+  saving. The page is `tools/editor/index.html`. Plan: `docs/plans/2026-10-03-home-editor/`.
 - `dist/lightwell-card.js`: the bundle, built by `npm run build` and committed (HACS installs it from the repo). Never
   edit it by hand; rebuild and commit it with the source change.
 - `example/`: the example homes (YAML, plus the `home.js` the build makes for the tools) and made-up states.
-- `tools/simulator/`: the simulator, the bench, the reference page, the capture page, `home-tool.mjs`, `snapshot.sh`.
+- `tools/editor/`: the editor's page. `tools/simulator/`: the simulator, the bench, the reference page, the capture
+  page, `home-tool.mjs`, `snapshot.sh`.
 - `docs/`: the logo and the README's pictures; `docs/plans/`: the plans.
 
 ## Working on it
