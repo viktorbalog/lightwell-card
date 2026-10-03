@@ -94,7 +94,7 @@
     const { rect, circle, poly, turn: turn2 = 0 } = p.shape;
     return [rect ? box(...rect, turn2) : circle ? round(...circle) : poly, p.height];
   }
-  var castersIn = (furniture, room) => Object.keys(furniture).filter((n) => furniture[n].shadow_room === room && furniture[n].height).map((n) => caster(furniture, n));
+  var castersIn = (furniture, room) => Object.keys(furniture).filter((n2) => furniture[n2].shadow_room === room && furniture[n2].height).map((n2) => caster(furniture, n2));
 
   // src/openings.js
   var SIDES = { top: [0, -1], bottom: [0, 1], left: [-1, 0], right: [1, 0] };
@@ -158,8 +158,8 @@
     };
   }
   function hsvRgb(h, s) {
-    const f = (n) => {
-      const k = (n + h / 60) % 6;
+    const f = (n2) => {
+      const k = (n2 + h / 60) % 6;
       return Math.round(255 * (1 - s / 100 * Math.max(0, Math.min(k, 4 - k, 1))));
     };
     return [f(5), f(3), f(1)];
@@ -187,25 +187,25 @@
   };
   var OFF = ["off", "idle", "unavailable", "unknown", "closed", "standby"];
   var LABEL_KEYS = ["entity", "attribute", "round", "unit", "when", "hide"];
-  function labelOf(m, s, states) {
-    const l = m.label;
+  function labelOf(m2, s, states) {
+    const l = m2.label;
     if (!l || l.when && !l.when.includes(s.state)) return "";
     const src = l.entity ? states[l.entity] : s;
     let v = l.attribute ? src?.attributes[l.attribute] : src?.state;
     if (v === void 0 || v === null || v === "" || l.hide?.includes(v)) return "";
     if (l.round !== void 0) {
-      const n = Number(v);
-      if (typeof v === "boolean" || !Number.isFinite(n)) return "";
-      v = n.toFixed(l.round).replace(/^-(0(\.0+)?)$/, "$1");
+      const n2 = Number(v);
+      if (typeof v === "boolean" || !Number.isFinite(n2)) return "";
+      v = n2.toFixed(l.round).replace(/^-(0(\.0+)?)$/, "$1");
     }
     return `${v}${l.unit ?? ""}`;
   }
-  function iconOf(m, s) {
-    if (m.icons) return m.icons[s.state] || m.icon;
-    if (m.entity.startsWith("weather.")) return `mdi:${WEATHER_ICONS[s.state] || "help-circle-outline"}`;
-    return m.icon;
+  function iconOf(m2, s) {
+    if (m2.icons) return m2.icons[s.state] || m2.icon;
+    if (m2.entity.startsWith("weather.")) return `mdi:${WEATHER_ICONS[s.state] || "help-circle-outline"}`;
+    return m2.icon;
   }
-  var isActive = (m, s, powered) => m.active ? m.active.includes(s.state) : powered && !OFF.includes(s.state) && !m.entity.startsWith("sensor.");
+  var isActive = (m2, s, powered) => m2.active ? m2.active.includes(s.state) : powered && !OFF.includes(s.state) && !m2.entity.startsWith("sensor.");
 
   // src/home.js
   var SLOTS = ["floors", "walls", "glazing", "fittings", "under_furniture", "on_furniture", "labels"];
@@ -257,23 +257,23 @@
       }
       for (const name of g.pool?.shadows || []) if (!h.furniture[name]?.height) fail(`${where}.pool.shadows`, `no furniture with a height called "${name}"`);
     });
-    h.markers.forEach((m, i) => {
+    h.markers.forEach((m2, i) => {
       const where = `markers[${i}]`;
-      entity(`${where}.entity`, m.entity);
-      if (!m.entity) fail(where, "needs an entity");
-      for (const k of ["x", "y"]) if (typeof m[k] !== "number") fail(where, `needs a number ${k}`);
-      if (!m.icon) fail(where, "needs an icon");
-      for (const k of ["power", "wake"]) entity(`${where}.${k}`, m[k]);
-      if (m.label !== void 0) {
-        if (typeof m.label !== "object") fail(`${where}.label`, "needs settings ({attribute, unit, \u2026}), not a function or text");
+      entity(`${where}.entity`, m2.entity);
+      if (!m2.entity) fail(where, "needs an entity");
+      for (const k of ["x", "y"]) if (typeof m2[k] !== "number") fail(where, `needs a number ${k}`);
+      if (!m2.icon) fail(where, "needs an icon");
+      for (const k of ["power", "wake"]) entity(`${where}.${k}`, m2[k]);
+      if (m2.label !== void 0) {
+        if (typeof m2.label !== "object") fail(`${where}.label`, "needs settings ({attribute, unit, \u2026}), not a function or text");
         else {
-          for (const k of Object.keys(m.label)) if (!LABEL_KEYS.includes(k)) fail(`${where}.label`, `unknown setting "${k}" (${LABEL_KEYS.join(", ")})`);
-          entity(`${where}.label.entity`, m.label.entity);
-          for (const k of ["when", "hide"]) if (m.label[k] !== void 0 && !Array.isArray(m.label[k])) fail(`${where}.label.${k}`, "needs a list");
+          for (const k of Object.keys(m2.label)) if (!LABEL_KEYS.includes(k)) fail(`${where}.label`, `unknown setting "${k}" (${LABEL_KEYS.join(", ")})`);
+          entity(`${where}.label.entity`, m2.label.entity);
+          for (const k of ["when", "hide"]) if (m2.label[k] !== void 0 && !Array.isArray(m2.label[k])) fail(`${where}.label.${k}`, "needs a list");
         }
       }
-      if (m.active !== void 0 && !Array.isArray(m.active)) fail(`${where}.active`, "needs a list of states");
-      if (m.icons !== void 0 && typeof m.icons !== "object") fail(`${where}.icons`, "needs {state: icon}");
+      if (m2.active !== void 0 && !Array.isArray(m2.active)) fail(`${where}.active`, "needs a list of states");
+      if (m2.icons !== void 0 && typeof m2.icons !== "object") fail(`${where}.icons`, "needs {state: icon}");
     });
     if (typeof sun.north !== "number") fail("sun.north", "needs the compass bearing of the top of the drawing");
     entity("sun.entity", sun.entity);
@@ -309,7 +309,7 @@ ${errors.join("\n")}`);
   }
   var entitiesOf = (home) => [.../* @__PURE__ */ new Set([
     ...home.lights.flatMap((g) => g.entities),
-    ...home.markers.flatMap((m) => [m.entity, m.power, m.wake, m.label?.entity]).filter(Boolean),
+    ...home.markers.flatMap((m2) => [m2.entity, m2.power, m2.wake, m2.label?.entity]).filter(Boolean),
     ...home.openings.map((o) => o.shutter).filter(Boolean),
     home.sun.entity,
     home.sun.weather
@@ -341,13 +341,13 @@ ${errors.join("\n")}`);
     [20, 150, 140, 110, 0.14]
   ];
   var daylight = (elevation) => clamp((elevation + 4) / 14);
-  function floorTint(el, clouds, dark) {
-    const k = DAYLIGHT.findIndex((st) => st[0] > el);
+  function floorTint(el2, clouds, dark) {
+    const k = DAYLIGHT.findIndex((st) => st[0] > el2);
     const [a, b] = k < 0 ? [DAYLIGHT.at(-1), DAYLIGHT.at(-1)] : k === 0 ? [DAYLIGHT[0], DAYLIGHT[0]] : [DAYLIGHT[k - 1], DAYLIGHT[k]];
-    const t = b[0] === a[0] ? 0 : (el - a[0]) / (b[0] - a[0]), v = (n) => a[n] + (b[n] - a[n]) * t;
-    const day = clamp(el / 6), grey = 0.7 * clouds * day;
+    const t = b[0] === a[0] ? 0 : (el2 - a[0]) / (b[0] - a[0]), v = (n2) => a[n2] + (b[n2] - a[n2]) * t;
+    const day = clamp(el2 / 6), grey = 0.7 * clouds * day;
     return {
-      color: [1, 2, 3].map((n) => Math.round(v(n) * (1 - grey) + 140 * grey)),
+      color: [1, 2, 3].map((n2) => Math.round(v(n2) * (1 - grey) + 140 * grey)),
       opacity: Math.max(v(4), 0.18 * clouds * day) * (dark ? 0.6 : 1)
     };
   }
@@ -359,22 +359,22 @@ ${errors.join("\n")}`);
   function sunScene(home, states, north = home.sun.north, dark = false) {
     const { openings, sun: { trees, spill }, units_per_metre: u } = home;
     const sun = states[home.sun.entity]?.attributes || {}, weather = states[home.sun.weather];
-    const el = sun.elevation ?? -90, azDeg = sun.azimuth ?? 0;
+    const el2 = sun.elevation ?? -90, azDeg = sun.azimuth ?? 0;
     const rel = (azDeg - north) * Math.PI / 180;
     const tx = -Math.sin(rel), ty = Math.cos(rel);
     const cc = weather?.attributes.cloud_coverage;
     const clear = typeof cc === "number" ? 1 - 0.85 * cc / 100 : SUN_WEATHER[weather?.state] ?? 0.5;
-    const tint = floorTint(el, typeof cc === "number" ? cc / 100 : 1 - clear, dark);
-    const m = clamp(el / 25), mix = (a, b) => Math.round(a + (b - a) * m);
-    const sky = { color: [mix(255, 236), mix(185, 243), mix(130, 255)], opacity: daylight(el) * (dark ? 0.65 : 0.85) };
+    const tint = floorTint(el2, typeof cc === "number" ? cc / 100 : 1 - clear, dark);
+    const m2 = clamp(el2 / 25), mix = (a, b) => Math.round(a + (b - a) * m2);
+    const sky = { color: [mix(255, 236), mix(185, 243), mix(130, 255)], opacity: daylight(el2) * (dark ? 0.65 : 0.85) };
     const position = (o) => states[o.shutter]?.attributes.current_position ?? 100;
     const spills = spill.map((p) => p.k * p.from.reduce((t, i) => t + position(openings[i]), 0) / p.from.length / 100);
-    const facing = openings.map((o) => el > 0 ? clamp(-(tx * SIDES[o.wall][0] + ty * SIDES[o.wall][1] + 0.05) / 0.2) : 0);
+    const facing = openings.map((o) => el2 > 0 ? clamp(-(tx * SIDES[o.wall][0] + ty * SIDES[o.wall][1] + 0.05) / 0.2) : 0);
     const lit = facing.some((f) => f > 0);
-    const behind = trees ? clamp(Math.min((azDeg - trees.from) / 4, (trees.to - azDeg) / 4, (trees.top - el) / 2)) : 0;
+    const behind = trees ? clamp(Math.min((azDeg - trees.from) / 4, (trees.to - azDeg) / 4, (trees.top - el2) / 2)) : 0;
     const leaves = 1 - behind * (1 - (trees?.through ?? 1));
     const scene = {
-      el,
+      el: el2,
       tx,
       ty,
       tint,
@@ -382,7 +382,7 @@ ${errors.join("\n")}`);
       spills,
       lit,
       skyThrough: openings.map((o) => position(o) / 100),
-      opacity: lit ? clear * leaves * Math.min(1, el / 6) : 0,
+      opacity: lit ? clear * leaves * Math.min(1, el2 / 6) : 0,
       facing
     };
     if (!lit) return scene;
@@ -391,15 +391,15 @@ ${errors.join("\n")}`);
     scene.patches = openings.map((o, k) => {
       const hi = o.lo + (o.hi - o.lo) * position(o) / 100;
       if (!facing[k] || hi - o.lo < 0.02) return "";
-      const [a, b] = ends(o), at = ([x, y], h) => [x + tx * run(el, h, u), y + ty * run(el, h, u)];
+      const [a, b] = ends(o), at = ([x, y], h) => [x + tx * run(el2, h, u), y + ty * run(el2, h, u)];
       return points([at(a, o.lo), at(b, o.lo), at(b, hi), at(a, hi)]);
     });
     return scene;
   }
-  var run = (el, h, unitsPerMetre) => Math.min(h / Math.tan(el * Math.PI / 180), 20) * unitsPerMetre;
-  function sunShadows(home, { el, tx, ty }) {
+  var run = (el2, h, unitsPerMetre) => Math.min(h / Math.tan(el2 * Math.PI / 180), 20) * unitsPerMetre;
+  function sunShadows(home, { el: el2, tx, ty }) {
     const u = home.units_per_metre, rooms = [...new Set(Object.values(home.furniture).map((p) => p.shadow_room).filter(Boolean))];
-    const cast = (pieces) => pieces.map(([p, h]) => castAlong(p, tx * run(el, h, u), ty * run(el, h, u))).join("");
+    const cast = (pieces) => pieces.map(([p, h]) => castAlong(p, tx * run(el2, h, u), ty * run(el2, h, u))).join("");
     const blockers = home.sun.blockers.map((b) => [b.rect ? box(...b.rect) : b.poly, b.height]);
     return { walls: cast(blockers), rooms: rooms.map((room) => [room, cast(castersIn(home.furniture, room))]) };
   }
@@ -515,23 +515,23 @@ ${errors.join("\n")}`);
   var blur = (v, id, sd) => `<filter id="${id}" ${overView(v)}><feGaussianBlur stdDeviation="${sd}"/></filter>`;
   var maskOverView = (v, id) => `<mask id="${id}" ${overView(v).replace("filterUnits", "maskUnits")}>`;
   var written = /* @__PURE__ */ new WeakMap();
-  function put(el, key, value, write) {
-    let m = written.get(el);
-    if (!m) written.set(el, m = /* @__PURE__ */ new Map());
-    if (m.get(key) === value) return;
-    m.set(key, value);
+  function put(el2, key, value, write) {
+    let m2 = written.get(el2);
+    if (!m2) written.set(el2, m2 = /* @__PURE__ */ new Map());
+    if (m2.get(key) === value) return;
+    m2.set(key, value);
     write();
   }
-  var attr = (el, name, v) => put(el, name, String(v), () => el.setAttribute(name, v));
-  var css = (el, prop, v) => put(el, `style:${prop}`, String(v), () => el.style.setProperty(prop, String(v)));
-  var text = (el, v) => put(el, "text", v, () => {
-    el.textContent = v;
+  var attr = (el2, name, v) => put(el2, name, String(v), () => el2.setAttribute(name, v));
+  var css = (el2, prop, v) => put(el2, `style:${prop}`, String(v), () => el2.style.setProperty(prop, String(v)));
+  var text = (el2, v) => put(el2, "text", v, () => {
+    el2.textContent = v;
   });
   var svgEl = (tag, attrs2 = {}, html = "") => {
-    const el = document.createElementNS(NS, tag);
-    Object.entries(attrs2).forEach(([k, v]) => el.setAttribute(k, v));
-    el.innerHTML = html;
-    return el;
+    const el2 = document.createElementNS(NS, tag);
+    Object.entries(attrs2).forEach(([k, v]) => el2.setAttribute(k, v));
+    el2.innerHTML = html;
+    return el2;
   };
   var paintProp = (sh) => sh.tagName === "path" ? "stroke" : "fill";
   var FloorplanCard = class extends HTMLElement {
@@ -589,8 +589,8 @@ ${errors.join("\n")}`);
             </defs>
             ${planSvg(home)}
           </svg>
-          ${home.markers.map((m, i) => `<div class="m${m.small ? " small" : ""}${m.side ? " side" : ""}" data-i="${i}" style="${pos(m.x, m.y)}">
-            <ha-icon icon="${m.icon}"></ha-icon><span></span></div>`).join("")}
+          ${home.markers.map((m2, i) => `<div class="m${m2.small ? " small" : ""}${m2.side ? " side" : ""}" data-i="${i}" style="${pos(m2.x, m2.y)}">
+            <ha-icon icon="${m2.icon}"></ha-icon><span></span></div>`).join("")}
         </div>
       </ha-card>`;
       const $ = (id) => this.shadowRoot.getElementById(id);
@@ -613,7 +613,7 @@ ${errors.join("\n")}`);
       });
       this._buildDaylight();
       this._markers = [...this.shadowRoot.querySelectorAll(".m")];
-      this._markers.forEach((el) => el.addEventListener("click", () => this._tap(home.markers[el.dataset.i])));
+      this._markers.forEach((el2) => el2.addEventListener("click", () => this._tap(home.markers[el2.dataset.i])));
       if (this._io) {
         this._io.disconnect();
         this._io.observe(this._el.plan);
@@ -624,11 +624,11 @@ ${errors.join("\n")}`);
     _buildGlow(g, i) {
       const $ = (id) => this.shadowRoot.getElementById(id);
       const clip = g.clip ? { "clip-path": `url(#room-${g.clip})` } : {};
-      const el = svgEl("g", clip, shapesSvg(g.shape));
+      const el2 = svgEl("g", clip, shapesSvg(g.shape));
       const layer = $(g.over ? "glows-over" : g.top ? "glows-top" : "glows");
-      if (!g.pool) return { el: layer.appendChild(el), shapes: [...el.children] };
+      if (!g.pool) return { el: layer.appendChild(el2), shapes: [...el2.children] };
       const { x, y, r, height: h, shadows } = g.pool;
-      const cast = shadows.map((n) => caster(this._home.furniture, n)).map(([p, ph]) => shadowOf(p, x, y, ph >= h ? 2.5 : Math.min(ph / (h - ph), 2.5))).join("");
+      const cast = shadows.map((n2) => caster(this._home.furniture, n2)).map(([p, ph]) => shadowOf(p, x, y, ph >= h ? 2.5 : Math.min(ph / (h - ph), 2.5))).join("");
       const v = this._home.view;
       this._el.defs.insertAdjacentHTML("beforeend", `${maskOverView(v, `pool-${i}`)}
       <radialGradient id="falloff-${i}"><stop offset="0" stop-color="#fff"/>
@@ -642,8 +642,8 @@ ${errors.join("\n")}`);
         `<circle cx="${x}" cy="${y}" r="${r}" fill-opacity="0.75" mask="url(#pool-${i})"/>`
       ));
       const shade = $("cast").appendChild(svgEl("g", clip, `<g mask="url(#fade-${i})">${cast}</g>`));
-      layer.appendChild(el);
-      return { el, pool, shade, shapes: [...el.children, ...pool.children] };
+      layer.appendChild(el2);
+      return { el: el2, pool, shade, shapes: [...el2.children, ...pool.children] };
     }
     // Per opening: the direct sun patch, its glow (the same patch, widely blurred) and the daylight pool through it;
     // then the daylight spilling on through the doors.
@@ -688,11 +688,11 @@ ${errors.join("\n")}`);
       this._home.lights.forEach((g, i) => {
         const s = g.entities.map((e) => hass.states[e]).find((s2) => (g.states || ["on"]).includes(s2?.state));
         const c = s && (g.color || lightRgb(s)), color = c && rgb(c);
-        const { el, pool, shade, shapes } = this._glows[i];
+        const { el: el2, pool, shade, shapes } = this._glows[i];
         if (!g.multi) shapes.forEach((sh) => attr(sh, paintProp(sh), color || "transparent"));
         const level = (s?.attributes.brightness ?? 255) / 255;
         const opacity = s ? (0.35 + 0.6 * level) * (g.outdoor ? 1 - 0.85 * outside : 1) : 0;
-        css(el, "opacity", opacity);
+        css(el2, "opacity", opacity);
         if (pool) css(pool, "opacity", opacity);
         if (shade) css(shade, "opacity", s ? 0.2 + 0.35 * level : 0);
         const effect = s && g.effect ? g.effect : s && !g.multi && s.attributes.effect && !["Stop", "None", "none", "off"].includes(s.attributes.effect) && !!(s.attributes.flowing ?? true) ? s.attributes.effect : null;
@@ -765,8 +765,8 @@ ${errors.join("\n")}`);
       }
       css(this._el.skyFall, "color", `rgb(${sky.color.join(", ")})`);
       css(this._el.skylight, "opacity", sky.opacity.toFixed(3));
-      this._sky.forEach((el, k) => css(el, "opacity", skyThrough[k]));
-      this._spills.forEach((el, k) => css(el, "opacity", spills[k].toFixed(3)));
+      this._sky.forEach((el2, k) => css(el2, "opacity", skyThrough[k]));
+      this._spills.forEach((el2, k) => css(el2, "opacity", spills[k].toFixed(3)));
     }
     // Direct sunlight: patches on the floor behind the openings, with the shadows of the blockers and the furniture.
     _renderSun(scene) {
@@ -793,30 +793,30 @@ ${errors.join("\n")}`);
       });
     }
     _renderMarkers(hass) {
-      this._home.markers.forEach((m, i) => {
-        const el = this._markers[i];
-        const s = hass.states[m.entity];
+      this._home.markers.forEach((m2, i) => {
+        const el2 = this._markers[i];
+        const s = hass.states[m2.entity];
         if (!s) {
-          el.classList.add("unavailable");
-          attr(el, "title", `${m.entity}: not found`);
+          el2.classList.add("unavailable");
+          attr(el2, "title", `${m2.entity}: not found`);
           return;
         }
-        const power = m.power ? hass.states[m.power]?.state === "on" : true;
-        const on = isActive(m, s, power);
-        el.classList.toggle("on", !!on);
-        el.classList.toggle("unavailable", s.state === "unavailable" || !!m.power && !power);
-        attr(el.firstElementChild, "icon", iconOf(m, s));
+        const power = m2.power ? hass.states[m2.power]?.state === "on" : true;
+        const on = isActive(m2, s, power);
+        el2.classList.toggle("on", !!on);
+        el2.classList.toggle("unavailable", s.state === "unavailable" || !!m2.power && !power);
+        attr(el2.firstElementChild, "icon", iconOf(m2, s));
         const rgb2 = s.attributes.rgb_color;
-        css(el, "--marker-color", rgb2 && Math.min(...rgb2) < 200 ? lightColor(s) : "");
-        text(el.lastElementChild, labelOf(m, s, hass.states));
-        const name = s.attributes.friendly_name || m.entity;
-        attr(el, "title", `${name}: ${hass.formatEntityState ? hass.formatEntityState(s) : s.state}`);
+        css(el2, "--marker-color", rgb2 && Math.min(...rgb2) < 200 ? lightColor(s) : "");
+        text(el2.lastElementChild, labelOf(m2, s, hass.states));
+        const name = s.attributes.friendly_name || m2.entity;
+        attr(el2, "title", `${name}: ${hass.formatEntityState ? hass.formatEntityState(s) : s.state}`);
       });
     }
-    _tap(m) {
-      if (m.wake && this._hass.states[m.power]?.state !== "on") this._hass.callService("button", "press", { entity_id: m.wake });
-      else if (m.tap === "toggle") this._hass.callService("homeassistant", "toggle", { entity_id: m.entity });
-      else this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId: m.entity }, bubbles: true, composed: true }));
+    _tap(m2) {
+      if (m2.wake && this._hass.states[m2.power]?.state !== "on") this._hass.callService("button", "press", { entity_id: m2.wake });
+      else if (m2.tap === "toggle") this._hass.callService("homeassistant", "toggle", { entity_id: m2.entity });
+      else this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId: m2.entity }, bubbles: true, composed: true }));
     }
     getCardSize() {
       return 9;
@@ -1667,8 +1667,8 @@ ${errors.join("\n")}`);
       return this.items.every((node) => {
         if (!isPair(node))
           return false;
-        const n = node.value;
-        return n == null || allowScalar && isScalar(n) && n.value == null && !n.commentBefore && !n.comment && !n.tag;
+        const n2 = node.value;
+        return n2 == null || allowScalar && isScalar(n2) && n2.value == null && !n2.commentBefore && !n2.comment && !n2.tag;
       });
     }
     /**
@@ -2318,8 +2318,8 @@ ${ctx.indent}`;
       const vs0 = valueStr[0];
       const nl0 = valueStr.indexOf("\n");
       const hasNewline = nl0 !== -1;
-      const flow = ctx.inFlow ?? value.flow ?? value.items.length === 0;
-      if (hasNewline || !flow) {
+      const flow2 = ctx.inFlow ?? value.flow ?? value.items.length === 0;
+      if (hasNewline || !flow2) {
         let hasPropsLine = false;
         if (hasNewline && (vs0 === "&" || vs0 === "!")) {
           let sp0 = valueStr.indexOf(" ");
@@ -2489,8 +2489,8 @@ ${ctx.indent}`;
 
   // node_modules/yaml/browser/dist/stringify/stringifyCollection.js
   function stringifyCollection(collection, ctx, options) {
-    const flow = ctx.inFlow ?? collection.flow;
-    const stringify4 = flow ? stringifyFlowCollection : stringifyBlockCollection;
+    const flow2 = ctx.inFlow ?? collection.flow;
+    const stringify4 = flow2 ? stringifyFlowCollection : stringifyBlockCollection;
     return stringify4(collection, ctx, options);
   }
   function stringifyBlockCollection({ comment, items }, ctx, { blockItemPrefix, flowChars, itemIndent, onChompKeep, onComment }) {
@@ -2939,18 +2939,18 @@ ${indent}${end}`;
     const num = typeof value === "number" ? value : Number(value);
     if (!isFinite(num))
       return isNaN(num) ? ".nan" : num < 0 ? "-.inf" : ".inf";
-    let n = Object.is(value, -0) ? "-0" : JSON.stringify(value);
-    if (!format && minFractionDigits && (!tag || tag === "tag:yaml.org,2002:float") && /^-?\d/.test(n) && !n.includes("e")) {
-      let i = n.indexOf(".");
+    let n2 = Object.is(value, -0) ? "-0" : JSON.stringify(value);
+    if (!format && minFractionDigits && (!tag || tag === "tag:yaml.org,2002:float") && /^-?\d/.test(n2) && !n2.includes("e")) {
+      let i = n2.indexOf(".");
       if (i < 0) {
-        i = n.length;
-        n += ".";
+        i = n2.length;
+        n2 += ".";
       }
-      let d = minFractionDigits - (n.length - i - 1);
+      let d = minFractionDigits - (n2.length - i - 1);
       while (d-- > 0)
-        n += "0";
+        n2 += "0";
     }
-    return n;
+    return n2;
   }
 
   // node_modules/yaml/browser/dist/schema/core/float.js
@@ -3140,9 +3140,9 @@ ${indent}${end}`;
       type ?? (type = Scalar.BLOCK_LITERAL);
       if (type !== Scalar.QUOTE_DOUBLE) {
         const lineWidth = Math.max(ctx.options.lineWidth - ctx.indent.length, ctx.options.minContentWidth);
-        const n = Math.ceil(str.length / lineWidth);
-        const lines = new Array(n);
-        for (let i = 0, o = 0; i < n; ++i, o += lineWidth) {
+        const n2 = Math.ceil(str.length / lineWidth);
+        const lines = new Array(n2);
+        for (let i = 0, o = 0; i < n2; ++i, o += lineWidth) {
           lines[i] = str.substr(o, lineWidth);
         }
         str = lines.join(type === Scalar.BLOCK_LITERAL ? "\n" : " ");
@@ -3365,11 +3365,11 @@ ${cn.comment}` : item.comment;
           str = `0x${str}`;
           break;
       }
-      const n2 = BigInt(str);
-      return sign === "-" ? BigInt(-1) * n2 : n2;
+      const n3 = BigInt(str);
+      return sign === "-" ? BigInt(-1) * n3 : n3;
     }
-    const n = parseInt(str, radix);
-    return sign === "-" ? -1 * n : n;
+    const n2 = parseInt(str, radix);
+    return sign === "-" ? -1 * n2 : n2;
   }
   function intStringify2(node, radix, prefix) {
     const { value } = node;
@@ -3498,15 +3498,15 @@ ${cn.comment}` : item.comment;
   function parseSexagesimal(str, asBigInt) {
     const sign = str[0];
     const parts = sign === "-" || sign === "+" ? str.substring(1) : str;
-    const num = (n) => asBigInt ? BigInt(n) : Number(n);
+    const num = (n2) => asBigInt ? BigInt(n2) : Number(n2);
     const res = parts.replace(/_/g, "").split(":").reduce((res2, p) => res2 * num(60) + num(p), num(0));
     return sign === "-" ? num(-1) * res : res;
   }
   function stringifySexagesimal(node) {
     let { value } = node;
-    let num = (n) => n;
+    let num = (n2) => n2;
     if (typeof value === "bigint")
-      num = (n) => BigInt(n);
+      num = (n2) => BigInt(n2);
     else if (isNaN(value) || !isFinite(value))
       return stringifyNumber(node);
     let sign = "";
@@ -3526,7 +3526,7 @@ ${cn.comment}` : item.comment;
         parts.unshift(value);
       }
     }
-    return sign + parts.map((n) => String(n).padStart(2, "0")).join(":").replace(/000000\d*$/, "");
+    return sign + parts.map((n2) => String(n2).padStart(2, "0")).join(":").replace(/000000\d*$/, "");
   }
   var intTime = {
     identify: (value) => typeof value === "bigint" || Number.isInteger(value),
@@ -3861,7 +3861,7 @@ ${cn.comment}` : item.comment;
         options = replacer;
         replacer = void 0;
       }
-      const { aliasDuplicateObjects, anchorPrefix, flow, keepUndefined, onTagObj, tag } = options ?? {};
+      const { aliasDuplicateObjects, anchorPrefix, flow: flow2, keepUndefined, onTagObj, tag } = options ?? {};
       const { onAnchor, setAnchors, sourceObjects } = createNodeAnchors(
         this,
         // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
@@ -3877,7 +3877,7 @@ ${cn.comment}` : item.comment;
         sourceObjects
       };
       const node = createNode(value, tag, ctx);
-      if (flow && isCollection(node))
+      if (flow2 && isCollection(node))
         node.flow = true;
       setAnchors();
       return node;
@@ -4110,7 +4110,7 @@ ${pointer}
   };
 
   // node_modules/yaml/browser/dist/compose/resolve-props.js
-  function resolveProps(tokens, { flow, indicator, next, offset, onError, parentIndent, startOnNewline }) {
+  function resolveProps(tokens, { flow: flow2, indicator, next, offset, onError, parentIndent, startOnNewline }) {
     let spaceBefore = false;
     let atNewline = startOnNewline;
     let hasSpace = startOnNewline;
@@ -4139,7 +4139,7 @@ ${pointer}
       }
       switch (token.type) {
         case "space":
-          if (!flow && (indicator !== "doc-start" || next?.type !== "flow-collection") && token.source.includes("	")) {
+          if (!flow2 && (indicator !== "doc-start" || next?.type !== "flow-collection") && token.source.includes("	")) {
             tab = token;
           }
           hasSpace = true;
@@ -4195,15 +4195,15 @@ ${pointer}
           if (anchor || tag)
             onError(token, "BAD_PROP_ORDER", `Anchors and tags must be after the ${token.source} indicator`);
           if (found)
-            onError(token, "UNEXPECTED_TOKEN", `Unexpected ${token.source} in ${flow ?? "collection"}`);
+            onError(token, "UNEXPECTED_TOKEN", `Unexpected ${token.source} in ${flow2 ?? "collection"}`);
           found = token;
           atNewline = indicator === "seq-item-ind" || indicator === "explicit-key-ind";
           hasSpace = false;
           break;
         case "comma":
-          if (flow) {
+          if (flow2) {
             if (comma)
-              onError(token, "UNEXPECTED_TOKEN", `Unexpected , in ${flow}`);
+              onError(token, "UNEXPECTED_TOKEN", `Unexpected , in ${flow2}`);
             comma = token;
             atNewline = false;
             hasSpace = false;
@@ -4820,9 +4820,9 @@ ${pointer}
       if (!chomp && (ch === "-" || ch === "+"))
         chomp = ch;
       else {
-        const n = Number(ch);
-        if (!indent && n)
-          indent = n;
+        const n2 = Number(ch);
+        if (!indent && n2)
+          indent = n2;
         else if (error === -1)
           error = offset + i;
       }
@@ -4868,8 +4868,8 @@ ${pointer}
   function splitLines(source) {
     const split = source.split(/\n( *)/);
     const first = split[0];
-    const m = first.match(/^( *)/);
-    const line0 = m?.[1] ? [m[1], first.slice(m[1].length)] : ["", first];
+    const m2 = first.match(/^( *)/);
+    const line0 = m2?.[1] ? [m2[1], first.slice(m2[1].length)] : ["", first];
     const lines = [line0];
     for (let i = 1; i < split.length; i += 2)
       lines.push([split[i], split[i + 1]]);
@@ -5947,8 +5947,8 @@ ${end.comment}` : end.comment;
         return this.buffer[i + 1] === "\n";
       return false;
     }
-    charAt(n) {
-      return this.buffer[this.pos + n];
+    charAt(n2) {
+      return this.buffer[this.pos + n2];
     }
     continueScalar(offset) {
       let ch = this.buffer[offset];
@@ -5982,8 +5982,8 @@ ${end.comment}` : end.comment;
         end -= 1;
       return this.buffer.substring(this.pos, end);
     }
-    hasChars(n) {
-      return this.pos + n <= this.buffer.length;
+    hasChars(n2) {
+      return this.pos + n2 <= this.buffer.length;
     }
     setNext(state) {
       this.buffer = this.buffer.substring(this.pos);
@@ -5992,8 +5992,8 @@ ${end.comment}` : end.comment;
       this.next = state;
       return null;
     }
-    peek(n) {
-      return this.buffer.substr(this.pos, n);
+    peek(n2) {
+      return this.buffer.substr(this.pos, n2);
     }
     *parseNext(next) {
       switch (next) {
@@ -6042,8 +6042,8 @@ ${end.comment}` : end.comment;
           else
             break;
         }
-        const n = (yield* this.pushCount(dirEnd)) + (yield* this.pushSpaces(true));
-        yield* this.pushCount(line.length - n);
+        const n2 = (yield* this.pushCount(dirEnd)) + (yield* this.pushSpaces(true));
+        yield* this.pushCount(line.length - n2);
         this.pushNewline();
         return "stream";
       }
@@ -6081,9 +6081,9 @@ ${end.comment}` : end.comment;
       if (!ch1 && !this.atEnd)
         return this.setNext("block-start");
       if ((ch0 === "-" || ch0 === "?" || ch0 === ":") && isEmpty(ch1)) {
-        const n = (yield* this.pushCount(1)) + (yield* this.pushSpaces(true));
+        const n2 = (yield* this.pushCount(1)) + (yield* this.pushSpaces(true));
         this.indentNext = this.indentValue + 1;
-        this.indentValue += n;
+        this.indentValue += n2;
         return "block-start";
       }
       return "doc";
@@ -6093,10 +6093,10 @@ ${end.comment}` : end.comment;
       const line = this.getLine();
       if (line === null)
         return this.setNext("doc");
-      let n = yield* this.pushIndicators();
-      switch (line[n]) {
+      let n2 = yield* this.pushIndicators();
+      switch (line[n2]) {
         case "#":
-          yield* this.pushCount(line.length - n);
+          yield* this.pushCount(line.length - n2);
         // fallthrough
         case void 0:
           yield* this.pushNewline();
@@ -6119,9 +6119,9 @@ ${end.comment}` : end.comment;
           return yield* this.parseQuotedScalar();
         case "|":
         case ">":
-          n += yield* this.parseBlockScalarHeader();
-          n += yield* this.pushSpaces(true);
-          yield* this.pushCount(line.length - n);
+          n2 += yield* this.parseBlockScalarHeader();
+          n2 += yield* this.pushSpaces(true);
+          yield* this.pushCount(line.length - n2);
           yield* this.pushNewline();
           return yield* this.parseBlockScalar();
         default:
@@ -6152,18 +6152,18 @@ ${end.comment}` : end.comment;
           return yield* this.parseLineStart();
         }
       }
-      let n = 0;
-      while (line[n] === ",") {
-        n += yield* this.pushCount(1);
-        n += yield* this.pushSpaces(true);
+      let n2 = 0;
+      while (line[n2] === ",") {
+        n2 += yield* this.pushCount(1);
+        n2 += yield* this.pushSpaces(true);
         this.flowKey = false;
       }
-      n += yield* this.pushIndicators();
-      switch (line[n]) {
+      n2 += yield* this.pushIndicators();
+      switch (line[n2]) {
         case void 0:
           return "flow";
         case "#":
-          yield* this.pushCount(line.length - n);
+          yield* this.pushCount(line.length - n2);
           return "flow";
         case "{":
         case "[":
@@ -6207,10 +6207,10 @@ ${end.comment}` : end.comment;
           end = this.buffer.indexOf("'", end + 2);
       } else {
         while (end !== -1) {
-          let n = 0;
-          while (this.buffer[end - 1 - n] === "\\")
-            n += 1;
-          if (n % 2 === 0)
+          let n2 = 0;
+          while (this.buffer[end - 1 - n2] === "\\")
+            n2 += 1;
+          if (n2 % 2 === 0)
             break;
           end = this.buffer.indexOf('"', end + 1);
         }
@@ -6364,11 +6364,11 @@ ${end.comment}` : end.comment;
       yield* this.pushToIndex(end + 1, true);
       return inFlow ? "flow" : "doc";
     }
-    *pushCount(n) {
-      if (n > 0) {
-        yield this.buffer.substr(this.pos, n);
-        this.pos += n;
-        return n;
+    *pushCount(n2) {
+      if (n2 > 0) {
+        yield this.buffer.substr(this.pos, n2);
+        this.pos += n2;
+        return n2;
       }
       return 0;
     }
@@ -6383,16 +6383,16 @@ ${end.comment}` : end.comment;
       return 0;
     }
     *pushIndicators() {
-      let n = 0;
+      let n2 = 0;
       loop: while (true) {
         switch (this.charAt(0)) {
           case "!":
-            n += yield* this.pushTag();
-            n += yield* this.pushSpaces(true);
+            n2 += yield* this.pushTag();
+            n2 += yield* this.pushSpaces(true);
             continue loop;
           case "&":
-            n += yield* this.pushUntil(isNotAnchorChar);
-            n += yield* this.pushSpaces(true);
+            n2 += yield* this.pushUntil(isNotAnchorChar);
+            n2 += yield* this.pushSpaces(true);
             continue loop;
           case "-":
           // this is an error
@@ -6406,15 +6406,15 @@ ${end.comment}` : end.comment;
                 this.indentNext = this.indentValue + 1;
               else if (this.flowKey)
                 this.flowKey = false;
-              n += yield* this.pushCount(1);
-              n += yield* this.pushSpaces(true);
+              n2 += yield* this.pushCount(1);
+              n2 += yield* this.pushSpaces(true);
               continue loop;
             }
           }
         }
         break loop;
       }
-      return n;
+      return n2;
     }
     *pushTag() {
       if (this.charAt(1) === "<") {
@@ -6452,12 +6452,12 @@ ${end.comment}` : end.comment;
       do {
         ch = this.buffer[++i];
       } while (ch === " " || allowTabs && ch === "	");
-      const n = i - this.pos;
-      if (n > 0) {
-        yield this.buffer.substr(this.pos, n);
+      const n2 = i - this.pos;
+      if (n2 > 0) {
+        yield this.buffer.substr(this.pos, n2);
         this.pos = i;
       }
-      return n;
+      return n2;
     }
     *pushUntil(test) {
       let i = this.pos;
@@ -6715,8 +6715,8 @@ ${end.comment}` : end.comment;
       }
       yield* this.pop();
     }
-    peek(n) {
-      return this.stack[this.stack.length - n];
+    peek(n2) {
+      return this.stack[this.stack.length - n2];
     }
     *pop(error) {
       const token = error ?? this.stack.pop();
@@ -7454,7 +7454,7 @@ ${end.comment}` : end.comment;
       return { data, home: null, errors: e.message.replace(/^Invalid home:\n/, "").split("\n") };
     }
   }
-  function merge2(doc, node, value, flow) {
+  function merge2(doc, node, value, flow2) {
     if (browser_default.isScalar(node) && (value === null || typeof value !== "object")) {
       node.value = value;
       return node;
@@ -7475,32 +7475,40 @@ ${end.comment}` : end.comment;
       }
       return node;
     }
-    const fresh = create(doc, value, flow || isCollection3(node) && node.flow);
+    const fresh = create(doc, value, flow2 || isCollection3(node) && node.flow);
     if (node?.commentBefore) fresh.commentBefore = node.commentBefore;
     if (node?.comment) fresh.comment = node.comment;
     return fresh;
   }
   var SHORT = 80;
-  function create(doc, value, flow) {
+  function create(doc, value, flow2) {
     const node = doc.createNode(value);
-    const children = (n) => n.items.map((i) => browser_default.isPair(i) ? i.value : i);
-    const flowAll = (n) => {
-      if (isCollection3(n)) {
-        n.flow = true;
-        children(n).forEach(flowAll);
+    const children = (n2) => n2.items.map((i) => browser_default.isPair(i) ? i.value : i);
+    const flowAll = (n2) => {
+      if (isCollection3(n2)) {
+        n2.flow = true;
+        children(n2).forEach(flowAll);
       }
     };
-    const numbers = (n) => browser_default.isSeq(n) && n.items.every((i) => browser_default.isScalar(i) && typeof i.value === "number" || numbers(i));
-    const style2 = (n) => {
-      if (!isCollection3(n)) return;
-      children(n).forEach(style2);
-      const flat = n.clone();
+    const numbers = (n2) => browser_default.isSeq(n2) && n2.items.every((i) => browser_default.isScalar(i) && typeof i.value === "number" || numbers(i));
+    const style2 = (n2) => {
+      if (!isCollection3(n2)) return;
+      children(n2).forEach(style2);
+      const flat = n2.clone();
       flowAll(flat);
-      if (numbers(n) || new browser_default.Document(flat).toString(TO_STRING).trimEnd().length <= SHORT) flowAll(n);
+      if (numbers(n2) || new browser_default.Document(flat).toString(TO_STRING).trimEnd().length <= SHORT) flowAll(n2);
     };
-    if (flow) flowAll(node);
+    if (flow2) flowAll(node);
     else style2(node);
     return node;
+  }
+  function renameIn(doc, path, key) {
+    const map2 = path.length > 1 ? doc.getIn(path.slice(0, -1), true) : doc.contents;
+    const pair = browser_default.isMap(map2) && map2.items.find((p) => String(p.key?.value ?? p.key) === String(path.at(-1)));
+    if (!pair) throw new Error(`Nothing at ${path.join(".")}`);
+    if (map2.items.some((p) => p !== pair && String(p.key?.value ?? p.key) === key)) throw new Error(`There's already a ${key}`);
+    if (browser_default.isScalar(pair.key)) pair.key.value = key;
+    else pair.key = doc.createNode(key);
   }
   function yamlOf(data) {
     const doc = new browser_default.Document();
@@ -7638,21 +7646,21 @@ ${end.comment}` : end.comment;
 
   // src/editor/controls.js
   function sunPos(date, lat, lon) {
-    const rad = Math.PI / 180, n = date.getTime() / 864e5 + 24405875e-1 - 2451545;
-    const L = (280.46 + 0.9856474 * n) % 360, g = (357.528 + 0.9856003 * n) % 360 * rad;
-    const lambda = (L + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * rad, eps = (23.439 - 4e-7 * n) * rad;
+    const rad = Math.PI / 180, n2 = date.getTime() / 864e5 + 24405875e-1 - 2451545;
+    const L = (280.46 + 0.9856474 * n2) % 360, g = (357.528 + 0.9856003 * n2) % 360 * rad;
+    const lambda = (L + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * rad, eps = (23.439 - 4e-7 * n2) * rad;
     const ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
     const dec = Math.asin(Math.sin(eps) * Math.sin(lambda));
-    const ha = ((18.697374558 + 24.06570982441908 * n) % 24 * 15 + lon) * rad - ra, la = lat * rad;
-    const el = Math.asin(Math.sin(la) * Math.sin(dec) + Math.cos(la) * Math.cos(dec) * Math.cos(ha));
+    const ha = ((18.697374558 + 24.06570982441908 * n2) % 24 * 15 + lon) * rad - ra, la = lat * rad;
+    const el2 = Math.asin(Math.sin(la) * Math.sin(dec) + Math.cos(la) * Math.cos(dec) * Math.cos(ha));
     const az = Math.atan2(-Math.sin(ha), Math.tan(dec) * Math.cos(la) - Math.sin(la) * Math.cos(ha));
-    return { elevation: el / rad, azimuth: (az / rad + 360) % 360 };
+    return { elevation: el2 / rad, azimuth: (az / rad + 360) % 360 };
   }
   function dayTimes(date, { latitude, longitude }) {
-    const [y, m, d] = date.split("-").map(Number);
-    const el = Array.from({ length: 1440 }, (_, t) => sunPos(new Date(y, m - 1, d, 0, t), latitude, longitude).elevation);
-    const up = (x) => el.findIndex((e, t) => t && el[t - 1] < x && e >= x), down = (x) => el.findIndex((e, t) => t && el[t - 1] >= x && e < x);
-    const noon = el.indexOf(Math.max(...el)), rise = up(0), set2 = down(0);
+    const [y, m2, d] = date.split("-").map(Number);
+    const el2 = Array.from({ length: 1440 }, (_, t) => sunPos(new Date(y, m2 - 1, d, 0, t), latitude, longitude).elevation);
+    const up = (x) => el2.findIndex((e, t) => t && el2[t - 1] < x && e >= x), down = (x) => el2.findIndex((e, t) => t && el2[t - 1] >= x && e < x);
+    const noon = el2.indexOf(Math.max(...el2)), rise = up(0), set2 = down(0);
     return [
       ["Night", 120],
       ["Dawn", up(-6)],
@@ -7670,7 +7678,7 @@ ${end.comment}` : end.comment;
   var SIDE_TURN = { top: 0, right: 90, bottom: 180, left: 270 };
   var WEATHER = [["sunny", 0], ["partlycloudy", 40], ["cloudy", 90], ["rainy", 95], ["fog", 100], ["snowy", 95]];
   var WEATHER_NAMES = { sunny: "Sunny", partlycloudy: "Partly cloudy", cloudy: "Cloudy", rainy: "Rainy", fog: "Foggy", snowy: "Snowy" };
-  var pad = (n) => String(n).padStart(2, "0");
+  var pad = (n2) => String(n2).padStart(2, "0");
   var isoDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   var STYLE = `
   .lw-controls { width: 320px; display: grid; grid-template-columns: auto 1fr auto; gap: 8px 10px; align-items: center;
@@ -7745,15 +7753,15 @@ ${end.comment}` : end.comment;
         for (const id of ids) {
           const name = STATES[id]?.attributes.friendly_name || id.replace(/^cover\.|_shutter$/g, "").replace(/_/g, " ");
           const label = Object.assign(document.createElement("label"), { textContent: name, htmlFor: `shutter-${id}` });
-          const input = Object.assign(document.createElement("input"), {
+          const input2 = Object.assign(document.createElement("input"), {
             type: "range",
             min: 0,
             max: 100,
             id: `shutter-${id}`,
             value: was[id] ?? STATES[id]?.attributes.current_position ?? 100
           });
-          input.dataset.shutter = id;
-          box2.append(label, input, document.createElement("output"));
+          input2.dataset.shutter = id;
+          box2.append(label, input2, document.createElement("output"));
         }
         shutters = ids;
       }
@@ -7847,8 +7855,8 @@ ${end.comment}` : end.comment;
       return true;
     };
     function update() {
-      const [y, m, d] = $("date").value.split("-").map(Number), t = +$("time").value;
-      const when = new Date(y, m - 1, d, Math.floor(t / 60), t % 60);
+      const [y, m2, d] = $("date").value.split("-").map(Number), t = +$("time").value;
+      const when = new Date(y, m2 - 1, d, Math.floor(t / 60), t % 60);
       const sun = sunPos(when, location.latitude, location.longitude), facing = +$("facing").value;
       const states2 = structuredClone(STATES);
       states2[sunId] = { entity_id: sunId, state: sun.elevation > 0 ? "above_horizon" : "below_horizon", attributes: sun };
@@ -7864,9 +7872,9 @@ ${end.comment}` : end.comment;
       for (const [id, state] of Object.entries(toggled)) states2[id] = { entity_id: id, attributes: {}, ...states2[id], state };
       shown = states2;
       for (const id of shutters) {
-        const input = shutterInput(id);
-        states2[id] = { ...states2[id], attributes: { ...states2[id]?.attributes, current_position: +input.value } };
-        input.nextElementSibling.textContent = `${input.value}%`;
+        const input2 = shutterInput(id);
+        states2[id] = { ...states2[id], attributes: { ...states2[id]?.attributes, current_position: +input2.value } };
+        input2.nextElementSibling.textContent = `${input2.value}%`;
       }
       part("time").textContent = when.toTimeString().slice(0, 5);
       part("facing").textContent = `${facing}\xB0 ${compass(facing)}`;
@@ -7928,13 +7936,13 @@ ${end.comment}` : end.comment;
       }
     }
     return new Promise((resolve) => {
-      const input = Object.assign(document.createElement("input"), { type: "file", accept: ".yaml,.yml,.json" });
-      input.onchange = async () => {
-        const file = input.files[0];
+      const input2 = Object.assign(document.createElement("input"), { type: "file", accept: ".yaml,.yml,.json" });
+      input2.onchange = async () => {
+        const file = input2.files[0];
         resolve(file ? { name: file.name, text: await file.text(), handle: null } : null);
       };
-      input.oncancel = () => resolve(null);
-      input.click();
+      input2.oncancel = () => resolve(null);
+      input2.click();
     });
   }
   async function droppedFile(dataTransfer) {
@@ -7973,12 +7981,659 @@ ${end.comment}` : end.comment;
     return { name, handle: null };
   }
 
+  // src/editor/hit.js
+  var MARKER = 0.03;
+  var TEXT = { room: 40, lbl: 24 };
+  var inPoly = (poly, [x, y]) => {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, yi] = poly[i], [xj, yj] = poly[j];
+      if (yi > y !== yj > y && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  };
+  var nearSegment = ([ax, ay], [bx, by], [x, y], tol) => {
+    const dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy;
+    const t = l ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l)) : 0;
+    return Math.hypot(x - ax - t * dx, y - ay - t * dy) <= tol;
+  };
+  var nearPoly = (poly, p, tol, closed = true) => poly.some((a, i) => (closed || i < poly.length - 1) && nearSegment(a, poly[(i + 1) % poly.length], p, tol));
+  var inRect = ([x, y, w, h], [px, py], tol = 0) => px >= x - tol && px <= x + w + tol && py >= y - tol && py <= y + h + tol;
+  function pathLines(d) {
+    const lines = [], closed = [];
+    let line = null, x = 0, y = 0, sx = 0, sy = 0;
+    const tokens = String(d).match(/[a-zA-Z]|-?(?:\d+\.?\d*|\.\d+)(?:e-?\d+)?/g) || [];
+    let cmd = null;
+    const num = () => +tokens.shift();
+    const takes = { M: 2, L: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, T: 2, A: 7, Z: 0 };
+    while (tokens.length) {
+      if (/[a-zA-Z]/.test(tokens[0])) cmd = tokens.shift();
+      if (!cmd) break;
+      const C = cmd.toUpperCase(), rel = cmd !== C;
+      if (C === "Z") {
+        if (line) {
+          line.push([sx, sy]);
+          closed[lines.length - 1] = true;
+        }
+        [x, y] = [sx, sy];
+        line = null;
+        cmd = null;
+        continue;
+      }
+      if (!(C in takes) || tokens.length < takes[C] || /[a-zA-Z]/.test(tokens[0])) break;
+      const v = Array.from({ length: takes[C] }, num);
+      if (C === "H") x = rel ? x + v[0] : v[0];
+      else if (C === "V") y = rel ? y + v[0] : v[0];
+      else [x, y] = rel ? [x + v.at(-2), y + v.at(-1)] : [v.at(-2), v.at(-1)];
+      if (C === "M") {
+        line = [[x, y]];
+        lines.push(line);
+        closed.push(false);
+        [sx, sy] = [x, y];
+        cmd = rel ? "l" : "L";
+      } else {
+        if (!line) {
+          line = [[sx, sy]];
+          lines.push(line);
+          closed.push(false);
+        }
+        line.push([x, y]);
+      }
+    }
+    return { lines, closed };
+  }
+  function shapeGeometry(s, k = 1) {
+    const g = { polys: [], lines: [], circles: [], width: +s?.stroke_width || 0 };
+    if (!s || typeof s !== "object" || s.svg !== void 0) return g;
+    const copies = s.repeat ? s.repeat.count : 1, [dx, dy] = s.repeat?.step || [0, 0];
+    for (let i = 0; i < copies; i++) {
+      const ox = dx * i, oy = dy * i, at = ([x, y]) => [x + ox, y + oy];
+      if (s.rect) g.polys.push(box(s.rect[0] + ox, s.rect[1] + oy, s.rect[2], s.rect[3]));
+      else if (s.circle) g.circles.push([s.circle[0] + ox, s.circle[1] + oy, s.circle[2], s.circle[2]]);
+      else if (s.ellipse) g.circles.push([s.ellipse[0] + ox, s.ellipse[1] + oy, s.ellipse[2], s.ellipse[3]]);
+      else if (s.poly) g.polys.push(s.poly.map(at));
+      else if (s.path !== void 0) {
+        const { lines, closed } = pathLines(s.path);
+        lines.forEach((l, j) => (closed[j] ? g.polys : g.lines).push(l.map(at)));
+      } else if (s.text !== void 0 && s.at) {
+        const size = (TEXT[s.class] ?? 24) * k, w = String(s.text).length * size * 0.55;
+        const [x, y] = at(s.at), x0 = TEXT[s.class] ? x - w / 2 : x;
+        g.polys.push(box(x0, y - size * 0.8, w, size));
+      }
+    }
+    return g;
+  }
+  var inGeometry = (g, p, tol) => g.polys.some((poly) => inPoly(poly, p) || nearPoly(poly, p, tol)) || g.lines.some((l) => nearPoly(l, p, tol + g.width / 2, false)) || g.circles.some(([cx, cy, rx, ry]) => ((p[0] - cx) / (rx + tol)) ** 2 + ((p[1] - cy) / (ry + tol)) ** 2 <= 1);
+  function pieceOutline({ shape: { rect, turn: turn2 = 0, circle, poly } }) {
+    if (rect) return { poly: box(...rect, turn2) };
+    if (circle) return { circle };
+    return { poly };
+  }
+  var regionPolys = (region) => Array.isArray(region?.[0]?.[0]) ? [region[0]] : (region || []).map((r) => box(...r));
+  function lightCentre(g) {
+    if (g.pool) return [g.pool.x, g.pool.y];
+    const s = g.shape?.[0];
+    if (s?.circle) return s.circle.slice(0, 2);
+    if (s?.ellipse) return s.ellipse.slice(0, 2);
+    if (s?.rect) return [s.rect[0] + s.rect[2] / 2, s.rect[1] + s.rect[3] / 2];
+    if (s?.poly) return [s.poly.reduce((a, p) => a + p[0], 0) / s.poly.length, s.poly.reduce((a, p) => a + p[1], 0) / s.poly.length];
+    return null;
+  }
+  function hitTest(home, p, tol = 0) {
+    const k = home.view.w / 1145, hits = [];
+    (home.markers || []).forEach((m2, i) => {
+      if (Math.hypot(p[0] - m2.x, p[1] - m2.y) <= MARKER * home.view.w + tol) hits.push(["markers", i]);
+    });
+    (home.lights || []).forEach((g, i) => {
+      const c = lightCentre(g);
+      if (c && Math.hypot(p[0] - c[0], p[1] - c[1]) <= 2 * tol + 4 * k) hits.push(["lights", i]);
+    });
+    for (const [name, piece] of Object.entries(home.furniture || {}).reverse()) {
+      const o = pieceOutline(piece);
+      if (o.poly ? inPoly(o.poly, p) || nearPoly(o.poly, p, tol) : Math.hypot(p[0] - o.circle[0], p[1] - o.circle[1]) <= o.circle[2] + tol) hits.push(["furniture", name]);
+    }
+    (home.openings || []).forEach((o, i) => {
+      if (inRect(shutterRect(o), p, tol)) hits.push(["openings", i]);
+    });
+    (home.lights || []).forEach((g, i) => {
+      if (!hits.some((h) => h[0] === "lights" && h[1] === i) && (g.shape || []).some((s) => inGeometry(shapeGeometry(s, k), p, tol))) hits.push(["lights", i]);
+    });
+    for (const slot of [...SLOTS].reverse()) {
+      const list = home.drawing?.[slot];
+      if (!Array.isArray(list)) continue;
+      for (let i = list.length - 1; i >= 0; i--) if (inGeometry(shapeGeometry(list[i], k), p, tol)) hits.push(["drawing", slot, i]);
+    }
+    for (const [name, region] of Object.entries(home.rooms || {}).reverse()) {
+      if (regionPolys(region).some((poly) => inPoly(poly, p))) hits.push(["rooms", name]);
+    }
+    return hits;
+  }
+  var itemAt = (home, path) => path.reduce((o, k) => o?.[k], home);
+  function outlineSvg(home, path) {
+    const item = itemAt(home, path), k = home.view.w / 1145, f = (v) => +v.toFixed(1);
+    if (!item) return "";
+    const pts = (poly) => poly.map((q) => q.map(f).join(",")).join(" ");
+    const geometry = (g) => [
+      ...g.polys.map((poly) => `<polygon points="${pts(poly)}"/>`),
+      ...g.lines.map((l) => `<polyline points="${pts(l)}"/>`),
+      ...g.circles.map(([cx, cy, rx, ry]) => `<ellipse cx="${f(cx)}" cy="${f(cy)}" rx="${f(rx)}" ry="${f(ry)}"/>`)
+    ].join("");
+    switch (path[0]) {
+      case "markers":
+        return `<circle cx="${item.x}" cy="${item.y}" r="${f(MARKER * home.view.w)}"/>`;
+      case "furniture": {
+        const o = pieceOutline(item);
+        return o.poly ? `<polygon points="${pts(o.poly)}"/>` : `<circle cx="${o.circle[0]}" cy="${o.circle[1]}" r="${o.circle[2]}"/>`;
+      }
+      case "openings": {
+        const [x, y, w, h] = shutterRect(item);
+        return `<rect x="${x}" y="${y}" width="${w}" height="${h}"/>`;
+      }
+      case "lights": {
+        const shapes = (item.shape || []).map((s) => geometry(shapeGeometry(s, k))).join("");
+        const pool = item.pool ? `<circle class="pool" cx="${item.pool.x}" cy="${item.pool.y}" r="${item.pool.r}"/>` : "";
+        const c = lightCentre(item);
+        return shapes + pool + (c ? `<circle class="dot" cx="${f(c[0])}" cy="${f(c[1])}" r="${f(4 * k)}"/>` : "");
+      }
+      case "drawing":
+        return path.length === 3 ? geometry(shapeGeometry(item, k)) : "";
+      case "rooms":
+        return regionPolys(item).map((poly) => `<polygon points="${pts(poly)}"/>`).join("");
+      default:
+        return "";
+    }
+  }
+
+  // src/schema.js
+  var n = (help, extra) => ({ type: "number", unit: "u", help, ...extra });
+  var m = (help, extra) => ({ type: "number", unit: "m", help, ...extra });
+  var RECT = ["x", "y", "w", "h"];
+  var SHAPE_KINDS = ["rect", "circle", "ellipse", "poly", "path", "text", "svg"];
+  var SHAPE = { type: "shape", check: true, help: "A shape: one of rect, circle, ellipse, poly, path, text or svg, plus SVG attributes", fields: {
+    rect: { type: "numbers", labels: RECT, unit: "u", help: "A rectangle [x, y, w, h]" },
+    circle: { type: "numbers", labels: ["cx", "cy", "r"], unit: "u", help: "A circle [cx, cy, r]" },
+    ellipse: { type: "numbers", labels: ["cx", "cy", "rx", "ry"], unit: "u", help: "An ellipse [cx, cy, rx, ry]" },
+    poly: { type: "points", unit: "u", help: "A polygon [[x, y], ...]" },
+    path: { type: "string", help: "An SVG path ('M0,0 H10')" },
+    text: { type: "string", help: "A text, at `at`" },
+    at: { type: "numbers", labels: ["x", "y"], unit: "u", check: true, help: "Where a text is: [x, y]" },
+    svg: { type: "string", help: "Raw SVG, for anything else" },
+    class: { type: "string", help: "Its colour, from the theme: floor, wall, iwall, fix, fix2, glass, dev, line, room, lbl, or a palette class" },
+    rx: n("Round corners (a rect)"),
+    repeat: { type: "object", help: "Draws the shape count times, each copy moved on by step", fields: {
+      count: { type: "number", help: "How many copies", min: 1 },
+      step: { type: "numbers", labels: ["dx", "dy"], unit: "u", help: "How far each copy moves on" }
+    } }
+  } };
+  var SHAPES = (help) => ({ type: "list", of: SHAPE, help, check: true });
+  var OPENING = { type: "object", check: true, help: "A window or door, where the sun and daylight come in", fields: {
+    wall: { type: "enum", values: ["top", "bottom", "left", "right"], required: true, help: "The side of the drawing its wall faces out to" },
+    at: n("The wall's outer face: a y on a top or bottom wall, an x on a left or right one", { required: true }),
+    depth: n("The wall's thickness", { required: true }),
+    x: n("Where it starts along a top or bottom wall", { when: { wall: ["top", "bottom"] }, required: true }),
+    w: n("How wide it is, along a top or bottom wall", { when: { wall: ["top", "bottom"] }, required: true }),
+    y: n("Where it starts along a left or right wall", { when: { wall: ["left", "right"] }, required: true }),
+    h: n("How long it is, along a left or right wall", { when: { wall: ["left", "right"] }, required: true }),
+    lo: m("The glass from this high above the floor", { required: true }),
+    hi: m("The glass up to this high above the floor", { required: true }),
+    shutter: { type: "entity", domain: "cover", check: true, help: "A cover: its position darkens the opening and shortens the sun's patch" },
+    room: { type: "room", required: true, help: "The room the sun's patch falls in" },
+    sky: { type: "room", check: true, help: "The room the daylight spreads over (default: room)" }
+  } };
+  var PIECE = { type: "object", check: true, help: "A piece of furniture: drawn, casting shadows, with daylight on its top", fields: {
+    shape: { type: "object", required: true, help: "Its outline: a rect (turned by turn degrees), a circle or a poly", fields: {
+      rect: { type: "numbers", labels: RECT, unit: "u", help: "A rectangle [x, y, w, h]" },
+      rx: n("Round corners"),
+      turn: { type: "number", unit: "\xB0", help: "Turned by this many degrees around its centre (clockwise)" },
+      circle: { type: "numbers", labels: ["cx", "cy", "r"], unit: "u", help: "A circle [cx, cy, r]" },
+      poly: { type: "points", unit: "u", help: "A polygon [[x, y], ...]" }
+    } },
+    height: m("Its height; only pieces with one cast shadows", { check: true, min: 0 }),
+    shadow_room: { type: "room", check: true, help: "The room its shadow in the sun stays in; without one it casts none in the sun" },
+    class: { type: "enum", values: ["furn", "furn2"], default: "furn", help: "furn, or furn2 for smaller, darker pieces" },
+    extra: { ...SHAPES("Shapes drawn with it, in its own frame and turned with it: cushions, devices on it, lines") }
+  } };
+  var LIGHT = { type: "object", check: true, help: "A light drawn as a glow, in its entity's colour and brightness", fields: {
+    entities: { type: "list", of: { type: "entity", check: true, help: "An entity" }, required: true, help: "The first of them that is on lights it, in its colour" },
+    states: { type: "list", of: { type: "string", help: "A state" }, default: ["on"], help: "What counts as on" },
+    color: { type: "rgb", help: "[r, g, b], for entities without a colour of their own" },
+    shape: { ...SHAPES("Shapes, blurred into a glow"), required: true },
+    top: { type: "bool", help: "Drawn over the fittings (otherwise on the floor)" },
+    over: { type: "bool", help: "Drawn over the furniture too" },
+    clip: { type: "room", check: true, help: "The room it stays in" },
+    pool: { type: "object", check: true, help: "A soft pool of light around a point light, with furniture casting shadows away from it", fields: {
+      x: n("Its centre", { required: true }),
+      y: n("Its centre", { required: true }),
+      r: n("Its radius", { required: true }),
+      height: m("How high the light is", { required: true }),
+      shadows: { type: "list", of: { type: "furniture", check: true, help: "A piece with a height" }, help: "The furniture casting shadows from it" }
+    } },
+    outdoor: { type: "bool", help: "Fades out by day" },
+    effect: { type: "effect", help: "An effect it plays all the time it is lit" },
+    multi: { type: "bool", help: "Keeps the shapes' own colours (a string of coloured bulbs)" }
+  } };
+  var MARKER2 = { type: "object", check: true, help: "A marker over the plan: tap toggles a light or switch, or opens the details", fields: {
+    entity: { type: "entity", required: true, help: "What it shows" },
+    x: n("Where it is", { required: true }),
+    y: n("Where it is", { required: true }),
+    icon: { type: "icon", required: true, help: "Its icon (mdi:\u2026)" },
+    icons: { type: "map", of: { type: "icon", help: "The icon in this state" }, check: true, help: "Icons by state; weather entities follow their condition on their own" },
+    tap: { type: "enum", values: ["toggle"], help: "toggle, or (left out) open the details" },
+    small: { type: "bool", help: "A smaller marker" },
+    side: { type: "bool", help: "The label to its right instead of below" },
+    label: { type: "object", check: true, help: "The small text under the icon", fields: {
+      entity: { type: "entity", check: true, help: "Read this entity instead of the marker's" },
+      attribute: { type: "string", help: "Show this attribute (otherwise the state)" },
+      round: { type: "number", help: "Round to this many decimals", min: 0 },
+      unit: { type: "string", help: "Appended, as in '\xB0' or ' lx'" },
+      when: { type: "list", of: { type: "string", help: "A state" }, check: true, help: "Only while the marker's entity is in one of these states" },
+      hide: { type: "list", of: { type: "string", help: "A value" }, check: true, help: "Values never shown" }
+    } },
+    active: { type: "list", of: { type: "string", help: "A state" }, check: true, help: "The states in which it shows as on" },
+    power: { type: "entity", check: true, help: "An entity that greys it out while it's off" },
+    wake: { type: "entity", domain: "button", check: true, help: "A button pressed on tap while power is off" }
+  } };
+  var SCHEMA = { type: "object", help: "A home", fields: {
+    view: { type: "object", required: true, help: "The part of the drawing the card shows", fields: {
+      x: n("Its left edge", { required: true }),
+      y: n("Its top edge", { required: true }),
+      w: n("Its width", { required: true }),
+      h: n("Its height", { required: true })
+    } },
+    units_per_metre: { type: "number", required: true, min: 0, help: "The drawing's scale: how many of its units make a metre" },
+    rooms: {
+      type: "map",
+      of: { type: "yaml", help: "Rectangles [[x, y, w, h], ...], or one polygon [[[x, y], ...]]" },
+      help: "Light stays inside its room"
+    },
+    drawing: { type: "object", help: "The plan itself, as lists of shapes in slots, bottom to top", fields: {
+      background: { type: "object", check: true, help: "A picture of the plan under everything", fields: {
+        image: { type: "string", required: true, help: "The picture's URL (/local/plan.png)" },
+        rect: { type: "numbers", labels: RECT, unit: "u", help: "Where it goes (default: the view)" }
+      } },
+      floors: SHAPES("Floors, under the daylight and the lamps"),
+      walls: SHAPES("Walls, over the lamps on the floor"),
+      glazing: SHAPES("Glass, under the blinds"),
+      fittings: SHAPES("Kitchen counters, bathroom fittings"),
+      under_furniture: SHAPES("Under the furniture, over its shadows: rugs"),
+      on_furniture: SHAPES("On the furniture, under the daylight on it"),
+      labels: SHAPES("Room names and labels, over everything")
+    } },
+    openings: { type: "list", of: OPENING, help: "Windows and doors" },
+    furniture: { type: "map", of: PIECE, help: "The furniture, by name, drawn in its order" },
+    lights: { type: "list", of: LIGHT, help: "Lights drawn as glows" },
+    effects: {
+      type: "map",
+      of: { type: "yaml", help: "Steps [hue, saturation, brightness %, hold ms], or {fade, steps}" },
+      help: "Effects by name, adding to flicker"
+    },
+    markers: { type: "list", of: MARKER2, help: "Markers over the plan" },
+    sun: { type: "object", required: true, help: "The surroundings for the sun and daylight", fields: {
+      north: { type: "number", unit: "\xB0", required: true, help: "The compass bearing the top of the plan faces (0: north is up)" },
+      entity: { type: "entity", domain: "sun", default: "sun.sun", check: true, help: "The sun" },
+      weather: { type: "entity", domain: "weather", default: "weather.home", check: true, help: "The weather" },
+      blockers: { type: "list", check: true, help: "Things outside that shade the openings", of: { type: "object", check: true, help: "A blocker", fields: {
+        rect: { type: "numbers", labels: RECT, unit: "u", help: "A rectangle [x, y, w, h]" },
+        poly: { type: "points", unit: "u", help: "A polygon [[x, y], ...]" },
+        height: m("Its height", { required: true })
+      } } },
+      trees: { type: "object", help: "A band of sky where the sun is dimmed", fields: {
+        from: { type: "number", unit: "\xB0", help: "From this azimuth" },
+        to: { type: "number", unit: "\xB0", help: "To this azimuth" },
+        top: { type: "number", unit: "\xB0", help: "Up to this elevation" },
+        through: { type: "number", help: "How much of the sun gets through (0\u20131)" }
+      } },
+      spill: { type: "list", help: "Daylight carried on through doors into rooms without windows", of: { type: "object", help: "A spill", fields: {
+        cx: n("Its centre"),
+        cy: n("Its centre"),
+        rx: n("Its radius across"),
+        ry: n("Its radius down"),
+        clip: { type: "room", check: true, help: "The room it stays in" },
+        from: { type: "list", of: { type: "number", check: true, help: "An opening's position in the list" }, help: "The openings whose shutters dim it" },
+        k: { type: "number", help: "How much of the daylight gets through (0\u20131)" }
+      } } },
+      outdoor: { ...SHAPES("Shapes in the sun whenever it comes in (a terrace)") }
+    } },
+    palette: { type: "object", help: "Colours for the drawing's classes, in light and dark", fields: {
+      light: { type: "map", of: { type: "color", check: true, help: "A colour" }, help: "In the light theme" },
+      dark: { type: "map", of: { type: "color", check: true, help: "A colour" }, help: "In the dark theme" },
+      tinted: { type: "list", of: { type: "string", help: "A class" }, check: true, help: "Classes taking the time of day's tint (#rrggbb colours)" }
+    } },
+    simulator: { type: "object", help: "For the simulator's time presets", fields: {
+      scenes: { type: "map", help: "What each time preset switches", of: {
+        type: "yaml",
+        help: "{lights: on/off, media: on/off, shutters: {entity: position}}, or another preset's name"
+      } }
+    } }
+  } };
+  function fieldAt(path, schema4 = SCHEMA) {
+    let f = schema4;
+    for (const k of path) {
+      if (!f) return void 0;
+      if (f.type === "list" || f.type === "map") f = f.of;
+      else if (f.type === "object" || f.type === "shape") f = f.fields[k] ?? (f.type === "shape" ? { type: "yaml", help: "An SVG attribute (a list: its values in turn, copy by copy)" } : void 0);
+      else if (f.type === "numbers" || f.type === "rgb") f = { type: "number", unit: f.unit, help: f.labels?.[k] ?? "A number" };
+      else if (f.type === "points") f = { type: "numbers", labels: ["x", "y"], unit: f.unit, help: "A point [x, y]" };
+      else return f.type === "yaml" ? f : void 0;
+    }
+    return f;
+  }
+
+  // src/editor/panels.js
+  var el = (tag, props = {}, ...children) => {
+    const e = Object.assign(document.createElement(tag), props);
+    for (const c of children.flat()) if (c !== null && c !== void 0 && c !== false) e.append(c);
+    return e;
+  };
+  var flow = (v) => v === void 0 ? "" : browser_default.stringify(v, { collectionStyle: "flow", lineWidth: 0, flowCollectionPadding: false }).trim();
+  var samePath = (a, b) => !!a && !!b && a.length === b.length && a.every((k, i) => k === b[i]);
+  var pathKey = (path) => JSON.stringify(path);
+  var SLOT_NAMES = {
+    floors: "Floors",
+    walls: "Walls",
+    glazing: "Glazing",
+    fittings: "Fittings",
+    under_furniture: "Under the furniture",
+    on_furniture: "On the furniture",
+    labels: "Labels"
+  };
+  function shapeLabel(s) {
+    if (typeof s !== "object" || !s) return "raw SVG";
+    const kind = SHAPE_KINDS.find((k) => s[k] !== void 0) || "?";
+    const what = kind === "text" ? `text: ${s.text}` : kind;
+    return [what, s.class, s.repeat && `\xD7${s.repeat.count}`].filter(Boolean).join(" \xB7 ");
+  }
+  function itemGroups(data) {
+    const d = data && typeof data === "object" ? data : {};
+    const groups = [];
+    groups.push({
+      title: "Rooms",
+      path: ["rooms"],
+      add: "room",
+      items: Object.keys(d.rooms || {}).map((name) => ({ path: ["rooms", name], label: name }))
+    });
+    for (const slot of SLOTS) {
+      const list = Array.isArray(d.drawing?.[slot]) ? d.drawing[slot] : [];
+      groups.push({
+        title: SLOT_NAMES[slot],
+        path: ["drawing", slot],
+        add: "shape",
+        reorder: true,
+        items: list.map((s, i) => ({ path: ["drawing", slot, i], label: shapeLabel(s) }))
+      });
+    }
+    groups.push({
+      title: "Openings",
+      path: ["openings"],
+      add: "opening",
+      items: (d.openings || []).map((o, i) => ({
+        path: ["openings", i],
+        label: `${o.wall} wall${o.room ? `, ${o.room}` : ""}`,
+        title: o.shutter
+      }))
+    });
+    groups.push({
+      title: "Furniture",
+      path: ["furniture"],
+      add: "piece",
+      reorder: true,
+      items: Object.entries(d.furniture || {}).map(([name, p]) => ({
+        path: ["furniture", name],
+        label: name,
+        title: p?.height ? `${p.height} m` : "no height: casts no shadows"
+      }))
+    });
+    groups.push({
+      title: "Lights",
+      path: ["lights"],
+      add: "light",
+      items: (d.lights || []).map((g, i) => ({ path: ["lights", i], label: g.entities?.[0] || `light ${i + 1}` }))
+    });
+    groups.push({
+      title: "Markers",
+      path: ["markers"],
+      add: "marker",
+      items: (d.markers || []).map((m2, i) => ({ path: ["markers", i], label: m2.entity || `marker ${i + 1}` }))
+    });
+    return groups;
+  }
+  function renderList(box2, data, selected, ctx) {
+    const open = box2._open ?? (box2._open = /* @__PURE__ */ new Set(["Furniture", "Lights", "Markers", "Openings", "Rooms"]));
+    box2.textContent = "";
+    const home = el("li", { className: `item home${selected ? "" : " on"}`, textContent: "The home" });
+    home.onclick = () => ctx.select(null);
+    box2.append(el("ul", { className: "items" }, home));
+    for (const g of itemGroups(data)) {
+      const has = g.items.some((it) => selected && samePath(it.path, selected.slice(0, it.path.length)));
+      const details = el("details", { open: open.has(g.title) || has });
+      details.ontoggle = () => details.open ? open.add(g.title) : open.delete(g.title);
+      const add = el("button", { type: "button", className: "add", textContent: "+", title: `Add to ${g.title.toLowerCase()}` });
+      add.onclick = (e) => {
+        e.preventDefault();
+        ctx.add(g);
+      };
+      details.append(el("summary", {}, el("span", { textContent: g.title }), el("small", { textContent: g.items.length }), add));
+      const ul = el("ul", { className: "items" });
+      g.items.forEach((it, i) => {
+        const li = el("li", { className: `item${samePath(it.path, selected) ? " on" : ""}`, textContent: it.label, title: it.title || "" });
+        li.dataset.path = pathKey(it.path);
+        li.onclick = () => ctx.select(it.path);
+        if (g.reorder) {
+          li.draggable = true;
+          li.ondragstart = (e) => {
+            e.dataTransfer.setData("text/x-lightwell-item", String(i));
+            e.dataTransfer.effectAllowed = "move";
+          };
+          li.ondragover = (e) => {
+            if (e.dataTransfer.types.includes("text/x-lightwell-item")) {
+              e.preventDefault();
+              e.stopPropagation();
+              li.classList.add("drop");
+            }
+          };
+          li.ondragleave = () => li.classList.remove("drop");
+          li.ondrop = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            li.classList.remove("drop");
+            const from = +e.dataTransfer.getData("text/x-lightwell-item");
+            if (from !== i) ctx.move(g.path, from, i);
+          };
+        }
+        ul.append(li);
+      });
+      details.append(ul);
+      box2.append(details);
+    }
+    box2.querySelector(".item.on")?.scrollIntoView({ block: "nearest" });
+  }
+  function choices(field, ctx) {
+    const d = ctx.data || {};
+    switch (field.type) {
+      case "room":
+        return Object.keys(d.rooms || {});
+      case "furniture":
+        return Object.keys(d.furniture || {}).filter((n2) => d.furniture[n2]?.height);
+      case "effect":
+        return [.../* @__PURE__ */ new Set([...Object.keys(PRESETS), ...Object.keys(d.effects || {})])];
+      case "entity":
+        return Object.keys(ctx.states || {}).filter((id) => !field.domain || id.startsWith(`${field.domain}.`)).sort();
+      default:
+        return [];
+    }
+  }
+  var lists = 0;
+  var datalist = (input2, values) => {
+    if (!values.length) return [];
+    const id = `lw-list-${++lists}`;
+    input2.setAttribute("list", id);
+    return [el("datalist", { id }, values.map((v) => el("option", { value: v })))];
+  };
+  function input(field, value, path, ctx) {
+    const commit = (v) => ctx.commit(path, v);
+    const t = field.type;
+    if (t === "bool") {
+      const c = el("input", { type: "checkbox", checked: !!value });
+      c.onchange = () => commit(c.checked ? true : void 0);
+      return [c];
+    }
+    if (t === "number") {
+      const i = el("input", { type: "number", step: "any", value: value ?? "", placeholder: field.default ?? "" });
+      i.onchange = () => commit(i.value === "" ? void 0 : +i.value);
+      return [i, field.unit && el("span", { className: "unit", textContent: field.unit === "u" ? "" : field.unit })];
+    }
+    if (t === "enum" || t === "room") {
+      const values = t === "enum" ? field.values : choices(field, ctx);
+      const s = el(
+        "select",
+        {},
+        el("option", { value: "", textContent: field.default ? `(${field.default})` : "\u2014" }),
+        [...values, ...value !== void 0 && !values.includes(value) ? [value] : []].map((v) => el("option", { value: v, textContent: v, selected: v === value }))
+      );
+      s.onchange = () => commit(s.value === "" ? void 0 : s.value);
+      return [s];
+    }
+    if (t === "numbers") {
+      const labels = field.labels, v = Array.isArray(value) ? value : [];
+      const inputs = labels.map((l, k) => el("input", { type: "number", step: "any", value: v[k] ?? "", title: l, placeholder: l }));
+      inputs.forEach((i) => {
+        i.onchange = () => commit(inputs.every((x) => x.value === "") ? void 0 : inputs.map((x) => +x.value));
+      });
+      return [el("span", { className: "numbers" }, inputs.map((i, k) => el("label", {}, el("small", { textContent: labels[k] }), i)))];
+    }
+    if (t === "rgb") {
+      const hex = Array.isArray(value) ? `#${value.map((c2) => Math.round(c2).toString(16).padStart(2, "0")).join("")}` : "#ffffff";
+      const c = el("input", { type: "color", value: hex });
+      const clear = el("button", { type: "button", className: "clear", textContent: "\xD7", title: "Leave it out", hidden: value === void 0 });
+      c.onchange = () => commit([1, 3, 5].map((k) => parseInt(c.value.slice(k, k + 2), 16)));
+      clear.onclick = () => commit(void 0);
+      return [c, el("code", { textContent: value ? flow(value) : "\u2014" }), clear];
+    }
+    if (t === "color") {
+      const i = el("input", { type: "text", value: value ?? "" });
+      const swatch = el("span", { className: "swatch" });
+      swatch.style.background = value || "transparent";
+      i.onchange = () => commit(i.value === "" ? void 0 : i.value);
+      return [swatch, i];
+    }
+    if (["string", "entity", "icon", "effect"].includes(t)) {
+      const i = el("input", { type: "text", value: value ?? "", placeholder: field.default ?? (t === "icon" ? "mdi:\u2026" : ""), spellcheck: false });
+      i.onchange = () => commit(i.value === "" ? void 0 : i.value);
+      return [i, ...datalist(i, choices(field, ctx))];
+    }
+    if (t === "list" && field.of?.type === "furniture") {
+      const names = choices(field.of, ctx), v = Array.isArray(value) ? value : [];
+      return [el("span", { className: "checks" }, names.map((name) => {
+        const c = el("input", { type: "checkbox", checked: v.includes(name) });
+        c.onchange = () => commit(names.filter((n2) => n2 === name ? c.checked : v.includes(n2)));
+        return el("label", {}, c, name);
+      }))];
+    }
+    const a = el("textarea", { value: flow(value), rows: 1, spellcheck: false, placeholder: "YAML" });
+    a.rows = Math.min(6, Math.max(1, Math.ceil(a.value.length / 38)));
+    a.onchange = () => {
+      if (a.value.trim() === "") return commit(void 0);
+      try {
+        commit(browser_default.parse(a.value));
+        a.classList.remove("bad");
+      } catch (e) {
+        a.classList.add("bad");
+        a.title = e.message;
+      }
+    };
+    return [a];
+  }
+  function row(key, field, value, path, ctx) {
+    const label = el("span", { className: "key", textContent: key, title: field.help + (field.required ? " (required)" : "") });
+    if (field.required) label.classList.add("required");
+    if (field.type === "object") {
+      if (value === void 0) {
+        const add = el("button", { type: "button", className: "add-field", textContent: `+ ${key}`, title: field.help });
+        add.onclick = () => ctx.commit(path, ctx.template?.(path) ?? {});
+        return el("div", { className: "row absent" }, add);
+      }
+      const remove = !field.required && el("button", { type: "button", className: "clear", textContent: "\xD7", title: `Leave ${key} out` });
+      if (remove) remove.onclick = () => ctx.commit(path, void 0);
+      return el("fieldset", {}, el("legend", {}, label, remove), fields(field, value, path, ctx));
+    }
+    const r = el("label", { className: "row" }, label, el("span", { className: "value" }, input(field, value, path, ctx)));
+    r.dataset.path = pathKey(path);
+    return r;
+  }
+  function fields(field, value, path, ctx) {
+    const v = value && typeof value === "object" ? value : {};
+    const out = [];
+    for (const [key, f] of Object.entries(field.fields)) {
+      if (f.when && !Object.entries(f.when).every(([k, vals]) => vals.includes(v[k]))) continue;
+      out.push(row(key, f, v[key], [...path, key], ctx));
+    }
+    return out;
+  }
+  function shapeForm(value, path, ctx) {
+    const v = value && typeof value === "object" ? value : {};
+    const kind = SHAPE_KINDS.find((k) => v[k] !== void 0) || "rect";
+    const select = el("select", {}, SHAPE_KINDS.map((k) => el("option", { value: k, textContent: k, selected: k === kind })));
+    select.onchange = () => ctx.commit(path, { ...ctx.shapeTemplate(select.value, v), ...Object.fromEntries(Object.entries(v).filter(([k]) => !SHAPE_KINDS.includes(k) && k !== "at")) });
+    const own = SHAPE_KINDS.filter((k) => k !== kind).concat(kind === "text" ? [] : ["at"]);
+    const out = [el("label", { className: "row" }, el("span", { className: "key", textContent: "kind" }), el("span", { className: "value" }, select))];
+    for (const [key, f] of Object.entries(fieldAt(path).fields)) {
+      if (own.includes(key)) continue;
+      if (["rx", "repeat"].includes(key) && v[key] === void 0 && !(key === "rx" && kind === "rect")) continue;
+      out.push(row(key, f, v[key], [...path, key], ctx));
+    }
+    for (const key of Object.keys(v)) {
+      if (fieldAt(path).fields[key]) continue;
+      out.push(row(key, fieldAt([...path, key]), v[key], [...path, key], ctx));
+    }
+    const name = el("input", { type: "text", placeholder: "another attribute (fill, opacity\u2026)", spellcheck: false });
+    name.onchange = () => {
+      if (name.value) ctx.commit([...path, name.value.trim().replace(/-/g, "_")], "");
+    };
+    out.push(el("div", { className: "row" }, name));
+    return out;
+  }
+  function renderProperties(box2, data, selected, ctx) {
+    const focused = box2.querySelector(":focus")?.closest("[data-path]")?.dataset.path;
+    box2.textContent = "";
+    const d = data && typeof data === "object" ? data : {};
+    if (!selected) {
+      box2.append(el("h2", { textContent: "The home" }));
+      for (const key of ["view", "units_per_metre", "sun"]) box2.append(row(key, SCHEMA.fields[key], d[key], [key], ctx));
+      box2.append(row("background", SCHEMA.fields.drawing.fields.background, d.drawing?.background, ["drawing", "background"], ctx));
+      for (const key of ["effects", "palette", "simulator"]) {
+        const f = SCHEMA.fields[key];
+        box2.append(row(key, { type: "yaml", help: f.help }, d[key], [key], ctx));
+      }
+    } else {
+      const value = selected.reduce((o, k) => o?.[k], d), field = fieldAt(selected);
+      const group = itemGroups(d).find((g) => samePath(g.path, selected.slice(0, -1)));
+      const title = el("h2", { textContent: group ? `${group.title}: ` : "" });
+      if (selected[0] === "furniture" || selected[0] === "rooms") {
+        const name = el("input", { type: "text", value: selected.at(-1), className: "name", spellcheck: false, title: "Rename (its references follow)" });
+        name.onchange = () => {
+          if (name.value && name.value !== selected.at(-1)) ctx.rename(selected, name.value.trim());
+        };
+        title.append(name);
+      } else title.append(group?.items.find((it) => samePath(it.path, selected))?.label ?? selected.join("."));
+      const del = el("button", { type: "button", className: "delete", textContent: "Delete", title: "Delete it (Delete)" });
+      del.onclick = () => ctx.remove(selected);
+      box2.append(el("div", { className: "title" }, title, del));
+      if (field?.help) box2.append(el("p", { className: "help", textContent: field.help }));
+      if (value === void 0) box2.append(el("p", { textContent: "Not in the home any more." }));
+      else if (field?.type === "shape") box2.append(...shapeForm(value, selected, ctx));
+      else if (field?.type === "object") box2.append(...fields(field, value, selected, ctx));
+      else if (field) box2.append(row(String(selected.at(-1)), field, value, selected, ctx));
+    }
+    if (focused) box2.querySelector(`[data-path='${focused}'] input, [data-path='${focused}'] select, [data-path='${focused}'] textarea`)?.focus();
+  }
+
   // src/editor/editor.js
   var DRAFT = "lightwell-editor:draft";
   var TYPING = 250;
+  var REACH = 6;
   var STYLE2 = `
   :host { display: grid; grid-template-rows: auto 1fr auto; height: 100%; font: 14px system-ui, sans-serif;
-    color: #222; background: #f6f6f4; --line: #ddd; }
+    color: #222; background: #f6f6f4; --line: #ddd; --accent: #1e88e5; }
   header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 12px; background: #fff;
     border-bottom: 1px solid var(--line); }
   header h1 { font-size: 15px; margin: 0 10px 0 0; }
@@ -7987,29 +8642,78 @@ ${end.comment}` : end.comment;
   button { font: inherit; padding: 4px 10px; border: 1px solid #ccc; border-radius: 6px; background: #fafafa;
     color: inherit; cursor: pointer; }
   button:hover:not(:disabled) { background: #eee; } button:disabled { opacity: 0.45; cursor: default; }
-  button[aria-pressed="true"] { background: #1e88e5; border-color: #1e88e5; color: #fff; }
-  main { display: grid; grid-template-columns: 340px minmax(320px, 1fr) minmax(300px, 0.8fr); min-height: 0; }
-  main > * { overflow: auto; min-height: 0; }
-  .controls { padding: 12px; border-right: 1px solid var(--line); background: #fff; }
-  .controls form { width: auto; }
-  .preview { padding: 16px; display: flex; justify-content: center; align-items: flex-start; }
+  button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  main { display: grid; grid-template-columns: 300px minmax(320px, 1fr) minmax(320px, 0.75fr); min-height: 0; }
+  main > * { min-height: 0; }
+  .side { display: flex; flex-direction: column; background: #fff; min-height: 0; }
+  .side.left { border-right: 1px solid var(--line); } .side.right { border-left: 1px solid var(--line); }
+  .tabs { display: flex; border-bottom: 1px solid var(--line); flex: none; }
+  .tabs button { flex: 1; border: 0; border-radius: 0; background: none; padding: 8px; color: #666; }
+  .tabs button[aria-selected="true"] { color: #222; box-shadow: inset 0 -2px var(--accent); }
+  .pane { flex: 1; overflow: auto; min-height: 0; } .pane[hidden] { display: none; }
+  .controls { padding: 12px; } .controls form { width: auto; }
+  .preview { padding: 16px; display: flex; justify-content: center; align-items: flex-start; overflow: auto; outline: none; }
   .preview.dark { background: #111; }
-  .preview > div { width: 100%; max-width: 900px; }
+  .stage { position: relative; width: 100%; max-width: 900px; }
   ha-card { display: block; border-radius: 12px; background: var(--card-background-color, #fff); }
   .preview.dark ha-card { --card-background-color: #1c1c1c; }
-  .text { display: flex; border-left: 1px solid var(--line); }
-  textarea { flex: 1; border: 0; padding: 10px 12px; resize: none; font: 12.5px/1.5 ui-monospace, Menlo, Consolas, monospace;
-    tab-size: 2; white-space: pre; outline: none; background: #fff; color: #222; }
+  .overlay { position: absolute; left: 0; top: 0; cursor: default; overflow: visible; }
+  .overlay * { pointer-events: none; fill: none; vector-effect: non-scaling-stroke; }
+  .overlay .hover * { stroke: rgba(30, 136, 229, 0.6); stroke-width: 1.5; }
+  .overlay .sel * { stroke: var(--accent); stroke-width: 2.5; fill: rgba(30, 136, 229, 0.12); }
+  .overlay .sel .pool { fill: none; stroke-dasharray: 6 5; stroke-width: 1.5; }
+  .overlay .sel .dot { fill: var(--accent); }
+  .preview:focus-visible .stage { outline: 2px solid rgba(30, 136, 229, 0.4); outline-offset: 4px; border-radius: 12px; }
+  .hint { color: #888; font-size: 12px; margin: 8px 0 0; text-align: center; }
+  .text { display: flex; height: 100%; }
+  .text textarea { flex: 1; border: 0; padding: 10px 12px; resize: none; tab-size: 2; white-space: pre; outline: none;
+    font: 12.5px/1.5 ui-monospace, Menlo, Consolas, monospace; background: #fff; color: #222; }
+  /* The list */
+  .list { padding: 6px 0 12px; font-size: 13px; }
+  .list summary { display: flex; align-items: center; gap: 6px; padding: 5px 10px; cursor: pointer; font-weight: 600; }
+  .list summary small { color: #999; font-weight: normal; margin-right: auto; }
+  .list summary .add { padding: 0 7px; line-height: 18px; font-weight: normal; }
+  .items { list-style: none; margin: 0; padding: 0; }
+  .item { padding: 3px 10px 3px 24px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item.home { padding-left: 10px; font-weight: 600; }
+  .item:hover { background: #f2f6fb; } .item.on { background: #e3f0fc; box-shadow: inset 3px 0 var(--accent); }
+  .item.drop { box-shadow: inset 0 2px var(--accent); }
+  /* The properties */
+  .props { padding: 10px 12px 16px; font-size: 13px; }
+  .props .title { display: flex; align-items: center; gap: 8px; }
+  .props h2 { font-size: 14px; margin: 4px 0; flex: 1; display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .props h2 input.name { font: inherit; flex: 1; min-width: 0; }
+  .props .help { color: #777; margin: 2px 0 8px; }
+  .props .row { display: grid; grid-template-columns: 112px 1fr; align-items: center; gap: 8px; margin: 3px 0; }
+  .props .row.absent { display: block; }
+  .props .key { color: #555; overflow: hidden; text-overflow: ellipsis; } .props .key.required::after { content: ' *'; color: #b00020; }
+  .props .value { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .props input[type=text], .props input[type=number], .props select, .props textarea { font: inherit; padding: 3px 5px;
+    border: 1px solid #ccc; border-radius: 4px; min-width: 0; flex: 1; background: #fff; color: inherit; }
+  .props textarea { font: 12px ui-monospace, Menlo, Consolas, monospace; resize: vertical; }
+  .props textarea.bad { border-color: #b00020; }
+  .props .numbers { display: flex; gap: 4px; flex: 1; min-width: 0; }
+  .props .numbers label { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .props .numbers small { color: #999; font-size: 10px; }
+  .props .checks { display: flex; flex-wrap: wrap; gap: 2px 10px; }
+  .props .unit { color: #888; min-width: 1em; }
+  .props .swatch { width: 18px; height: 18px; border-radius: 4px; border: 1px solid #ccc; flex: none; }
+  .props fieldset { border: 1px solid #e3e3e3; border-radius: 6px; margin: 8px 0; padding: 4px 8px 6px; }
+  .props legend { display: flex; align-items: center; gap: 6px; padding: 0 4px; }
+  .props button.clear { padding: 0 6px; line-height: 16px; }
+  .props button.add-field { margin: 4px 0; font-size: 12px; padding: 2px 8px; }
+  .props button.delete { color: #b00020; }
   footer { max-height: 30vh; overflow: auto; border-top: 1px solid var(--line); background: #fff; }
   footer:empty { display: none; }
   footer p { margin: 0; padding: 4px 12px; font: 12.5px ui-monospace, Menlo, Consolas, monospace; color: #b00020; }
+  footer p.link { cursor: pointer; } footer p.link:hover { background: #fff3f3; }
   footer p.info { color: #555; font-family: inherit; }
   .drop { position: absolute; inset: 0; display: none; place-items: center; background: rgba(30, 136, 229, 0.12);
-    border: 3px dashed #1e88e5; font-size: 18px; pointer-events: none; }
+    border: 3px dashed var(--accent); font-size: 18px; pointer-events: none; }
   :host(.dragging) .drop { display: grid; }
   @media (max-width: 1000px) {
     main { grid-template-columns: 1fr; grid-auto-rows: auto; overflow: auto; }
-    main > * { overflow: visible; }
+    .pane { overflow: visible; }
     .text textarea { min-height: 50vh; }
   }
 `;
@@ -8026,9 +8730,20 @@ ${end.comment}` : end.comment;
     <button data-act="dark" aria-pressed="false" title="Show the card in the dark theme">Dark</button>
   </header>
   <main>
-    <div class="controls"><form></form></div>
-    <div class="preview"><div></div></div>
-    <div class="text"><textarea spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="The home's YAML"></textarea></div>
+    <div class="side left">
+      <div class="tabs" role="tablist"><button data-tab="list" aria-selected="true">Items</button><button data-tab="controls">Sun and time</button></div>
+      <div class="pane list" data-pane="list"></div>
+      <div class="pane controls" data-pane="controls" hidden><form></form></div>
+    </div>
+    <div class="preview" tabindex="0">
+      <div><div class="stage"><svg class="overlay"><g class="hover"></g><g class="sel"></g></svg></div>
+      <p class="hint">Click to select (again, or Tab: what's under it) \xB7 Alt+click taps the card \xB7 Esc clears</p></div>
+    </div>
+    <div class="side right">
+      <div class="tabs" role="tablist"><button data-tab="props" aria-selected="true">Properties</button><button data-tab="text">YAML</button></div>
+      <div class="pane props" data-pane="props"></div>
+      <div class="pane text" data-pane="text" hidden><textarea spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="The home's YAML"></textarea></div>
+    </div>
   </main>
   <footer aria-live="polite"></footer>
   <div class="drop">Drop a home file (YAML or JSON) to open it</div>
@@ -8048,6 +8763,14 @@ ${end.comment}` : end.comment;
       }
     }
   };
+  var samePath2 = (a, b) => a === b || !!a && !!b && a.length === b.length && a.every((k, i) => k === b[i]);
+  var round2 = (v) => Math.round(v * 10) / 10;
+  function messagePath(message) {
+    const where = message.slice(0, message.indexOf(": "));
+    const path = where.split(/\.|(?=\[)/).filter(Boolean).map((k) => /^\[\d+\]$/.test(k) ? +k.slice(1, -1) : k);
+    const depth = path[0] === "drawing" ? 3 : ["furniture", "rooms", "openings", "lights", "markers"].includes(path[0]) ? 2 : 0;
+    return depth && path.length >= depth ? path.slice(0, depth) : null;
+  }
   var LightwellEditor = class extends HTMLElement {
     constructor() {
       super();
@@ -8067,15 +8790,22 @@ ${end.comment}` : end.comment;
         text: $("textarea"),
         footer: $("footer"),
         preview: $(".preview"),
+        stage: $(".stage"),
+        overlay: $(".overlay"),
+        hover: $(".overlay .hover"),
+        sel: $(".overlay .sel"),
+        list: $(".list"),
+        props: $(".props"),
         buttons: Object.fromEntries([...root.querySelectorAll("[data-act]")].map((b) => [b.dataset.act, b]))
       };
       const draft = storage.get();
       this.model = new HomeModel(draft?.text ?? this.example);
       this._file = { name: draft?.name ?? "home.yaml", handle: null, saved: draft?.saved ?? this.model.text };
       this._dark = false;
+      this._sel = null;
       this._shown = { states: this.states, north: void 0 };
       this._card = document.createElement("lightwell-card");
-      $(".preview > div").appendChild(this._card);
+      this._el.stage.prepend(this._card);
       this._card.addEventListener("hass-more-info", (e) => this._controls?.moreInfo(e.detail.entityId));
       const plan = this.model.home || { openings: [], sun: { entity: "sun.sun", weather: "weather.home", north: 0 } };
       this._controls = simulatorControls($("form"), {
@@ -8088,9 +8818,12 @@ ${end.comment}` : end.comment;
           this._renderCard();
         }
       });
+      new ResizeObserver(() => this._place()).observe(this._el.stage);
       root.addEventListener("click", (e) => {
         const act = e.target.closest?.("[data-act]")?.dataset.act;
         if (act) this._act(act);
+        const tab = e.target.closest?.("[data-tab]");
+        if (tab) this._tab(tab.dataset.tab);
       });
       this._el.text.addEventListener("input", () => {
         clearTimeout(this._typing);
@@ -8102,9 +8835,19 @@ ${end.comment}` : end.comment;
           document.execCommand("insertText", false, "  ");
         }
       });
+      this._el.overlay.addEventListener("click", (e) => this._click(e));
+      this._el.overlay.addEventListener("pointermove", (e) => this._pointer(e));
+      this._el.overlay.addEventListener("pointerleave", () => {
+        this._el.hover.innerHTML = "";
+      });
+      this._el.footer.addEventListener("click", (e) => {
+        const path = e.target.closest("p")?.dataset.path;
+        if (path) this.select(JSON.parse(path));
+      });
       this._keys = (e) => this._key(e);
       window.addEventListener("keydown", this._keys);
       this.addEventListener("dragover", (e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
         this.classList.add("dragging");
       });
@@ -8112,30 +8855,59 @@ ${end.comment}` : end.comment;
         if (!this.contains(e.relatedTarget)) this.classList.remove("dragging");
       });
       this.addEventListener("drop", async (e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
         this.classList.remove("dragging");
         const file = await droppedFile(e.dataTransfer);
         if (file) this._open(file);
       });
+      this._ctx = {
+        commit: (path, value) => this._edit(() => value === void 0 ? this.model.get(path) !== void 0 && this.model.remove(path) : this.model.set(path, value)),
+        select: (path) => this.select(path),
+        add: (group) => this._add(group),
+        remove: (path) => this._remove(path),
+        rename: (path, name) => this._rename(path, name),
+        move: (path, from, to) => this._move(path, from, to),
+        template: (path) => this._template(path),
+        shapeTemplate: (kind, old) => this._shapeTemplate(kind, old)
+      };
       this._changed({ text: true });
     }
     disconnectedCallback() {
       window.removeEventListener("keydown", this._keys);
     }
-    // After the model changed: the text view (unless it's where the change came from), the card, the messages, the
-    // buttons and the draft.
+    // After the model changed: the text view (unless it's where the change came from), the card, the panels, the
+    // messages, the buttons and the draft.
     _changed({ text: text2 }) {
       if (text2) this._el.text.value = this.model.text;
       const { home, data, errors } = this.model;
       if (home) {
         this._data = data;
+        this._home = home;
         this._controls.setPlan(home);
       } else this._renderCard();
+      if (this._sel && itemAt(data, this._sel) === void 0) this._sel = null;
       this._el.footer.textContent = "";
-      for (const e of errors) this._el.footer.appendChild(Object.assign(document.createElement("p"), { textContent: e }));
+      for (const e of errors) {
+        const p = this._message(e), path = messagePath(e);
+        if (path) {
+          p.dataset.path = JSON.stringify(path);
+          p.classList.add("link");
+          p.title = "Select it";
+        }
+      }
       if (errors.length && this._data) this._message("The card shows the last version without mistakes.", "info");
+      this._renderPanels();
       this._updateButtons();
       storage.set({ text: this.model.text, name: this._file.name, saved: this._file.saved });
+    }
+    // Applies an edit (a function changing the model), and shows a failure as a message.
+    _edit(fn) {
+      try {
+        if (fn() !== false) this._changed({ text: true });
+      } catch (e) {
+        this._message(e.message);
+      }
     }
     _renderCard() {
       if (!this._data) return;
@@ -8145,9 +8917,196 @@ ${end.comment}` : end.comment;
       } catch (e) {
         this._message(e.message);
       }
+      this._place();
+    }
+    // The overlay over the card's drawing, in the drawing's units.
+    _place() {
+      const svg = this._card.shadowRoot?.querySelector(".plan svg"), view = this._home?.view;
+      if (!svg || !view) return;
+      const r = svg.getBoundingClientRect(), s = this._el.stage.getBoundingClientRect(), o = this._el.overlay;
+      Object.assign(o.style, { left: `${r.left - s.left}px`, top: `${r.top - s.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+      o.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${view.h}`);
+      this._renderOverlay();
+    }
+    _renderOverlay() {
+      this._el.sel.innerHTML = this._home && this._sel ? outlineSvg(this._home, this._sel) : "";
+    }
+    _renderPanels() {
+      renderList(this._el.list, this.model.data, this._sel, this._ctx);
+      renderProperties(this._el.props, this.model.data, this._sel, { ...this._ctx, data: this.model.data, states: this._shown.states });
+      this._renderOverlay();
+    }
+    // Selects the item at `path` (null: the home itself) in the list, on the plan and in the text.
+    select(path) {
+      this._sel = path && itemAt(this.model.data, path) !== void 0 ? path : null;
+      this._renderPanels();
+      if (this._sel && !this._el.text.closest("[hidden]")) this._showInText(this._sel);
+    }
+    // Scrolls the YAML to the item and selects its text.
+    _showInText(path) {
+      const node = this.model.doc.getIn(path, true), range = node?.range;
+      if (!range) return;
+      const ta = this._el.text, line = ta.value.slice(0, range[0]).split("\n").length - 1;
+      ta.setSelectionRange(range[0], range[1]);
+      ta.scrollTop = Math.max(0, line * parseFloat(getComputedStyle(ta).lineHeight) - ta.clientHeight / 3);
+    }
+    _tab(name) {
+      for (const b of this._root.querySelectorAll("[data-tab]")) {
+        const side = b.closest(".side");
+        if (!side.querySelector(`[data-tab="${name}"]`)) continue;
+        b.setAttribute("aria-selected", b.dataset.tab === name);
+        side.querySelector(`[data-pane="${b.dataset.tab}"]`).hidden = b.dataset.tab !== name;
+      }
+      if (name === "text" && this._sel) this._showInText(this._sel);
+    }
+    // A pointer position in the drawing's units, and how far REACH pixels go there.
+    _at(e) {
+      const m2 = this._el.overlay.getScreenCTM();
+      if (!m2 || !this._home) return null;
+      const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m2.inverse());
+      return { p: [p.x, p.y], tol: REACH / m2.a };
+    }
+    _pointer(e) {
+      const at = this._at(e);
+      const hit = at && hitTest(this._home, at.p, at.tol)[0];
+      this._el.hover.innerHTML = hit && !samePath2(hit, this._sel) ? outlineSvg(this._home, hit) : "";
+    }
+    // A click selects what's under it; clicking again where everything is the same goes on to the next thing under it.
+    // Alt+click taps the card underneath instead (lights toggle, the weather changes).
+    _click(e) {
+      if (e.altKey) {
+        const marker = this._card.shadowRoot?.elementsFromPoint(e.clientX, e.clientY).find((x) => x.classList?.contains("m"));
+        marker?.click();
+        return;
+      }
+      const at = this._at(e);
+      if (!at) return;
+      const hits = hitTest(this._home, at.p, at.tol);
+      const again = this._hits && hits.length && hits.map(pathKey).join() === this._hits.map(pathKey).join();
+      this._hits = hits;
+      this._el.preview.focus({ preventScroll: true });
+      if (again) return this._cycle();
+      this.select(hits[0] || null);
+    }
+    // The next item under the last click.
+    _cycle(step = 1) {
+      if (!this._hits?.length) return;
+      const i = this._hits.findIndex((h) => samePath2(h, this._sel));
+      this.select(this._hits[(i + step + this._hits.length) % this._hits.length]);
+    }
+    // The view's centre and a metre, for new items.
+    _frame() {
+      const v = this._data?.view || { x: 0, y: 0, w: 1e3, h: 1e3 }, m2 = this._data?.units_per_metre || 100;
+      return { cx: v.x + v.w / 2, cy: v.y + v.h / 2, m: m2, v };
+    }
+    // The room under a point, or the first one.
+    _roomAt(x, y) {
+      const hit = this._home && hitTest(this._home, [x, y]).find((h) => h[0] === "rooms");
+      return hit?.[1] ?? Object.keys(this._data?.rooms || {})[0];
+    }
+    // A name for a new item in the map at `path`: asked for, suggested `base` (made unique).
+    _newName(path, base) {
+      const taken = this.model.get(path) || {};
+      let suggestion = base, k = 2;
+      while (taken[suggestion] !== void 0) suggestion = `${base}${k++}`;
+      const name = prompt(`A name for the new ${base}:`, suggestion)?.trim();
+      if (!name) return null;
+      if (taken[name] !== void 0) {
+        this._message(`There's already a ${name}`);
+        return null;
+      }
+      return name;
+    }
+    // Adds a new item to a group of the list, with values that work before they're edited, and selects it.
+    _add(group) {
+      const { cx, cy, m: m2, v } = this._frame(), r = round2, room = this._roomAt(cx, cy);
+      const kind = group.add, list = this.model.get(group.path);
+      let path, value;
+      if (kind === "room" || kind === "piece") {
+        const name = this._newName(group.path, kind === "room" ? "room" : "piece");
+        if (!name) return;
+        path = [...group.path, name];
+        value = kind === "room" ? [[r(cx - m2), r(cy - m2), r(2 * m2), r(2 * m2)]] : { shape: { rect: [r(cx - m2 / 2), r(cy - 0.3 * m2), r(m2), r(0.6 * m2)] }, height: 0.75, ...room ? { shadow_room: room } : {} };
+      } else {
+        path = [...group.path, Array.isArray(list) ? list.length : 0];
+        if (kind === "shape") value = this._shapeTemplate(group.path[1] === "labels" ? "text" : "rect", null, group.path[1]);
+        else if (kind === "opening") value = { wall: "top", at: r(v.y), depth: r(0.25 * m2), x: r(cx - 0.6 * m2), w: r(1.2 * m2), lo: 0.9, hi: 2.2, ...room ? { room } : {} };
+        else if (kind === "light") value = { entities: ["light.new_light"], shape: [{ circle: [r(cx), r(cy), r(0.4 * m2)] }], ...room ? { clip: room } : {} };
+        else if (kind === "marker") value = { entity: "light.new_light", x: r(cx), y: r(cy), icon: "mdi:lightbulb", tap: "toggle" };
+      }
+      this._edit(() => kind === "room" || kind === "piece" ? this.model.set(path, value) : this.model.insert(group.path, value));
+      this.select(path);
+    }
+    // A shape of `kind` where `old` was (or in the middle of the view), with the slot's usual class.
+    _shapeTemplate(kind, old, slot) {
+      const { cx, cy, m: m2 } = this._frame(), r = round2;
+      const c = old?.rect ? [old.rect[0] + old.rect[2] / 2, old.rect[1] + old.rect[3] / 2] : old?.circle || old?.ellipse || old?.at || [cx, cy];
+      const [x, y] = [r(c[0]), r(c[1])], h = r(m2 / 2);
+      const cls = { floors: "floor", walls: "wall", glazing: "glass", fittings: "fix", under_furniture: "furn2", on_furniture: "dev", labels: "room" }[slot];
+      const geometry = {
+        rect: { rect: [x - h, y - h, 2 * h, 2 * h] },
+        circle: { circle: [x, y, h] },
+        ellipse: { ellipse: [x, y, h, r(h / 2)] },
+        poly: { poly: [[x - h, y + h], [x + h, y + h], [x, y - h]] },
+        path: { path: `M${x - h},${y} H${x + h}`, class: "line" },
+        text: { text: "Label", at: [x, y] },
+        svg: { svg: "<g></g>" }
+      }[kind];
+      return { ...geometry, ...cls && !geometry.class ? { class: cls } : {} };
+    }
+    // The value an absent object field starts with.
+    _template(path) {
+      const { m: m2 } = this._frame(), key = path.at(-1);
+      if (key === "pool" && path[0] === "lights") {
+        const c = lightCentre(itemAt(this.model.data, path.slice(0, 2))) || [this._frame().cx, this._frame().cy];
+        return { x: round2(c[0]), y: round2(c[1]), r: round2(2.5 * m2), height: 1.5, shadows: [] };
+      }
+      if (key === "repeat") return { count: 2, step: [round2(m2), 0] };
+      if (key === "trees") return { from: 240, to: 300, top: 10, through: 0.5 };
+      if (key === "background") return { image: "/local/plan.png" };
+      if (key === "label") return { attribute: "friendly_name" };
+      if (key === "view") return { x: 0, y: 0, w: 1e3, h: 800 };
+      return {};
+    }
+    // Where the home names the room or piece `name`: the paths of fields of `type` ('room' or 'furniture') holding it.
+    _references(type, name) {
+      const out = [];
+      const walk = (v, path) => {
+        if (path.length && fieldAt(path)?.type === type && v === name) out.push(path);
+        if (v && typeof v === "object") for (const [k, c] of Object.entries(v)) walk(c, [...path, Array.isArray(v) ? +k : k]);
+      };
+      walk(this.model.data, []);
+      return out;
+    }
+    // Deletes an item; a piece of furniture leaves the lights' shadows too.
+    _remove(path) {
+      const refs = path[0] === "furniture" ? this._references("furniture", path[1]) : [];
+      this._edit(() => this.model.edit((doc) => {
+        for (const p of refs.reverse()) doc.deleteIn(p);
+        if (!doc.deleteIn(path)) throw new Error(`Nothing at ${path.join(".")}`);
+      }));
+      this.select(null);
+    }
+    // Renames a room or a piece of furniture; the fields naming it follow.
+    _rename(path, name) {
+      const refs = this._references(path[0] === "rooms" ? "room" : "furniture", path[1]);
+      this._edit(() => this.model.edit((doc) => {
+        renameIn(doc, path, name);
+        for (const p of refs) doc.setIn(p, name);
+      }));
+      if (this.model.get([path[0], name]) !== void 0) this.select([path[0], name]);
+    }
+    // Moves an item within its list (or map); the selection follows it.
+    _move(path, from, to) {
+      this._edit(() => this.model.move(path, from, to));
+      const sel = this._sel;
+      if (sel && sel.length === path.length + 1 && samePath2(sel.slice(0, -1), path) && typeof sel.at(-1) === "number") {
+        const i = sel.at(-1), j = i === from ? to : from < i && i <= to ? i - 1 : to <= i && i < from ? i + 1 : i;
+        this.select([...path, j]);
+      }
     }
     _message(text2, kind = "") {
-      this._el.footer.appendChild(Object.assign(document.createElement("p"), { textContent: text2, className: kind }));
+      return this._el.footer.appendChild(Object.assign(document.createElement("p"), { textContent: text2, className: kind }));
     }
     _updateButtons() {
       const b = this._el.buttons;
@@ -8203,6 +9162,8 @@ ${end.comment}` : end.comment;
       this.model.open(text2);
       this._file = { name, handle, saved: this.model.text };
       this._data = null;
+      this._home = null;
+      this._sel = null;
       this._changed({ text: true });
     }
     // Saves the home: back to its file (where the browser can; otherwise it asks where, or downloads it), or with `as`
@@ -8223,14 +9184,26 @@ ${end.comment}` : end.comment;
       this._changed({ text: false });
     }
     _key(e) {
-      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
-      const key = e.key.toLowerCase();
-      if (key === "s") {
+      const target = e.composedPath()[0], typing = /^(INPUT|TEXTAREA|SELECT)$/.test(target?.tagName);
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        const key = e.key.toLowerCase();
+        if (key === "s") {
+          e.preventDefault();
+          this._act(e.shiftKey ? "save-yaml" : "save");
+        } else if ((key === "z" || key === "y") && !typing) {
+          e.preventDefault();
+          this._act(key === "y" || e.shiftKey ? "redo" : "undo");
+        }
+        return;
+      }
+      if (typing || !this._root.contains(target) && target !== this) return;
+      if (e.key === "Escape") this.select(null);
+      else if ((e.key === "Delete" || e.key === "Backspace") && this._sel) {
         e.preventDefault();
-        this._act(e.shiftKey ? "save-yaml" : "save");
-      } else if ((key === "z" || key === "y") && e.composedPath()[0] !== this._el.text) {
+        this._remove(this._sel);
+      } else if (e.key === "Tab" && target === this._el.preview && this._hits?.length > 1) {
         e.preventDefault();
-        this._act(key === "y" || e.shiftKey ? "redo" : "undo");
+        this._cycle(e.shiftKey ? -1 : 1);
       }
     }
   };

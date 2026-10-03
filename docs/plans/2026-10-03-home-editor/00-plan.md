@@ -57,7 +57,8 @@ and in either theme. It saves the same YAML (or JSON) the card reads.
 - **An overlay for editing:** a transparent SVG with the same `viewBox` laid over the card, carrying the selection,
   handles, guides and the grid. Pointer positions are converted to the drawing's units through its screen matrix.
   Hit testing uses the home's geometry (shapes, furniture outlines, opening spans, pool circles, marker positions),
-  front to back: markers, lights, furniture, openings, drawing shapes, rooms.
+  front to back: markers, the lights' centres, furniture, openings, the lights' glows, drawing shapes, rooms (step 2:
+  a lamp's glow is often wider than the furniture under it, so only its centre comes before the furniture).
 - **Snapping:** to a grid (5 cm by default, from `units_per_metre`), to other items' edges and corners, and to the
   axes with Shift. A ruler shows lengths in metres while drawing.
 
@@ -110,6 +111,23 @@ and in either theme. It saves the same YAML (or JSON) the card reads.
    flow, and whether to go on to the HA visual editor.
 
 Steps 2–5 build on each other in order; step 6 can start once step 4 is done.
+
+## Progress
+
+The open questions were taken as assumed (standalone first, comments kept, a plain text area); Pages waits for
+step 6.
+
+| Step | State | Notes |
+| --- | --- | --- |
+| 1. Groundwork | done 2026-10-03 | Shared controls, the model (both example homes and the Taksony flat round-trip byte for byte), `<lightwell-editor>` with the YAML view, opening and saving, its own bundle. A fix followed the same day: states made up by a tap now have `attributes` (tapping a home's own lights failed with the example's states). |
+| 2. Selection and properties | done 2026-10-03 | `src/schema.js` with its check against `defineHome`, hit testing, the overlay, the item list (add, reorder, rename with references, delete), the property forms. A light's glow is picked after the furniture (see Approach). |
+| 3. Moving things | next | |
+| 4. Drawing things | | |
+| 5. Entities | | |
+| 6. Publishing | | |
+
+Each step's file has its Outcome. Still to do by hand from steps 1–2: Firefox, and saving and reopening through the
+browser's real file dialogs.
 
 ## Verification
 

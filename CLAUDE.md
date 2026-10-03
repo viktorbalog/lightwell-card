@@ -8,11 +8,12 @@ HACS. The README describes it for users; read it first.
 
 - `src/`: the card, plain ES modules. `home.js` describes and checks a home (`defineHome`); `card.js` is the custom
   element; `sun.js`, `effects.js`, `markers.js`, `openings.js`, `furniture.js`, `shapes.js`, `geometry.js` are pure
-  and tested (`*.test.js` next to them). `index.js` registers `lightwell-card`.
+  and tested (`*.test.js` next to them). `index.js` registers `lightwell-card`. `schema.js` describes every field
+  of a home (for the editor's forms); its test checks it against `defineHome`.
 - `src/editor/`: the editor for homes (`<lightwell-editor>`, bundled on its own into `dist/lightwell-editor.js`, so the
   card's bundle doesn't grow): `model.js` keeps the home as a `yaml` Document (comments survive edits), `controls.js`
   the simulator's controls (also built into `tools/simulator/controls.js` for the simulator), `files.js` opening and
-  saving. The page is `tools/editor/index.html`. Plan: `docs/plans/2026-10-03-home-editor/`.
+  saving, `hit.js` what's under the pointer (from the home's geometry), `panels.js` the item list and the forms. The page is `tools/editor/index.html`. Plan: `docs/plans/2026-10-03-home-editor/`.
 - `dist/lightwell-card.js`: the bundle, built by `npm run build` and committed (HACS installs it from the repo). Never
   edit it by hand; rebuild and commit it with the source change.
 - `example/`: the example homes (YAML, plus the `home.js` the build makes for the tools) and made-up states.
@@ -34,5 +35,5 @@ HACS. The README describes it for users; read it first.
 - **Scale:** blur radii scale with `units_per_metre` / 175, strokes and text with the view's width / 1145 (`--k`): the
   numbers were tuned on a drawing of that size. New sizes follow the same rule.
 - A new field in a home: document it in `home.js` (or the module that reads it), check it in `defineHome` with a test
-  for its error, and describe it in the README.
+  for its error, describe it in `src/schema.js` (marked `check` if `defineHome` checks it) and in the README.
 - The README's pictures: `capture.html` in Chrome at 1980 px wide, a full-page screenshot, then `scripts/pictures.sh`.

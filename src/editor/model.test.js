@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {HomeModel, yamlOf} from './model.js';
+import {HomeModel, renameIn, yamlOf} from './model.js';
 
 const read = path => fs.readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
 const EXAMPLE = read('example/home.yaml');
@@ -134,4 +134,11 @@ test('a home from JSON as YAML', () => {
   const text = yamlOf(JSON.parse(m.toJSON()));
   assert.deepEqual(new HomeModel(text).data, m.data);
   assert.match(text, /^view: \{x: -20, y: -20, w: 890, h: 840\}\nunits_per_metre: 100\nrooms:\n {2}living: \[\[25, 25, 475, 600\]\]\n/);
+});
+
+test('renaming a key where it is', () => {
+  const m = new HomeModel(EXAMPLE);
+  m.edit(doc => renameIn(doc, ['furniture', 'tvStand'], 'sideboard'));
+  assert.deepEqual(changedLines(EXAMPLE, m.text), ['  sideboard:']);
+  assert.throws(() => m.edit(doc => renameIn(doc, ['furniture', 'sofa'], 'bed')), /already a bed/);
 });

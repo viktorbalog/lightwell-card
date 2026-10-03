@@ -73,6 +73,16 @@ function create(doc, value, flow) {
   return node;
 }
 
+// Renames the key at `path` in its map (inside an `edit`), where it is, with its comments.
+export function renameIn(doc, path, key) {
+  const map = path.length > 1 ? doc.getIn(path.slice(0, -1), true) : doc.contents;
+  const pair = YAML.isMap(map) && map.items.find(p => String(p.key?.value ?? p.key) === String(path.at(-1)));
+  if (!pair) throw new Error(`Nothing at ${path.join('.')}`);
+  if (map.items.some(p => p !== pair && String(p.key?.value ?? p.key) === key)) throw new Error(`There's already a ${key}`);
+  if (YAML.isScalar(pair.key)) pair.key.value = key;
+  else pair.key = doc.createNode(key);
+}
+
 // A home (plain data, say from a JSON file) as YAML text in the example homes' style.
 export function yamlOf(data) {
   const doc = new YAML.Document();
