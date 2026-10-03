@@ -7861,7 +7861,7 @@ ${end.comment}` : end.comment;
       if ($("lights").checked) {
         for (const id in states2) if (/^(light|media_player)\./.test(id)) states2[id] = { ...states2[id], state: "off" };
       }
-      for (const [id, state] of Object.entries(toggled)) states2[id] = { ...states2[id], state };
+      for (const [id, state] of Object.entries(toggled)) states2[id] = { entity_id: id, attributes: {}, ...states2[id], state };
       shown = states2;
       for (const id of shutters) {
         const input = shutterInput(id);

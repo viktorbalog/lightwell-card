@@ -217,7 +217,9 @@ export function simulatorControls(form, {plan, states = {}, location = {latitude
       attributes: {...states[weatherId]?.attributes, cloud_coverage: +$('clouds').value}};
     // Lights off: every light and media player, so only the sun and the daylight show.
     if ($('lights').checked) for (const id in states) if (/^(light|media_player)\./.test(id)) states[id] = {...states[id], state: 'off'};
-    for (const [id, state] of Object.entries(toggled)) states[id] = {...states[id], state};
+    // A tapped entity the states don't have (the home's own, shown with the example's states) gets a state as HA's
+    // look, attributes and all.
+    for (const [id, state] of Object.entries(toggled)) states[id] = {entity_id: id, attributes: {}, ...states[id], state};
     shown = states;
     for (const id of shutters) {
       const input = shutterInput(id);
