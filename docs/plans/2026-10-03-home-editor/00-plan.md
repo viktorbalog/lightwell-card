@@ -1,0 +1,123 @@
+# Lightwell: an editor for homes
+
+Follows [the first release](../2026-10-03-first-release/00-plan.md). Written 2026-10-03 at the user's request, before
+any change.
+
+## Goal
+
+Describing a home without writing YAML by hand: an editor where the user draws rooms and walls (or traces a picture
+of their plan), places windows, furniture, lights and markers, and sees the card light them as they go, under any sun
+and in either theme. It saves the same YAML (or JSON) the card reads.
+
+## Context
+
+- **A home is plain data** (`src/home.js`): view and scale, rooms, a drawing in slots, openings, furniture, lights,
+  effects, markers, the sun's surroundings, a palette, simulator scenes. `defineHome` checks it and lists every
+  mistake. The README documents every field.
+- **Today it's written by hand,** in a text editor, with coordinates read off a picture or worked out. The
+  example flat is 171 lines; the home it was made general from, 440. It's the biggest hurdle for a HACS user.
+- **The card redraws from the home object:** given a new object (`setConfig({home})`), it rebuilds the whole plan.
+  That's quick (a few milliseconds), so an editor can simply hand it each edited version.
+- **The simulator** (`tools/simulator/index.html`, 233 lines, its code inline) already shows a home in light and dark
+  under a chosen date, time, weather and shutters, with lights toggled by tapping. It works from `file://` and takes the
+  card, home and states by URL (`tool.js`). It's the natural base: the editor is the simulator plus editing.
+- **What the card can't tell an editor:** which item is under the pointer. The card's SVG is generated and blurred, so
+  the editor must work out hits from the home's own geometry, not the rendered DOM.
+
+## Approach
+
+### Where it runs
+
+- **A standalone page first**, `tools/editor/index.html`, opened from the files like the other tools, and published
+  on GitHub Pages so HACS users can use it without cloning anything. It needs no server: files are opened and saved
+  with the File System Access API where the browser has it (Chrome, Edge: save back to the same file), and by
+  download elsewhere (Firefox, Safari).
+- **Later, perhaps, inside Home Assistant** as the card's visual editor (`getConfigElement`), for homes kept inline
+  in the dashboard (`home:`). It can't save `home_url` files (the frontend can't write to `/config/www/`), so it's a
+  second phase, built from the same component.
+- Decided against: an HA add-on or integration with its own panel (heavy to install and maintain for a card), and a
+  desktop app.
+
+### How it's built
+
+- **A custom element, `<lightwell-editor>`,** in `src/editor/`, bundled separately into `dist/lightwell-editor.js` so
+  the card's bundle stays as small as it is. The page is a thin shell around it; the same element could later be the
+  HA card editor.
+- **The YAML document is the model.** The editor keeps the file as a `yaml` Document (the library the build already
+  uses) and applies every edit as a change at a path (`furniture.sofa.shape.rect`), so **comments and layout
+  survive**: the Taksony flat's YAML is half comments. The home object the card gets is derived from the document
+  after each edit. Undo and redo keep a list of documents (cheap at this size).
+- **One description of the fields**, `src/schema.js`: each field's type, whether it's required, its default, its
+  unit and a line of help. The property panel's forms are generated from it. A test checks that it and `defineHome`
+  agree, so they can't drift; later it could generate the README's tables too.
+- **The simulator's controls become a module** (date, time and its presets, facing, clouds, shutters, lights off),
+  shared by the simulator page and the editor, so both stay one implementation.
+- **An overlay for editing:** a transparent SVG with the same `viewBox` laid over the card, carrying the selection,
+  handles, guides and the grid. Pointer positions are converted to the drawing's units through its screen matrix.
+  Hit testing uses the home's geometry (shapes, furniture outlines, opening spans, pool circles, marker positions),
+  front to back: markers, lights, furniture, openings, drawing shapes, rooms.
+- **Snapping:** to a grid (5 cm by default, from `units_per_metre`), to other items' edges and corners, and to the
+  axes with Shift. A ruler shows lengths in metres while drawing.
+
+### What the editor does
+
+- **Layout:** the card (light or dark, with the simulator's controls) in the middle; a list of everything on the
+  left (rooms, drawing slots in their order, openings, furniture, lights, markers), reorderable where order matters;
+  the selected item's properties on the right; the check's messages at the bottom, each one selecting its item.
+- **Start a home:** from the example, from an empty one with a size and a scale, or **from a picture of the plan**:
+  drop the image, draw a line along something whose length is known (a wall, a door), type its length, and the scale
+  and view follow; then trace over it, or keep it as the `background`.
+- **Tools:** select (move, resize from corners, rotate turned pieces, drag a polygon's corners and add or remove
+  them), wall, room (rectangle or polygon), opening (drag along an outer wall: its side, outer face and thickness come
+  from the wall under it), furniture (rectangle, circle, polygon; height, shadow room, class), light (its glow, then
+  its pool's centre and radius, its height; furniture is added to its shadows by clicking it), marker, label.
+- **Entities:** pickers fed by the states in use (the example's, a snapshot from `snapshot.sh`, or, later, a live
+  connection to Home Assistant through its own login page, so no token is ever pasted into the page). A marker's label
+  is built by choosing an attribute from the entity's real attributes and seeing the text it gives.
+- **Raw YAML:** a text view of the same document, editable, for anything the forms don't cover; the preview follows
+  it as it's typed.
+- **Saving:** YAML (comments kept), and JSON for `home_url`. The work in progress is also kept in the browser's
+  storage, so a closed tab loses nothing.
+
+### Decided against, for now
+
+- A general drawing program (free-form curves, layers of its own): the editor edits a home's fields, nothing else.
+- Generating walls from rooms: walls are drawn (or traced from the picture) as they are; rooms are their own shapes.
+- A live HA connection in the first version: snapshots cover the pickers; the login flow comes later (step 6).
+
+### Open questions for the user
+
+1. **Standalone first, the HA visual editor later?** (assumed)
+2. **GitHub Pages** for the hosted editor, at `viktorbalog.github.io/lightwell-card/editor/`? It needs Pages turned
+   on in the repository's settings (from a workflow).
+3. **Keeping comments** when saving, which ties the editor to the `yaml` Document model (assumed: yes, the Taksony
+   flat depends on them).
+4. **The text view:** a plain text area (no dependencies) or CodeMirror (highlighting, line numbers, +~150 kB to the
+   editor's bundle only)? Plain first is assumed.
+
+## Steps
+
+1. [Groundwork](01-groundwork.md): the shared simulator controls, the editor page and element, opening and saving with
+   comments kept, undo and redo, the raw YAML view with a live preview and the check's messages.
+2. [Selection and properties](02-select.md): the overlay, hit testing, the list, the property panel from
+   `src/schema.js`.
+3. [Moving things](03-manipulate.md): move, resize, rotate, polygon corners, snapping, the grid and the ruler.
+4. [Drawing things](04-create.md): the creation tools, starting from a picture with its scale calibrated.
+5. [Entities](05-entities.md): pickers from the states, the label builder, icons.
+6. [Publishing](06-publish.md): GitHub Pages, the README's editor section, a live HA connection through its login
+   flow, and whether to go on to the HA visual editor.
+
+Steps 2–5 build on each other in order; step 6 can start once step 4 is done.
+
+## Verification
+
+- **Round trip:** opening the Taksony flat's and the example's YAML and saving without changes gives the same text,
+  byte for byte; a move of one piece changes only that piece's numbers, its comments intact (tests on the model).
+- **Unit tests** for the model's edits, undo and redo, hit testing, snapping, the opening tool's wall inference, the
+  scale calibration, and the schema agreeing with `defineHome`.
+- **The card is unchanged:** `dist/lightwell-card.js` builds to the same bytes as before the editor (the editor has
+  its own bundle), and the reference screenshots match.
+- **By hand, in Chrome:** draw the example flat from its picture alone, then compare the result's render with the
+  example's (the same rooms, openings, lights and markers in the same places, within the snapping). And in Firefox:
+  open, edit and download.
+- **A stranger's test** before announcing it: someone who hasn't seen the YAML draws their own home with it.
