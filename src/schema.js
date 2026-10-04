@@ -5,7 +5,8 @@
 //
 // A field: {type, help, required, check, default, unit, ...}. Types:
 // - number (`unit`: u for the drawing's units, m, °, %, ms; `min`), string, bool, enum (`values`), color (CSS);
-// - entity (`domain` when only one fits), room (a room's name), effect (an effect's name), icon (mdi:…);
+// - entity (`domain`: the domain, or domains, that fit), room (a room's name), effect (an effect's name), icon (mdi:…),
+//   attribute (an attribute of the entity a marker's label reads);
 // - numbers: a fixed list of numbers with `labels` ([x, y, w, h]); rgb: [r, g, b]; points: a polygon [[x, y], ...];
 // - list (`of`: the items' field), map (`of`: the values' field, by name), object (`fields`);
 // - shape: a shape (shapes.js), with any SVG attributes besides its own fields;
@@ -64,7 +65,7 @@ const PIECE = {type: 'object', check: true, help: 'A piece of furniture: drawn, 
 }};
 
 const LIGHT = {type: 'object', check: true, help: 'A light drawn as a glow, in its entity\'s colour and brightness', fields: {
-  entities: {type: 'list', of: {type: 'entity', check: true, help: 'An entity'}, required: true, help: 'The first of them that is on lights it, in its colour'},
+  entities: {type: 'list', of: {type: 'entity', domain: ['light', 'switch', 'media_player', 'fan', 'input_boolean'], check: true, help: 'An entity'}, required: true, help: 'The first of them that is on lights it, in its colour'},
   states: {type: 'list', of: {type: 'string', help: 'A state'}, default: ['on'], help: 'What counts as on'},
   color: {type: 'rgb', help: '[r, g, b], for entities without a colour of their own'},
   shape: {...SHAPES('Shapes, blurred into a glow'), required: true},
@@ -91,7 +92,7 @@ const MARKER = {type: 'object', check: true, help: 'A marker over the plan: tap 
   side: {type: 'bool', help: 'The label to its right instead of below'},
   label: {type: 'object', check: true, help: 'The small text under the icon', fields: {
     entity: {type: 'entity', check: true, help: "Read this entity instead of the marker's"},
-    attribute: {type: 'string', help: 'Show this attribute (otherwise the state)'},
+    attribute: {type: 'attribute', help: 'Show this attribute (otherwise the state)'},
     round: {type: 'number', help: 'Round to this many decimals', min: 0},
     unit: {type: 'string', help: "Appended, as in '°' or ' lx'"},
     when: {type: 'list', of: {type: 'string', help: 'A state'}, check: true, help: "Only while the marker's entity is in one of these states"},

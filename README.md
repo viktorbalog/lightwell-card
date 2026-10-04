@@ -291,7 +291,9 @@ Open the pages in `tools/simulator/` straight from the files in a browser; nothi
 
   It shows the example by default. For your own home: `node tools/simulator/home-tool.mjs js my-home.yaml my-home.js`,
   then `tools/simulator/snapshot.sh --home my-home.yaml` (with `HA_HOST` and `HA_TOKEN` set) for your real states and
-  location, and open `index.html?home=my-home.js&states=states.js` (paths relative to the page).
+  location, and open `index.html?home=my-home.js&states=states.js` (paths relative to the page). With `--all` after
+  the home it saves every entity in Home Assistant, which the editor (`tools/editor/index.html?states=../simulator/states.js`)
+  then offers in its entity pickers.
 - **`bench.html` and `trace-report.cjs`:** how much work the card does, measured in a Chrome performance trace.
 - **`ref.html` and `pngdiff.cjs`:** fixed scenes in light and dark, and a pixel-by-pixel comparison of two screenshots,
   to check a change doesn't change the looks.

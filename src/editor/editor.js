@@ -144,6 +144,21 @@ const STYLE = `
   .props button.clear { padding: 0 6px; line-height: 16px; }
   .props button.add-field { margin: 4px 0; font-size: 12px; padding: 2px 8px; }
   .props button.delete { color: #b00020; }
+  .props .stack { display: flex; flex-direction: column; flex: 1; min-width: 0; position: relative; }
+  .props .note { color: #888; font-size: 11px; min-height: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .props .entities { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+  .props .icon { width: 20px; height: 20px; flex: none; background: #555; -webkit-mask: var(--icon) center/contain no-repeat;
+    mask: var(--icon) center/contain no-repeat; }
+  .props .found { position: absolute; top: 100%; left: 0; right: 0; z-index: 2; max-height: 260px; overflow: auto; background: #fff;
+    border: 1px solid #ccc; border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15); display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .props .found[hidden] { display: none; }
+  .props .found button { display: flex; align-items: center; gap: 6px; border: 0; border-radius: 0; background: none; padding: 4px 6px;
+    font-size: 12px; text-align: left; overflow: hidden; }
+  .props .found button span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .props .label-now { margin: 6px 0 2px; } .props .label-now.none { color: #888; }
+  .props .step { margin: 2px 0; } .props .step input[type=number] { flex: 1; min-width: 3em; }
+  .props .step input[type=color] { width: 36px; height: 24px; padding: 0 2px; flex: none; }
   footer { max-height: 30vh; overflow: auto; border-top: 1px solid var(--line); background: #fff; }
   footer:empty { display: none; }
   footer p { margin: 0; padding: 4px 12px; font: 12.5px ui-monospace, Menlo, Consolas, monospace; color: #b00020; }
@@ -330,6 +345,7 @@ export class LightwellEditor extends HTMLElement {
       add: group => this._add(group),
       remove: path => this._remove([path]),
       duplicate: () => this._duplicate(),
+      previewEffect: (name, entity) => this._previewEffect(name, entity),
       rename: (path, name) => this._rename(path, name),
       move: (path, from, to) => this._move(path, from, to),
       template: path => this._template(path),
@@ -387,7 +403,7 @@ export class LightwellEditor extends HTMLElement {
     else if (bg && url === null) data = {...data, drawing: {...data.drawing, background: undefined}};
     try {
       this._card.setConfig({home: data, north: this._shown.north});
-      this._card.hass = {states: this._shown.states, themes: {darkMode: this._dark}, callService: this._controls.callService};
+      this._card.hass = {states: this._effectStates(), themes: {darkMode: this._dark}, callService: this._controls.callService};
     } catch (e) {
       this._message(e.message);
     }
@@ -442,7 +458,8 @@ export class LightwellEditor extends HTMLElement {
 
   _renderPanels() {
     renderList(this._el.list, this.model.data, this._sel, this._ctx, this._sels);
-    renderProperties(this._el.props, this.model.data, this._sel, {...this._ctx, data: this.model.data, states: this._shown.states});
+    renderProperties(this._el.props, this.model.data, this._sel, {...this._ctx, data: this.model.data, states: this._shown.states,
+      previewing: this._effect});
     if (this._sels.length > 1) {
       this._el.props.prepend(Object.assign(document.createElement('p'), {className: 'help',
         textContent: `${this._sels.length} items selected: they move together, and Delete deletes them all. The last one's properties:`}));
@@ -726,6 +743,21 @@ export class LightwellEditor extends HTMLElement {
     this._el.ruler.textContent = '';
     this._el.box.setAttribute('width', 0);
     this._el.box.setAttribute('height', 0);
+  }
+
+  // Plays an effect of the home on a lamp (its entity on, reporting the effect), until stopped (name null).
+  _previewEffect(name, entity) {
+    this._effect = name && entity ? {name, entity} : null;
+    this._renderCard();
+    this._renderPanels();
+  }
+
+  // The states the card is shown with: the simulator's, with the lamp playing a previewed effect.
+  _effectStates() {
+    const states = this._shown.states, fx = this._effect;
+    if (!fx) return states;
+    const s = states[fx.entity] || {entity_id: fx.entity, attributes: {}};
+    return {...states, [fx.entity]: {...s, state: 'on', attributes: {...s.attributes, effect: fx.name}}};
   }
 
   // The tool in use: 'select', or one that draws (wall, room, opening, piece, light, marker, label, scale).

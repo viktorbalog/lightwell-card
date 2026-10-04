@@ -123,8 +123,8 @@ step 6.
 | 2. Selection and properties | done 2026-10-03 | `src/schema.js` with its check against `defineHome`, hit testing, the overlay, the item list (add, reorder, rename with references, delete), the property forms. A light's glow is picked after the furniture (see Approach). |
 | 3. Moving things | done 2026-10-04 | `src/editor/manipulate.js` (moving, handles, resizing, turning, polygon corners, snapping, the ruler), dragging with a live preview and one edit on letting go (`HomeModel.batch`), a selection of several, arrows, Ctrl+D, a grid. A light's pool centre handle moves the pool alone. |
 | 4. Drawing things | done 2026-10-04 | `src/editor/create.js`: new homes (example, empty, over a picture kept in the browser, with the scale measured on it), the tools (wall, room, opening with its wall inferred, furniture, light, marker, label, scale), defaults by name and room. A lamp's shadows are toggled by Ctrl+click. Checked by tracing the background example's studio from its picture. |
-| 5. Entities | next | |
-| 6. Publishing | | |
+| 5. Entities | done 2026-10-04 | `src/editor/pickers.js`: entity pickers with names and states (a light's entities as a list), `snapshot.sh --all`, the label builder with the text it shows now, icon search from the MDI list, an effects form with a preview on a lamp. |
+| 6. Publishing | next | |
 
 Each step's file has its Outcome. Still to do by hand from steps 1–3: Firefox, saving and reopening through the
 browser's real file dialogs, and drawing with a real mouse.

@@ -8736,7 +8736,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     extra: { ...SHAPES("Shapes drawn with it, in its own frame and turned with it: cushions, devices on it, lines") }
   } };
   var LIGHT = { type: "object", check: true, help: "A light drawn as a glow, in its entity's colour and brightness", fields: {
-    entities: { type: "list", of: { type: "entity", check: true, help: "An entity" }, required: true, help: "The first of them that is on lights it, in its colour" },
+    entities: { type: "list", of: { type: "entity", domain: ["light", "switch", "media_player", "fan", "input_boolean"], check: true, help: "An entity" }, required: true, help: "The first of them that is on lights it, in its colour" },
     states: { type: "list", of: { type: "string", help: "A state" }, default: ["on"], help: "What counts as on" },
     color: { type: "rgb", help: "[r, g, b], for entities without a colour of their own" },
     shape: { ...SHAPES("Shapes, blurred into a glow"), required: true },
@@ -8765,7 +8765,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     side: { type: "bool", help: "The label to its right instead of below" },
     label: { type: "object", check: true, help: "The small text under the icon", fields: {
       entity: { type: "entity", check: true, help: "Read this entity instead of the marker's" },
-      attribute: { type: "string", help: "Show this attribute (otherwise the state)" },
+      attribute: { type: "attribute", help: "Show this attribute (otherwise the state)" },
       round: { type: "number", help: "Round to this many decimals", min: 0 },
       unit: { type: "string", help: "Appended, as in '\xB0' or ' lx'" },
       when: { type: "list", of: { type: "string", help: "A state" }, check: true, help: "Only while the marker's entity is in one of these states" },
@@ -8861,12 +8861,176 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     return f;
   }
 
-  // src/editor/panels.js
+  // src/editor/pickers.js
   var el = (tag, props = {}, ...children) => {
     const e = Object.assign(document.createElement(tag), props);
     for (const c of children.flat()) if (c !== null && c !== void 0 && c !== false) e.append(c);
     return e;
   };
+  function entityChoices(states, domain) {
+    const domains = [domain].flat().filter(Boolean);
+    const fits = (id) => !domains.length || domains.includes(id.split(".")[0]);
+    return Object.entries(states || {}).map(([id, s]) => ({ id, name: s?.attributes?.friendly_name || "", state: s?.state, fits: fits(id) })).sort((a, b) => b.fits - a.fits || a.id.localeCompare(b.id));
+  }
+  function entityNote(states, id) {
+    if (!id) return "";
+    const s = states?.[id];
+    if (!s) return Object.keys(states || {}).length ? "not in the states in use" : "";
+    return [s.attributes?.friendly_name, s.state].filter((v) => v !== void 0 && v !== "").join(" \xB7 ");
+  }
+  var OWN = ["friendly_name", "icon", "entity_picture", "supported_features", "supported_color_modes", "attribution"];
+  function attributesOf(state) {
+    return Object.keys(state?.attributes || {}).sort((a, b) => OWN.includes(a) - OWN.includes(b) || a.localeCompare(b));
+  }
+  function labelPreview(marker, states) {
+    const s = states?.[marker?.entity];
+    if (!marker?.label) return { text: "", why: "no label" };
+    if (!s) return { text: "", why: `${marker.entity || "its entity"} isn't in the states in use` };
+    const text2 = labelOf(marker, s, states);
+    if (text2) return { text: text2, why: "" };
+    const l = marker.label;
+    if (l.when && !l.when.includes(s.state)) return { text: "", why: `nothing now: only while ${marker.entity} is ${l.when.join(" or ")} (it's ${s.state})` };
+    if (l.entity && !states[l.entity]) return { text: "", why: `${l.entity} isn't in the states in use` };
+    return { text: "", why: "nothing now: no value, a hidden one, or not a number to round" };
+  }
+  function searchIcons(list, query, n2 = 60) {
+    const q = String(query || "").toLowerCase().replace(/^mdi:/, "").trim();
+    if (!q) return [];
+    const rank = (i) => i.name.startsWith(q) ? 0 : i.name.includes(q) ? 1 : (i.aliases || []).some((a) => a.includes(q)) ? 2 : (i.tags || []).some((t) => t.toLowerCase().includes(q)) ? 3 : 9;
+    return list.map((i) => [rank(i), i.name]).filter(([r]) => r < 9).sort((a, b) => a[0] - b[0] || a[1].length - b[1].length || a[1].localeCompare(b[1])).slice(0, n2).map(([, name]) => name);
+  }
+  var hsHex = (h, s) => `#${hsvRgb(h, s).map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+  function hexHs(hex) {
+    const [r, g, b] = [1, 3, 5].map((k) => parseInt(hex.slice(k, k + 2), 16) / 255), max = Math.max(r, g, b), d = max - Math.min(r, g, b);
+    if (!max || !d) return [0, 0];
+    const h = max === r ? (g - b) / d % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return [Math.round((h * 60 + 360) % 360), Math.round(d / max * 100)];
+  }
+  var lists = 0;
+  function datalist(input2, options) {
+    if (!options.length) return [];
+    const id = `lw-list-${++lists}`;
+    input2.setAttribute("list", id);
+    return [el("datalist", { id }, options.map((o) => el("option", { value: o.value, label: o.label || "" })))];
+  }
+  function entityInput(field, value, commit, states) {
+    const i = el("input", { type: "text", value: value ?? "", placeholder: field.default ?? (field.domain ? `${[field.domain].flat()[0]}.\u2026` : "domain.name"), spellcheck: false });
+    const note = el("small", { className: "note", textContent: entityNote(states, value) });
+    i.onchange = () => commit(i.value.trim() === "" ? void 0 : i.value.trim());
+    i.oninput = () => {
+      note.textContent = entityNote(states, i.value.trim());
+    };
+    const options = entityChoices(states, field.domain).map((c) => ({ value: c.id, label: [c.name, c.state].filter(Boolean).join(" \xB7 ") }));
+    return [el("span", { className: "stack" }, i, note), ...datalist(i, options)];
+  }
+  function entityList(field, value, commit, states) {
+    const v = Array.isArray(value) ? value : [];
+    const rows = v.map((id, k) => {
+      const remove = el("button", { type: "button", className: "clear", textContent: "\xD7", title: "Take it out" });
+      remove.onclick = () => commit(v.filter((_, j) => j !== k));
+      return el("span", { className: "value" }, entityInput(field.of, id, (x) => commit(x === void 0 ? v.filter((_, j) => j !== k) : v.map((y, j) => j === k ? x : y)), states), remove);
+    });
+    const add = entityInput({ ...field.of, default: "another\u2026" }, void 0, (x) => x !== void 0 && commit([...v, x]), states);
+    return [el("span", { className: "entities" }, rows, el("span", { className: "value" }, add))];
+  }
+  var ICONS_URL = "https://cdn.jsdelivr.net/npm/@mdi/svg/meta.json";
+  var icons;
+  var loadIcons = () => icons ?? (icons = fetch(ICONS_URL).then((r) => r.ok ? r.json() : null).then((list) => list && list.map(({ name, aliases, tags }) => ({ name, aliases, tags }))).catch(() => null));
+  var iconSwatch = (name) => {
+    const s = el("span", { className: "icon" });
+    if (/^mdi:[\w-]+$/.test(name || "")) s.style.setProperty("--icon", `url(https://cdn.jsdelivr.net/npm/@mdi/svg/svg/${name.slice(4)}.svg)`);
+    return s;
+  };
+  function iconInput(field, value, commit) {
+    const i = el("input", { type: "text", value: value ?? "", placeholder: "mdi:\u2026 (type to search)", spellcheck: false });
+    const swatch = iconSwatch(value), found = el("div", { className: "found", hidden: true });
+    const pick = (name) => {
+      i.value = name;
+      found.hidden = true;
+      commit(name);
+    };
+    let typed = 0;
+    i.onchange = () => commit(i.value.trim() === "" ? void 0 : i.value.trim());
+    i.oninput = async () => {
+      const mine = ++typed, list = await loadIcons();
+      if (mine !== typed) return;
+      const names = list ? searchIcons(list, i.value) : [];
+      found.textContent = "";
+      found.hidden = !names.length;
+      for (const name of names) {
+        const b = el("button", { type: "button", title: `mdi:${name}` }, iconSwatch(`mdi:${name}`), el("span", { textContent: name }));
+        b.onmousedown = (e) => e.preventDefault();
+        b.onclick = () => pick(`mdi:${name}`);
+        found.append(b);
+      }
+    };
+    i.onblur = () => setTimeout(() => {
+      found.hidden = true;
+    }, 150);
+    return [swatch, el("span", { className: "stack search" }, i, found)];
+  }
+  function labelLine(marker, states) {
+    const { text: text2, why } = labelPreview(marker, states);
+    return el("p", { className: `label-now${text2 ? "" : " none"}` }, text2 ? ["Shows now: ", el("b", { textContent: text2 })] : why);
+  }
+  function effectsEditor(effects, { commit, preview, previewing, lights }) {
+    const all = effects && typeof effects === "object" ? effects : {};
+    const set2 = (name2, def) => commit(Object.keys({ ...all, [name2]: def }).length ? { ...all, [name2]: def } : void 0);
+    const out = [];
+    for (const [name2, def] of Object.entries(all)) {
+      const steps = Array.isArray(def) ? def : Array.isArray(def?.steps) ? def.steps : null;
+      const box2 = el("fieldset", { className: "effect" });
+      const remove = el("button", { type: "button", className: "clear", textContent: "\xD7", title: `Delete ${name2}` });
+      remove.onclick = () => {
+        const rest = { ...all };
+        delete rest[name2];
+        commit(Object.keys(rest).length ? rest : void 0);
+      };
+      box2.append(el("legend", {}, el("span", { className: "key", textContent: name2 }), remove));
+      if (!steps) {
+        box2.append(el("p", { className: "help", textContent: "Not a list of steps: edit it in the YAML." }));
+        out.push(box2);
+        continue;
+      }
+      const put2 = (list) => set2(name2, Array.isArray(def) ? list : { ...def, steps: list });
+      const fade = el("input", { type: "number", min: 0, step: 50, value: Array.isArray(def) ? "" : def.fade ?? "", placeholder: "666" });
+      fade.onchange = () => set2(name2, fade.value === "" ? steps : { ...Array.isArray(def) ? {} : def, fade: +fade.value, steps });
+      box2.append(el(
+        "label",
+        { className: "row" },
+        el("span", { className: "key", textContent: "fade", title: "Each step fades in over this long" }),
+        el("span", { className: "value" }, fade, el("span", { className: "unit", textContent: "ms" }))
+      ));
+      steps.forEach((st, k) => {
+        const [h, s, v, hold] = st, colour = el("input", { type: "color", value: hsHex(h, s), title: `hue ${h}, saturation ${s}` });
+        const bright = el("input", { type: "number", min: 1, max: 100, value: v, title: "Brightness %" });
+        const holdIn = el("input", { type: "number", min: 0, step: 100, value: hold, title: "Held this long (ms)" });
+        const change = () => put2(steps.map((x, j) => j === k ? [...hexHs(colour.value), +bright.value, +holdIn.value] : x));
+        colour.onchange = bright.onchange = holdIn.onchange = change;
+        const del = el("button", { type: "button", className: "clear", textContent: "\xD7", title: "Delete this step", disabled: steps.length < 2 });
+        del.onclick = () => put2(steps.filter((_, j) => j !== k));
+        box2.append(el("span", { className: "value step" }, colour, bright, el("span", { className: "unit", textContent: "%" }), holdIn, el("span", { className: "unit", textContent: "ms" }), del));
+      });
+      const add = el("button", { type: "button", className: "add-field", textContent: "+ step" });
+      add.onclick = () => put2([...steps, [...steps.at(-1) || [30, 80, 100, 2e3]]]);
+      const on = previewing?.name === name2;
+      const lamp = el("select", { title: "The lamp it plays on" }, lights.map((id) => el("option", { value: id, textContent: id, selected: on && previewing.entity === id })));
+      const play = el("button", { type: "button", className: "add-field", textContent: on ? "Stop" : "Preview on", disabled: !lights.length });
+      play.setAttribute("aria-pressed", on);
+      play.onclick = () => preview(on ? null : name2, lamp.value);
+      box2.append(el("span", { className: "value" }, add, play, lamp));
+      out.push(box2);
+    }
+    const name = el("input", { type: "text", placeholder: "a new effect\u2019s name", spellcheck: false });
+    name.onchange = () => {
+      const n2 = name.value.trim();
+      if (n2 && !all[n2]) set2(n2, [[30, 80, 100, 3e3], [15, 90, 70, 3e3]]);
+    };
+    out.push(el("div", { className: "row" }, name), el("p", { className: "help", textContent: `Built in: ${Object.keys(PRESETS).join(", ")}.` }));
+    return out;
+  }
+
+  // src/editor/panels.js
   var flow = (v) => v === void 0 ? "" : browser_default.stringify(v, { collectionStyle: "flow", lineWidth: 0, flowCollectionPadding: false }).trim();
   var samePath = (a, b) => !!a && !!b && a.length === b.length && a.every((k, i) => k === b[i]);
   var pathKey = (path) => JSON.stringify(path);
@@ -8999,19 +9163,11 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         return Object.keys(d.furniture || {}).filter((n2) => d.furniture[n2]?.height);
       case "effect":
         return [.../* @__PURE__ */ new Set([...Object.keys(PRESETS), ...Object.keys(d.effects || {})])];
-      case "entity":
-        return Object.keys(ctx.states || {}).filter((id) => !field.domain || id.startsWith(`${field.domain}.`)).sort();
       default:
         return [];
     }
   }
-  var lists = 0;
-  var datalist = (input2, values) => {
-    if (!values.length) return [];
-    const id = `lw-list-${++lists}`;
-    input2.setAttribute("list", id);
-    return [el("datalist", { id }, values.map((v) => el("option", { value: v })))];
-  };
+  var markerOf = (path, ctx) => path[0] === "markers" ? ctx.data?.markers?.[path[1]] : void 0;
   function input(field, value, path, ctx) {
     const commit = (v) => ctx.commit(path, v);
     const t = field.type;
@@ -9059,10 +9215,28 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       i.onchange = () => commit(i.value === "" ? void 0 : i.value);
       return [swatch, i];
     }
-    if (["string", "entity", "icon", "effect"].includes(t)) {
-      const i = el("input", { type: "text", value: value ?? "", placeholder: field.default ?? (t === "icon" ? "mdi:\u2026" : ""), spellcheck: false });
+    if (t === "entity") return entityInput(field, value, commit, ctx.states);
+    if (t === "icon") return iconInput(field, value, commit);
+    if (t === "list" && field.of?.type === "entity") return entityList(field, value, commit, ctx.states);
+    if (t === "attribute") {
+      const m2 = markerOf(path, ctx), id = m2?.label?.entity || m2?.entity, names = attributesOf(ctx.states?.[id]);
+      const s = el(
+        "select",
+        {},
+        el("option", { value: "", textContent: "(its state)" }),
+        [...names, ...value !== void 0 && !names.includes(value) ? [value] : []].map((n2) => el("option", {
+          value: n2,
+          selected: n2 === value,
+          textContent: `${n2}: ${JSON.stringify(ctx.states?.[id]?.attributes?.[n2] ?? "?")}`.slice(0, 60)
+        }))
+      );
+      s.onchange = () => commit(s.value === "" ? void 0 : s.value);
+      return [s];
+    }
+    if (["string", "effect"].includes(t)) {
+      const i = el("input", { type: "text", value: value ?? "", placeholder: field.default ?? "", spellcheck: false });
       i.onchange = () => commit(i.value === "" ? void 0 : i.value);
-      return [i, ...datalist(i, choices(field, ctx))];
+      return [i, ...datalist(i, choices(field, ctx).map((v) => ({ value: v })))];
     }
     if (t === "list" && field.of?.type === "furniture") {
       const names = choices(field.of, ctx), v = Array.isArray(value) ? value : [];
@@ -9097,7 +9271,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       }
       const remove = !field.required && el("button", { type: "button", className: "clear", textContent: "\xD7", title: `Leave ${key} out` });
       if (remove) remove.onclick = () => ctx.commit(path, void 0);
-      return el("fieldset", {}, el("legend", {}, label, remove), fields(field, value, path, ctx));
+      const preview = path[0] === "markers" && path.length === 3 && key === "label" && labelLine(markerOf(path, ctx), ctx.states);
+      return el("fieldset", {}, el("legend", {}, label, remove), fields(field, value, path, ctx), preview);
     }
     const r = el("label", { className: "row" }, label, el("span", { className: "value" }, input(field, value, path, ctx)));
     r.dataset.path = pathKey(path);
@@ -9143,7 +9318,14 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       box2.append(el("h2", { textContent: "The home" }));
       for (const key of ["view", "units_per_metre", "sun"]) box2.append(row(key, SCHEMA.fields[key], d[key], [key], ctx));
       box2.append(row("background", SCHEMA.fields.drawing.fields.background, d.drawing?.background, ["drawing", "background"], ctx));
-      for (const key of ["effects", "palette", "simulator"]) {
+      const lights = [...new Set((d.lights || []).map((g) => g?.entities?.[0]).filter(Boolean))];
+      box2.append(el(
+        "fieldset",
+        {},
+        el("legend", {}, el("span", { className: "key", textContent: "effects", title: SCHEMA.fields.effects.help })),
+        effectsEditor(d.effects, { commit: (v) => ctx.commit(["effects"], v), preview: ctx.previewEffect, previewing: ctx.previewing, lights })
+      ));
+      for (const key of ["palette", "simulator"]) {
         const f = SCHEMA.fields[key];
         box2.append(row(key, { type: "yaml", help: f.help }, d[key], [key], ctx));
       }
@@ -9288,6 +9470,21 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
   .props button.clear { padding: 0 6px; line-height: 16px; }
   .props button.add-field { margin: 4px 0; font-size: 12px; padding: 2px 8px; }
   .props button.delete { color: #b00020; }
+  .props .stack { display: flex; flex-direction: column; flex: 1; min-width: 0; position: relative; }
+  .props .note { color: #888; font-size: 11px; min-height: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .props .entities { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+  .props .icon { width: 20px; height: 20px; flex: none; background: #555; -webkit-mask: var(--icon) center/contain no-repeat;
+    mask: var(--icon) center/contain no-repeat; }
+  .props .found { position: absolute; top: 100%; left: 0; right: 0; z-index: 2; max-height: 260px; overflow: auto; background: #fff;
+    border: 1px solid #ccc; border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15); display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .props .found[hidden] { display: none; }
+  .props .found button { display: flex; align-items: center; gap: 6px; border: 0; border-radius: 0; background: none; padding: 4px 6px;
+    font-size: 12px; text-align: left; overflow: hidden; }
+  .props .found button span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .props .label-now { margin: 6px 0 2px; } .props .label-now.none { color: #888; }
+  .props .step { margin: 2px 0; } .props .step input[type=number] { flex: 1; min-width: 3em; }
+  .props .step input[type=color] { width: 36px; height: 24px; padding: 0 2px; flex: none; }
   footer { max-height: 30vh; overflow: auto; border-top: 1px solid var(--line); background: #fff; }
   footer:empty { display: none; }
   footer p { margin: 0; padding: 4px 12px; font: 12.5px ui-monospace, Menlo, Consolas, monospace; color: #b00020; }
@@ -9506,6 +9703,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         add: (group) => this._add(group),
         remove: (path) => this._remove([path]),
         duplicate: () => this._duplicate(),
+        previewEffect: (name, entity) => this._previewEffect(name, entity),
         rename: (path, name) => this._rename(path, name),
         move: (path, from, to) => this._move(path, from, to),
         template: (path) => this._template(path),
@@ -9561,7 +9759,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       else if (bg && url === null) data = { ...data, drawing: { ...data.drawing, background: void 0 } };
       try {
         this._card.setConfig({ home: data, north: this._shown.north });
-        this._card.hass = { states: this._shown.states, themes: { darkMode: this._dark }, callService: this._controls.callService };
+        this._card.hass = { states: this._effectStates(), themes: { darkMode: this._dark }, callService: this._controls.callService };
       } catch (e) {
         this._message(e.message);
       }
@@ -9611,7 +9809,12 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     }
     _renderPanels() {
       renderList(this._el.list, this.model.data, this._sel, this._ctx, this._sels);
-      renderProperties(this._el.props, this.model.data, this._sel, { ...this._ctx, data: this.model.data, states: this._shown.states });
+      renderProperties(this._el.props, this.model.data, this._sel, {
+        ...this._ctx,
+        data: this.model.data,
+        states: this._shown.states,
+        previewing: this._effect
+      });
       if (this._sels.length > 1) {
         this._el.props.prepend(Object.assign(document.createElement("p"), {
           className: "help",
@@ -9889,6 +10092,19 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       this._el.ruler.textContent = "";
       this._el.box.setAttribute("width", 0);
       this._el.box.setAttribute("height", 0);
+    }
+    // Plays an effect of the home on a lamp (its entity on, reporting the effect), until stopped (name null).
+    _previewEffect(name, entity) {
+      this._effect = name && entity ? { name, entity } : null;
+      this._renderCard();
+      this._renderPanels();
+    }
+    // The states the card is shown with: the simulator's, with the lamp playing a previewed effect.
+    _effectStates() {
+      const states = this._shown.states, fx = this._effect;
+      if (!fx) return states;
+      const s = states[fx.entity] || { entity_id: fx.entity, attributes: {} };
+      return { ...states, [fx.entity]: { ...s, state: "on", attributes: { ...s.attributes, effect: fx.name } } };
     }
     // The tool in use: 'select', or one that draws (wall, room, opening, piece, light, marker, label, scale).
     setTool(tool) {

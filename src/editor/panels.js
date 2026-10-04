@@ -6,12 +6,7 @@ import YAML from 'yaml';
 import {SCHEMA, SHAPE_KINDS, fieldAt} from '../schema.js';
 import {SLOTS} from '../home.js';
 import {PRESETS} from '../effects.js';
-
-const el = (tag, props = {}, ...children) => {
-  const e = Object.assign(document.createElement(tag), props);
-  for (const c of children.flat()) if (c !== null && c !== undefined && c !== false) e.append(c);
-  return e;
-};
+import {attributesOf, datalist, effectsEditor, el, entityInput, entityList, iconInput, labelLine} from './pickers.js';
 const flow = v => (v === undefined ? '' : YAML.stringify(v, {collectionStyle: 'flow', lineWidth: 0, flowCollectionPadding: false}).trim());
 const samePath = (a, b) => !!a && !!b && a.length === b.length && a.every((k, i) => k === b[i]);
 export const pathKey = path => JSON.stringify(path);
@@ -100,17 +95,11 @@ function choices(field, ctx) {
     case 'room': return Object.keys(d.rooms || {});
     case 'furniture': return Object.keys(d.furniture || {}).filter(n => d.furniture[n]?.height);
     case 'effect': return [...new Set([...Object.keys(PRESETS), ...Object.keys(d.effects || {})])];
-    case 'entity': return Object.keys(ctx.states || {}).filter(id => !field.domain || id.startsWith(`${field.domain}.`)).sort();
     default: return [];
   }
 }
-let lists = 0;
-const datalist = (input, values) => {
-  if (!values.length) return [];
-  const id = `lw-list-${++lists}`;
-  input.setAttribute('list', id);
-  return [el('datalist', {id}, values.map(v => el('option', {value: v})))];
-};
+// The marker a path inside one belongs to (['markers', 2, 'label', 'attribute'] → the third marker), if any.
+const markerOf = (path, ctx) => (path[0] === 'markers' ? ctx.data?.markers?.[path[1]] : undefined);
 
 // An input for one value (not an object): it commits on change, and empty means left out.
 function input(field, value, path, ctx) {
@@ -154,10 +143,22 @@ function input(field, value, path, ctx) {
     i.onchange = () => commit(i.value === '' ? undefined : i.value);
     return [swatch, i];
   }
-  if (['string', 'entity', 'icon', 'effect'].includes(t)) {
-    const i = el('input', {type: 'text', value: value ?? '', placeholder: field.default ?? (t === 'icon' ? 'mdi:…' : ''), spellcheck: false});
+  if (t === 'entity') return entityInput(field, value, commit, ctx.states);
+  if (t === 'icon') return iconInput(field, value, commit);
+  if (t === 'list' && field.of?.type === 'entity') return entityList(field, value, commit, ctx.states);
+  if (t === 'attribute') {
+    // The attributes of the entity the label reads, as they are now.
+    const m = markerOf(path, ctx), id = m?.label?.entity || m?.entity, names = attributesOf(ctx.states?.[id]);
+    const s = el('select', {}, el('option', {value: '', textContent: '(its state)'}),
+      [...names, ...(value !== undefined && !names.includes(value) ? [value] : [])].map(n => el('option', {value: n, selected: n === value,
+        textContent: `${n}: ${JSON.stringify(ctx.states?.[id]?.attributes?.[n] ?? '?')}`.slice(0, 60)})));
+    s.onchange = () => commit(s.value === '' ? undefined : s.value);
+    return [s];
+  }
+  if (['string', 'effect'].includes(t)) {
+    const i = el('input', {type: 'text', value: value ?? '', placeholder: field.default ?? '', spellcheck: false});
     i.onchange = () => commit(i.value === '' ? undefined : i.value);
-    return [i, ...datalist(i, choices(field, ctx))];
+    return [i, ...datalist(i, choices(field, ctx).map(v => ({value: v})))];
   }
   if (t === 'list' && field.of?.type === 'furniture') {
     const names = choices(field.of, ctx), v = Array.isArray(value) ? value : [];
@@ -195,7 +196,8 @@ function row(key, field, value, path, ctx) {
     }
     const remove = !field.required && el('button', {type: 'button', className: 'clear', textContent: '×', title: `Leave ${key} out`});
     if (remove) remove.onclick = () => ctx.commit(path, undefined);
-    return el('fieldset', {}, el('legend', {}, label, remove), fields(field, value, path, ctx));
+    const preview = path[0] === 'markers' && path.length === 3 && key === 'label' && labelLine(markerOf(path, ctx), ctx.states);
+    return el('fieldset', {}, el('legend', {}, label, remove), fields(field, value, path, ctx), preview);
   }
   const r = el('label', {className: 'row'}, label, el('span', {className: 'value'}, input(field, value, path, ctx)));
   r.dataset.path = pathKey(path);
@@ -247,7 +249,10 @@ export function renderProperties(box, data, selected, ctx) {
     box.append(el('h2', {textContent: 'The home'}));
     for (const key of ['view', 'units_per_metre', 'sun']) box.append(row(key, SCHEMA.fields[key], d[key], [key], ctx));
     box.append(row('background', SCHEMA.fields.drawing.fields.background, d.drawing?.background, ['drawing', 'background'], ctx));
-    for (const key of ['effects', 'palette', 'simulator']) {
+    const lights = [...new Set((d.lights || []).map(g => g?.entities?.[0]).filter(Boolean))];
+    box.append(el('fieldset', {}, el('legend', {}, el('span', {className: 'key', textContent: 'effects', title: SCHEMA.fields.effects.help})),
+      effectsEditor(d.effects, {commit: v => ctx.commit(['effects'], v), preview: ctx.previewEffect, previewing: ctx.previewing, lights})));
+    for (const key of ['palette', 'simulator']) {
       const f = SCHEMA.fields[key];
       box.append(row(key, {type: 'yaml', help: f.help}, d[key], [key], ctx));
     }
