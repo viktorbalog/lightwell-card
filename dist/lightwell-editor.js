@@ -9160,7 +9160,9 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       } else title.append(group?.items.find((it) => samePath(it.path, selected))?.label ?? selected.join("."));
       const del = el("button", { type: "button", className: "delete", textContent: "Delete", title: "Delete it (Delete)" });
       del.onclick = () => ctx.remove(selected);
-      box2.append(el("div", { className: "title" }, title, del));
+      const dup = el("button", { type: "button", textContent: "Duplicate", title: "A copy of it, a little down and to the right (Ctrl+D)" });
+      dup.onclick = () => ctx.duplicate();
+      box2.append(el("div", { className: "title" }, title, dup, del));
       if (field?.help) box2.append(el("p", { className: "help", textContent: field.help }));
       if (value === void 0) box2.append(el("p", { textContent: "Not in the home any more." }));
       else if (field?.type === "shape") box2.append(...shapeForm(value, selected, ctx));
@@ -9503,6 +9505,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         toggle: (path) => this._toggle(path),
         add: (group) => this._add(group),
         remove: (path) => this._remove([path]),
+        duplicate: () => this._duplicate(),
         rename: (path, name) => this._rename(path, name),
         move: (path, from, to) => this._move(path, from, to),
         template: (path) => this._template(path),

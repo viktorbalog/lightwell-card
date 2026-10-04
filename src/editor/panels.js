@@ -1,6 +1,7 @@
 // The editor's panels: the list of a home's items and the property form of the selected one, generated from the
 // schema (src/schema.js). They only read the home and call back: `ctx.commit(path, value)` (undefined removes it),
-// `ctx.select(path)`, `ctx.toggle(path)` (Shift+click: in or out of the selection), `ctx.add(group)`, `ctx.remove(path)`, `ctx.rename(path, name)`, `ctx.move(path, from, to)`.
+// `ctx.select(path)`, `ctx.toggle(path)` (Shift+click: in or out of the selection), `ctx.add(group)`,
+// `ctx.remove(path)`, `ctx.duplicate()` (the selection), `ctx.rename(path, name)`, `ctx.move(path, from, to)`.
 import YAML from 'yaml';
 import {SCHEMA, SHAPE_KINDS, fieldAt} from '../schema.js';
 import {SLOTS} from '../home.js';
@@ -261,7 +262,9 @@ export function renderProperties(box, data, selected, ctx) {
     } else title.append(group?.items.find(it => samePath(it.path, selected))?.label ?? selected.join('.'));
     const del = el('button', {type: 'button', className: 'delete', textContent: 'Delete', title: 'Delete it (Delete)'});
     del.onclick = () => ctx.remove(selected);
-    box.append(el('div', {className: 'title'}, title, del));
+    const dup = el('button', {type: 'button', textContent: 'Duplicate', title: 'A copy of it, a little down and to the right (Ctrl+D)'});
+    dup.onclick = () => ctx.duplicate();
+    box.append(el('div', {className: 'title'}, title, dup, del));
     if (field?.help) box.append(el('p', {className: 'help', textContent: field.help}));
     if (value === undefined) box.append(el('p', {textContent: 'Not in the home any more.'}));
     else if (field?.type === 'shape') box.append(...shapeForm(value, selected, ctx));

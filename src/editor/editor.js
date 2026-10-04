@@ -329,6 +329,7 @@ export class LightwellEditor extends HTMLElement {
       toggle: path => this._toggle(path),
       add: group => this._add(group),
       remove: path => this._remove([path]),
+      duplicate: () => this._duplicate(),
       rename: (path, name) => this._rename(path, name),
       move: (path, from, to) => this._move(path, from, to),
       template: path => this._template(path),
