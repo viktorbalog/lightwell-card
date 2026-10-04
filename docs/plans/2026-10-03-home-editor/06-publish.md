@@ -45,4 +45,36 @@ In progress (2026-10-04): steps 1 and 2 are prepared for the user's review; noth
   https://…#a` forwarded with its query and fragment, the foreign script refused (the example's states loaded
   instead); the background example's picture loaded by its relative path; the MDI list from the CDN; the simulator
   drew its cards. The one 404 was the browser's `/favicon.ico`: the editor's page now has the logo as its icon.
+- Published 2026-10-04: the user turned Pages on (GitHub Actions as its source); the push of the editor's commits ran
+  Validate and Pages successfully, and https://viktorbalog.github.io/lightwell-card/editor/ is live. Every address
+  answers 200 there, and no snapshot is published (`tools/simulator/states.js` is a 404).
+
+Then, the same day, at the user's go-ahead:
+
+- **The live connection** (`src/editor/live.js`, its pure helpers tested): a Home Assistant button in the header opens
+  a dialog for HA's address (it says when the page can't reach it: an https page and an http HA, or the editor opened
+  from the files); "Sign in…" goes to HA's own `/auth/authorize` with the page as the app (`client_id` and
+  `redirect_uri` the page's address), and back on the page the code is swapped for tokens at `/auth/token`. The
+  connection is HA's websocket API: `get_states`, `get_config` (the location, for the sun) and `state_changed`
+  events, passed to the simulator's controls (new: `setLocation`) at most every 250 ms; it reconnects after a drop and
+  refreshes the access token before it runs out. It only reads: taps on the preview act in the editor alone. The
+  tokens are kept in the browser until Disconnect, which revokes them in HA (`/auth/revoke`) and forgets them. The
+  README's editor section says how to connect, and that the hosted editor needs HA's https address.
+- Checked: against the user's HA (2024.12.5) from Node, the websocket part signed in with the box's token, got 249
+  states, kept getting changes, and the location; HA answers `/auth/token`, `/auth/revoke` and their preflight with the
+  Pages origin allowed, and accepts both the hosted and a local server's address as the app. In Chrome, with the site
+  served locally (nginx, http) and HA through the LAN relay: the dialog's "Sign in…" reached HA's login page, naming the
+  editor's address as the app; the login itself needs the user's password and wasn't done. With the box's long-lived
+  token put in an isolated tab's storage as if signed in (no refresh token, so that Disconnect couldn't revoke it):
+  connected (the header said so), 251 entities in the card and the pickers, the sun at the home's location;
+  Disconnect forgot the tokens and went back to the example's states. No console errors. The test token was in a
+  served file for a few seconds and in the isolated tab only; both are gone. Writing the tests caught `ftp://x` being
+  taken as an http address.
+- **The HA visual card editor** moved to [a plan of its own](../2026-10-04-ha-card-editor/00-plan.md), at the user's
+  wish.
+- **The CHANGELOG** (`CHANGELOG.md`, Keep a Changelog): 0.1.0 and everything since under Unreleased; from now on every
+  user-visible change goes there (CLAUDE.md says so).
+
+Left open: a sign-in by the user through HA's login page (the one step not done here); the release with the editor
+(step 5 of this file), when the user wants one.
 

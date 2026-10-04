@@ -287,6 +287,10 @@ var LightwellControls = (() => {
         STATES = s;
         update();
       },
+      setLocation(l) {
+        location = l;
+        update();
+      },
       callService,
       moreInfo,
       update

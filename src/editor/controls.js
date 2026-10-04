@@ -75,7 +75,7 @@ const FORM = `
 // calls `onChange({states, north, sun})` with the states to show whenever something changes. `states`: the states in
 // use (a snapshot); `location`: {latitude, longitude}, where the sun is worked out for. Returns:
 // - `setPlan(plan)`: a new version of the home (the editor's): the shutters, scenes and sides follow it;
-// - `setStates(states)`: other states in use;
+// - `setStates(states)`: other states in use; `setLocation(location)`: another place for the sun;
 // - `callService` and `moreInfo(entityId)` for the cards: the taps that act here (`moreInfo` is true when it did);
 // - `update()`: calls onChange again.
 export function simulatorControls(form, {plan, states = {}, location = {latitude: 51.4779, longitude: 0},
@@ -256,6 +256,7 @@ export function simulatorControls(form, {plan, states = {}, location = {latitude
   return {
     setPlan(p) { setPlan(p); update(); },
     setStates(s) { STATES = s; update(); },
+    setLocation(l) { location = l; update(); },
     callService, moreInfo, update,
   };
 }

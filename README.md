@@ -88,8 +88,13 @@ Draw your home over a picture of its plan and see the card light it as you go, u
 5. **In Home Assistant:** put the JSON (and the picture, if it stays as the background) in `/config/www/`, and give the
    card `home_url: /local/my-home.json`.
 
-The pickers know the example's entities. For yours, run the editor from a clone of this repository with a snapshot of
-your states: `tools/simulator/snapshot.sh --home my-home.yaml --all`, then open
+**Your entities:** the pickers know the example's until you connect the editor to your Home Assistant (the button at
+the top). You sign in on your Home Assistant's own login page, and the editor gets your entities, their live states and
+your location for the sun. It only reads: taps on the card still act in the editor alone, and Disconnect revokes its
+access. Browsers don't let a page on https reach a Home Assistant on plain http, so the hosted editor needs your
+Home Assistant's https address (Nabu Casa, or your own certificate). For one on http in your network, serve the
+editor from a clone of this repository (`python3 -m http.server` in it, then `http://localhost:8000/tools/editor/`).
+Without connecting, a snapshot works too: `tools/simulator/snapshot.sh --home my-home.yaml --all`, then
 `tools/editor/index.html?states=../simulator/states.js`.
 
 ## Describing your home
@@ -343,6 +348,8 @@ npm test          # unit tests
 npm run build     # dist/lightwell-card.js and the examples' home.js
 npm run watch
 ```
+
+What changed, release by release: [CHANGELOG.md](CHANGELOG.md).
 
 The source is plain ES modules in `src/`, bundled by esbuild; `dist/lightwell-card.js` is committed, since HACS
 installs it from the repository. Before changing how the card looks, take the reference screenshots (`ref.html`) and

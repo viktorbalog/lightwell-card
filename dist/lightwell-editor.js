@@ -7734,7 +7734,7 @@ ${end.comment}` : end.comment;
   function simulatorControls(form, {
     plan,
     states = {},
-    location = { latitude: 51.4779, longitude: 0 },
+    location: location2 = { latitude: 51.4779, longitude: 0 },
     noSnapshot = false,
     help = true,
     onChange
@@ -7801,7 +7801,7 @@ ${end.comment}` : end.comment;
     function timeButtons() {
       const now2 = /* @__PURE__ */ new Date(), box2 = part("times");
       box2.textContent = "";
-      for (const [label, t] of [["Now", now2.getHours() * 60 + now2.getMinutes()], ...dayTimes($("date").value, location)]) {
+      for (const [label, t] of [["Now", now2.getHours() * 60 + now2.getMinutes()], ...dayTimes($("date").value, location2)]) {
         const b = Object.assign(document.createElement("button"), {
           type: "button",
           textContent: label,
@@ -7876,7 +7876,7 @@ ${end.comment}` : end.comment;
     function update() {
       const [y, m2, d] = $("date").value.split("-").map(Number), t = +$("time").value;
       const when = new Date(y, m2 - 1, d, Math.floor(t / 60), t % 60);
-      const sun = sunPos(when, location.latitude, location.longitude), facing = +$("facing").value;
+      const sun = sunPos(when, location2.latitude, location2.longitude), facing = +$("facing").value;
       const states2 = structuredClone(STATES);
       states2[sunId] = { entity_id: sunId, state: sun.elevation > 0 ? "above_horizon" : "below_horizon", attributes: sun };
       const weather = condition || (+$("clouds").value > 60 ? "cloudy" : +$("clouds").value > 20 ? "partlycloudy" : "sunny");
@@ -7923,6 +7923,10 @@ ${end.comment}` : end.comment;
       },
       setStates(s) {
         STATES = s;
+        update();
+      },
+      setLocation(l) {
+        location2 = l;
         update();
       },
       callService,
@@ -8020,6 +8024,168 @@ ${end.comment}` : end.comment;
       img.src = url;
     });
   }
+
+  // src/editor/live.js
+  var STORE = "lightwell-editor:ha";
+  var PENDING = "lightwell-editor:ha-pending";
+  function haUrl(input2) {
+    let v = String(input2 || "").trim();
+    if (!v) return null;
+    if (/^[a-z][\w+.-]*:\/\//i.test(v) && !/^https?:\/\//i.test(v)) return null;
+    if (!/^https?:\/\//i.test(v)) v = `http://${v}`;
+    try {
+      const u = new URL(v);
+      if (!/^https?:$/.test(u.protocol) || !u.hostname) return null;
+      return `${u.protocol}//${u.host}${u.pathname.replace(/\/+$/, "")}`;
+    } catch {
+      return null;
+    }
+  }
+  var wsUrl = (base) => `${base.replace(/^http/, "ws")}/api/websocket`;
+  function cannotReach(base, page) {
+    if (!/^https?:$/.test(page.protocol)) return "The live connection needs the editor served from a web address: the hosted editor, or a local server (npx serve, python3 -m http.server) for an HA on your network.";
+    if (page.protocol === "https:" && base.startsWith("http:") && !/^http:\/\/(localhost|127\.0\.0\.1)(:|$)/.test(base)) {
+      return "This page is served over https, and the browser won't let it reach an HA on plain http. Use HA's https address (Nabu Casa, or your own certificate), or open the editor from a local server.";
+    }
+    return "";
+  }
+  function clientOf(page) {
+    const here = `${page.origin}${page.pathname}`;
+    return { clientId: here, redirectUri: here };
+  }
+  function authorizeUrl(base, { clientId, redirectUri }, state) {
+    const q = new URLSearchParams({ response_type: "code", client_id: clientId, redirect_uri: redirectUri, state });
+    return `${base}/auth/authorize?${q}`;
+  }
+  function applyEvent(states, event) {
+    const { entity_id: id, new_state: s } = event?.data || {};
+    if (!id) return states;
+    const next = { ...states };
+    if (s) next[id] = s;
+    else delete next[id];
+    return next;
+  }
+  var tokensOf = (answer, base, clientId, now = Date.now()) => ({
+    base,
+    clientId,
+    access_token: answer.access_token,
+    refresh_token: answer.refresh_token,
+    expires: now + (answer.expires_in || 1800) * 1e3
+  });
+  var storage = {
+    get(key) {
+      try {
+        return JSON.parse(localStorage.getItem(key));
+      } catch {
+        return null;
+      }
+    },
+    set(key, v) {
+      try {
+        v === null ? localStorage.removeItem(key) : localStorage.setItem(key, JSON.stringify(v));
+      } catch {
+      }
+    }
+  };
+  var savedTokens = () => storage.get(STORE);
+  function signIn(base, page = location) {
+    const client = clientOf(page), state = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    storage.set(PENDING, { base, state, ...client });
+    page.assign(authorizeUrl(base, client, state));
+  }
+  async function finishSignIn(page = location) {
+    const q = new URLSearchParams(page.search), code = q.get("code"), state = q.get("state");
+    if (!code) return null;
+    const pending = storage.get(PENDING);
+    storage.set(PENDING, null);
+    q.delete("code");
+    q.delete("state");
+    history.replaceState(null, "", `${page.pathname}${q.size ? `?${q}` : ""}${page.hash}`);
+    if (!pending || pending.state !== state) throw new Error("That sign-in to Home Assistant didn't come from this page: connect again.");
+    const tokens = tokensOf(await tokenRequest(pending.base, { grant_type: "authorization_code", code, client_id: pending.clientId }), pending.base, pending.clientId);
+    storage.set(STORE, tokens);
+    return tokens;
+  }
+  async function tokenRequest(base, form) {
+    const r = await fetch(`${base}/auth/token`, { method: "POST", body: new URLSearchParams(form) });
+    if (!r.ok) throw new Error(`Home Assistant refused the sign-in (${r.status}): connect again.`);
+    return r.json();
+  }
+  async function freshTokens(tokens) {
+    if (tokens.expires - Date.now() > 6e4) return tokens;
+    const answer = await tokenRequest(tokens.base, { grant_type: "refresh_token", refresh_token: tokens.refresh_token, client_id: tokens.clientId });
+    const next = tokensOf({ ...answer, refresh_token: tokens.refresh_token }, tokens.base, tokens.clientId);
+    storage.set(STORE, next);
+    return next;
+  }
+  async function signOut(tokens = savedTokens()) {
+    storage.set(STORE, null);
+    if (tokens?.refresh_token) await fetch(`${tokens.base}/auth/revoke`, { method: "POST", body: new URLSearchParams({ token: tokens.refresh_token }) }).catch(() => {
+    });
+  }
+  var HaConnection = class {
+    constructor(tokens, { onStates, onConfig, onStatus, WebSocketImpl = globalThis.WebSocket }) {
+      Object.assign(this, { tokens, onStates, onConfig, onStatus, WebSocketImpl, states: {}, closed: false, retry: 1e3 });
+      this._open();
+    }
+    async _open() {
+      if (this.closed) return;
+      try {
+        this.tokens = await freshTokens(this.tokens);
+      } catch (e) {
+        this.onStatus?.(e.message, false);
+        return;
+      }
+      const ws = this.ws = new this.WebSocketImpl(wsUrl(this.tokens.base));
+      let id = 0;
+      const send = (msg) => {
+        ws.send(JSON.stringify({ id: ++id, ...msg }));
+        return id;
+      };
+      const asked = {};
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === "auth_required") ws.send(JSON.stringify({ type: "auth", access_token: this.tokens.access_token }));
+        else if (msg.type === "auth_invalid") {
+          this.onStatus?.(`Home Assistant refused the connection: ${msg.message}. Connect again.`, false);
+          this.close();
+        } else if (msg.type === "auth_ok") {
+          this.retry = 1e3;
+          asked.states = send({ type: "get_states" });
+          asked.config = send({ type: "get_config" });
+          send({ type: "subscribe_events", event_type: "state_changed" });
+          this.onStatus?.(`Connected to Home Assistant ${msg.ha_version}`, true);
+        } else if (msg.type === "result" && msg.id === asked.states && msg.success) {
+          this.states = Object.fromEntries(msg.result.map((s) => [s.entity_id, s]));
+          this._tell();
+        } else if (msg.type === "result" && msg.id === asked.config && msg.success) {
+          const { latitude, longitude, location_name: name } = msg.result;
+          this.onConfig?.({ latitude, longitude, name });
+        } else if (msg.type === "event" && msg.event?.event_type === "state_changed") {
+          this.states = applyEvent(this.states, msg.event);
+          this._tell();
+        }
+      };
+      ws.onclose = () => {
+        if (this.closed) return;
+        this.onStatus?.("The connection to Home Assistant dropped: trying again\u2026", false);
+        setTimeout(() => this._open(), this.retry);
+        this.retry = Math.min(this.retry * 2, 3e4);
+      };
+    }
+    // The states, at most every 250 ms.
+    _tell() {
+      this._timer || (this._timer = setTimeout(() => {
+        this._timer = 0;
+        this.onStates?.(this.states);
+      }, 250));
+    }
+    close() {
+      this.closed = true;
+      clearTimeout(this._timer);
+      this.ws?.close();
+    }
+  };
 
   // src/editor/hit.js
   var MARKER = 0.03;
@@ -9382,6 +9548,9 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
   header h1 { font-size: 15px; margin: 0 10px 0 0; }
   header .name { color: #666; margin-right: auto; }
   header .name.unsaved::after { content: ' \u2022'; color: #e65100; }
+  header .ha::before { content: '\u25CF '; color: #bbb; } header .ha.on::before { color: #2e7d32; } header .ha.off::before { color: #e65100; }
+  dialog.ha input[name=url] { width: 100%; box-sizing: border-box; font: inherit; padding: 4px 6px; margin: 4px 0 8px; }
+  dialog.ha .why { color: #b00020; } dialog.ha .status { color: #555; }
   button { font: inherit; padding: 4px 10px; border: 1px solid #ccc; border-radius: 6px; background: #fafafa;
     color: inherit; cursor: pointer; }
   button:hover:not(:disabled) { background: #eee; } button:disabled { opacity: 0.45; cursor: default; }
@@ -9509,6 +9678,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     <button data-act="save-json" title="Save as JSON, for the card's home_url">Save as JSON\u2026</button>
     <button data-act="undo" title="Undo (Ctrl+Z)">Undo</button>
     <button data-act="redo" title="Redo (Ctrl+Shift+Z)">Redo</button>
+    <button data-act="ha" class="ha" title="Connect to your Home Assistant for its entities and live states">Home Assistant</button>
     <button data-act="grid" aria-pressed="false" title="Show the grid things snap to (Alt while dragging: no snapping)">Grid</button>
     <button data-act="dark" aria-pressed="false" title="Show the card in the dark theme">Dark</button>
   </header>
@@ -9541,6 +9711,17 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     </div>
   </main>
   <footer aria-live="polite"></footer>
+  <dialog class="ha"><form method="dialog">
+    <h2>Home Assistant</h2>
+    <p>Connected, the editor shows your entities in its pickers and the card with their live states (and your location's
+      sun). You sign in on your Home Assistant's own page; the editor only reads states, and taps on the card still act
+      here alone. It keeps Home Assistant's tokens in this browser until you disconnect.</p>
+    <p class="status"></p>
+    <label>Its address <input name="url" placeholder="https://xxxx.ui.nabu.casa or homeassistant.local:8123" spellcheck="false"></label>
+    <p class="why"></p>
+    <p class="end"><button value="disconnect" class="disconnect">Disconnect</button> <button value="cancel">Cancel</button>
+      <button value="connect" class="connect">Sign in\u2026</button></p>
+  </form></dialog>
   <dialog class="start"><form method="dialog">
     <h2>Start a home</h2>
     <div class="choice"><button value="example">The example flat</button><p>A made-up flat with every kind of item, to change into yours.</p></div>
@@ -9552,7 +9733,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
   </form></dialog>
   <div class="drop">Drop a home file (YAML or JSON) to open it, or a picture of a plan to start over it</div>
 `;
-  var storage = {
+  var storage2 = {
     get() {
       try {
         return JSON.parse(localStorage.getItem(DRAFT));
@@ -9617,9 +9798,11 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         hint: $(".hint"),
         options: $(".tools .options"),
         start: $("dialog.start"),
+        ha: $("dialog.ha"),
+        haButton: $("header .ha"),
         buttons: Object.fromEntries([...root.querySelectorAll("[data-act]")].map((b) => [b.dataset.act, b]))
       };
-      const draft = storage.get();
+      const draft = storage2.get();
       this.model = new HomeModel(draft?.text ?? this.example);
       this._file = { name: draft?.name ?? "home.yaml", handle: null, saved: draft?.saved ?? this.model.text };
       this._dark = false;
@@ -9673,6 +9856,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         this._el.hover.innerHTML = "";
       });
       this._el.start.addEventListener("close", () => this._started());
+      this._el.ha.addEventListener("close", () => this._haClosed());
+      this._el.ha.querySelector("input").addEventListener("input", () => this._haCheck());
       this._el.footer.addEventListener("click", (e) => {
         const path = e.target.closest("p")?.dataset.path;
         if (path) this.select(JSON.parse(path));
@@ -9711,9 +9896,89 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       };
       this.setTool("select");
       this._changed({ text: true });
+      this._liveStart();
     }
     disconnectedCallback() {
       window.removeEventListener("keydown", this._keys);
+      this._live?.close();
+    }
+    // Back from Home Assistant's sign-in, or signed in before: connects.
+    async _liveStart() {
+      try {
+        const tokens = await finishSignIn() || savedTokens();
+        if (tokens) this._connect(tokens);
+      } catch (e) {
+        this._message(e.message);
+      }
+      this._haStatus("", null);
+    }
+    _connect(tokens) {
+      this._live?.close();
+      let first = true;
+      this._live = new HaConnection(tokens, {
+        onStates: (states) => {
+          this._controls.setStates(states);
+          if (first) this._renderPanels();
+          first = false;
+        },
+        onConfig: ({ latitude, longitude }) => this._controls.setLocation({ latitude, longitude }),
+        onStatus: (text2, ok) => {
+          this._haStatus(text2, ok);
+          if (!ok) this._message(text2);
+        }
+      });
+    }
+    // The header's Home Assistant button: connected (green), dropped or refused (orange), or not connected.
+    _haStatus(text2, ok) {
+      const b = this._el.haButton, on = !!this._live && !this._live.closed;
+      b.classList.toggle("on", on && ok !== false);
+      b.classList.toggle("off", on && ok === false);
+      b.title = text2 || (on ? "Connected to Home Assistant" : "Connect to your Home Assistant for its entities and live states");
+      this._haText = text2;
+    }
+    _haDialog() {
+      const d = this._el.ha, on = !!this._live && !this._live.closed;
+      d.querySelector("input").value = savedTokens()?.base || (() => {
+        try {
+          return localStorage.getItem("lightwell-editor:ha-url") || "";
+        } catch {
+          return "";
+        }
+      })();
+      d.querySelector(".status").textContent = on ? this._haText || "Connected." : "Not connected: the pickers show the states the editor was opened with.";
+      d.querySelector(".disconnect").hidden = !on;
+      this._haCheck();
+      d.returnValue = "";
+      d.showModal();
+    }
+    // Whether the address typed can be reached from this page, said under it.
+    _haCheck() {
+      const d = this._el.ha, base = haUrl(d.querySelector("input").value);
+      const why = !d.querySelector("input").value.trim() ? "" : !base ? "That isn't a web address." : cannotReach(base, location);
+      d.querySelector(".why").textContent = why;
+      d.querySelector(".connect").disabled = !base || !!why;
+    }
+    async _haClosed() {
+      const d = this._el.ha, how = d.returnValue;
+      if (how === "connect") {
+        const base = haUrl(d.querySelector("input").value);
+        if (!base || cannotReach(base, location)) return;
+        try {
+          localStorage.setItem("lightwell-editor:ha-url", base);
+        } catch {
+        }
+        this._textChanged();
+        signIn(base);
+      } else if (how === "disconnect") {
+        this._live?.close();
+        this._live = null;
+        await signOut();
+        this._controls.setStates(this.states);
+        this._controls.setLocation(this.location);
+        this._haStatus("", null);
+        this._renderPanels();
+        this._message("Disconnected from Home Assistant: its tokens are revoked and forgotten here.", "info");
+      }
     }
     // After the model changed: the text view (unless it's where the change came from), the card, the panels, the
     // messages, the buttons and the draft.
@@ -9739,7 +10004,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       if (errors.length && this._data) this._message("The card shows the last version without mistakes.", "info");
       this._renderPanels();
       this._updateButtons();
-      storage.set({ text: this.model.text, name: this._file.name, saved: this._file.saved });
+      storage2.set({ text: this.model.text, name: this._file.name, saved: this._file.saved });
     }
     // Applies an edit (a function changing the model), and shows a failure as a message.
     _edit(fn) {
@@ -10449,6 +10714,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         if (act === "undo" || act === "redo") {
           this._textChanged();
           if (this.model[act]()) this._changed({ text: true });
+        } else if (act === "ha") {
+          this._haDialog();
         } else if (act === "grid") {
           this._showGrid = !this._showGrid;
           this._renderGrid();

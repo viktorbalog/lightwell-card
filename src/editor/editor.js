@@ -4,7 +4,8 @@
 // redraws the card, or lists the check's messages at the bottom while it doesn't pass (a message selects its item).
 // Items are moved, resized and turned on the plan (manipulate.js): the card follows the pointer, and the model gets
 // one edit when it's let go. The tools draw new ones (create.js); a home starts from the example, empty, or over a
-// picture of its plan, whose scale is set by measuring a known length on it.
+// picture of its plan, whose scale is set by measuring a known length on it. Connected to Home Assistant (live.js),
+// the states are the house's own, live.
 // The file is opened and saved as YAML (comments kept, model.js) or JSON (for the card's home_url), and the work in
 // progress is kept in the browser's storage.
 //
@@ -13,6 +14,7 @@
 import {HomeModel, renameIn, yamlOf} from './model.js';
 import {simulatorControls} from './controls.js';
 import {droppedFile, formatOf, hasFileAccess, imageSize, loadPicture, pickFile, renamed, savePicture, saveFileAs, writeFile} from './files.js';
+import {HaConnection, cannotReach, finishSignIn, haUrl, savedTokens, signIn, signOut} from './live.js';
 import {OPENING_KINDS, emptyHome, lightFrom, openingFrom, pictureHome, pieceFrom, scaleFrom, wallFrom} from './create.js';
 import {hitTest, itemAt, lightCentre, outlineSvg} from './hit.js';
 import {anchors, axesOf, boundsOf, dragHandle, handles, moveItem, removeCorner, rulerText, snapMove, snapPoint, snapTargets,
@@ -56,6 +58,9 @@ const STYLE = `
   header h1 { font-size: 15px; margin: 0 10px 0 0; }
   header .name { color: #666; margin-right: auto; }
   header .name.unsaved::after { content: ' •'; color: #e65100; }
+  header .ha::before { content: '● '; color: #bbb; } header .ha.on::before { color: #2e7d32; } header .ha.off::before { color: #e65100; }
+  dialog.ha input[name=url] { width: 100%; box-sizing: border-box; font: inherit; padding: 4px 6px; margin: 4px 0 8px; }
+  dialog.ha .why { color: #b00020; } dialog.ha .status { color: #555; }
   button { font: inherit; padding: 4px 10px; border: 1px solid #ccc; border-radius: 6px; background: #fafafa;
     color: inherit; cursor: pointer; }
   button:hover:not(:disabled) { background: #eee; } button:disabled { opacity: 0.45; cursor: default; }
@@ -184,6 +189,7 @@ const HTML = `
     <button data-act="save-json" title="Save as JSON, for the card's home_url">Save as JSON…</button>
     <button data-act="undo" title="Undo (Ctrl+Z)">Undo</button>
     <button data-act="redo" title="Redo (Ctrl+Shift+Z)">Redo</button>
+    <button data-act="ha" class="ha" title="Connect to your Home Assistant for its entities and live states">Home Assistant</button>
     <button data-act="grid" aria-pressed="false" title="Show the grid things snap to (Alt while dragging: no snapping)">Grid</button>
     <button data-act="dark" aria-pressed="false" title="Show the card in the dark theme">Dark</button>
   </header>
@@ -216,6 +222,17 @@ const HTML = `
     </div>
   </main>
   <footer aria-live="polite"></footer>
+  <dialog class="ha"><form method="dialog">
+    <h2>Home Assistant</h2>
+    <p>Connected, the editor shows your entities in its pickers and the card with their live states (and your location's
+      sun). You sign in on your Home Assistant's own page; the editor only reads states, and taps on the card still act
+      here alone. It keeps Home Assistant's tokens in this browser until you disconnect.</p>
+    <p class="status"></p>
+    <label>Its address <input name="url" placeholder="https://xxxx.ui.nabu.casa or homeassistant.local:8123" spellcheck="false"></label>
+    <p class="why"></p>
+    <p class="end"><button value="disconnect" class="disconnect">Disconnect</button> <button value="cancel">Cancel</button>
+      <button value="connect" class="connect">Sign in…</button></p>
+  </form></dialog>
   <dialog class="start"><form method="dialog">
     <h2>Start a home</h2>
     <div class="choice"><button value="example">The example flat</button><p>A made-up flat with every kind of item, to change into yours.</p></div>
@@ -268,6 +285,7 @@ export class LightwellEditor extends HTMLElement {
       overlay: $('.overlay'), hover: $('.overlay .hover'), sel: $('.overlay .sel'), list: $('.list'), props: $('.props'),
       handles: $('.overlay .handles'), guides: $('.overlay .guides'), box: $('.overlay .box'), grid: $('.overlay .grid'), ruler: $('.ruler'),
       draft: $('.overlay .draft'), shadows: $('.overlay .shadows'), hint: $('.hint'), options: $('.tools .options'), start: $('dialog.start'),
+      ha: $('dialog.ha'), haButton: $('header .ha'),
       buttons: Object.fromEntries([...root.querySelectorAll('[data-act]')].map(b => [b.dataset.act, b]))};
 
     const draft = storage.get();
@@ -317,6 +335,8 @@ export class LightwellEditor extends HTMLElement {
     overlay.addEventListener('dblclick', e => this._dblclick(e));
     overlay.addEventListener('pointerleave', () => { this._el.hover.innerHTML = ''; });
     this._el.start.addEventListener('close', () => this._started());
+    this._el.ha.addEventListener('close', () => this._haClosed());
+    this._el.ha.querySelector('input').addEventListener('input', () => this._haCheck());
     this._el.footer.addEventListener('click', e => {
       const path = e.target.closest('p')?.dataset.path;
       if (path) this.select(JSON.parse(path));
@@ -353,10 +373,89 @@ export class LightwellEditor extends HTMLElement {
     };
     this.setTool('select');
     this._changed({text: true});
+    this._liveStart();
   }
 
   disconnectedCallback() {
     window.removeEventListener('keydown', this._keys);
+    this._live?.close();
+  }
+
+  // Back from Home Assistant's sign-in, or signed in before: connects.
+  async _liveStart() {
+    try {
+      const tokens = (await finishSignIn()) || savedTokens();
+      if (tokens) this._connect(tokens);
+    } catch (e) {
+      this._message(e.message);
+    }
+    this._haStatus('', null);
+  }
+
+  _connect(tokens) {
+    this._live?.close();
+    let first = true;
+    this._live = new HaConnection(tokens, {
+      onStates: states => {
+        this._controls.setStates(states);
+        // The pickers list them; later changes only reach the card, so as not to redraw a form being typed in.
+        if (first) this._renderPanels();
+        first = false;
+      },
+      onConfig: ({latitude, longitude}) => this._controls.setLocation({latitude, longitude}),
+      onStatus: (text, ok) => {
+        this._haStatus(text, ok);
+        if (!ok) this._message(text);
+      },
+    });
+  }
+
+  // The header's Home Assistant button: connected (green), dropped or refused (orange), or not connected.
+  _haStatus(text, ok) {
+    const b = this._el.haButton, on = !!this._live && !this._live.closed;
+    b.classList.toggle('on', on && ok !== false);
+    b.classList.toggle('off', on && ok === false);
+    b.title = text || (on ? 'Connected to Home Assistant' : 'Connect to your Home Assistant for its entities and live states');
+    this._haText = text;
+  }
+
+  _haDialog() {
+    const d = this._el.ha, on = !!this._live && !this._live.closed;
+    d.querySelector('input').value = savedTokens()?.base || (() => { try { return localStorage.getItem('lightwell-editor:ha-url') || ''; } catch { return ''; } })();
+    d.querySelector('.status').textContent = on ? (this._haText || 'Connected.') : 'Not connected: the pickers show the states the editor was opened with.';
+    d.querySelector('.disconnect').hidden = !on;
+    this._haCheck();
+    d.returnValue = '';
+    d.showModal();
+  }
+
+  // Whether the address typed can be reached from this page, said under it.
+  _haCheck() {
+    const d = this._el.ha, base = haUrl(d.querySelector('input').value);
+    const why = !d.querySelector('input').value.trim() ? '' : !base ? "That isn't a web address." : cannotReach(base, location);
+    d.querySelector('.why').textContent = why;
+    d.querySelector('.connect').disabled = !base || !!why;
+  }
+
+  async _haClosed() {
+    const d = this._el.ha, how = d.returnValue;
+    if (how === 'connect') {
+      const base = haUrl(d.querySelector('input').value);
+      if (!base || cannotReach(base, location)) return;
+      try { localStorage.setItem('lightwell-editor:ha-url', base); } catch { /* blocked */ }
+      // The work in progress is in the browser's storage, so it's there again after the sign-in.
+      this._textChanged();
+      signIn(base);
+    } else if (how === 'disconnect') {
+      this._live?.close();
+      this._live = null;
+      await signOut();
+      this._controls.setStates(this.states);
+      this._controls.setLocation(this.location);
+      this._haStatus('', null);
+      this._renderPanels();
+      this._message('Disconnected from Home Assistant: its tokens are revoked and forgotten here.', 'info');
+    }
   }
 
   // After the model changed: the text view (unless it's where the change came from), the card, the panels, the
@@ -1115,6 +1214,8 @@ export class LightwellEditor extends HTMLElement {
       if (act === 'undo' || act === 'redo') {
         this._textChanged();
         if (this.model[act]()) this._changed({text: true});
+      } else if (act === 'ha') {
+        this._haDialog();
       } else if (act === 'grid') {
         this._showGrid = !this._showGrid;
         this._renderGrid();
