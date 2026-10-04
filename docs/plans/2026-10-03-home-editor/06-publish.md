@@ -75,6 +75,9 @@ Then, the same day, at the user's go-ahead:
 - **The CHANGELOG** (`CHANGELOG.md`, Keep a Changelog): 0.1.0 and everything since under Unreleased; from now on every
   user-visible change goes there (CLAUDE.md says so).
 
-Left open: a sign-in by the user through HA's login page (the one step not done here); the release with the editor
-(step 5 of this file), when the user wants one.
+The user then signed in through HA's login page with their local Home Assistant, and it worked (2026-10-04).
 
+**The release** (2026-10-04, at the user's word): 0.2.0 in `package.json` and its lock, the bundles rebuilt (the card's
+differs from 0.1.0 in its banner only: the card is unchanged), the CHANGELOG's Unreleased became 0.2.0, the commit and
+the tag `v0.2.0` (a plain tag, as `v0.1.0`) pushed. Publishing the GitHub release from the tag is the user's (no
+GitHub CLI or token in the box); the Release workflow then attaches `lightwell-card.js`, and HACS offers the update.

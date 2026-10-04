@@ -1,4 +1,4 @@
-// Lightwell 0.1.0's editor for homes (MIT licence; includes the yaml library, ISC licence).
+// Lightwell 0.2.0's editor for homes (MIT licence; includes the yaml library, ISC licence).
 // Built from src/editor/ by npm run build.
 (() => {
   var __defProp = Object.defineProperty;

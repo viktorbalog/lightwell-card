@@ -124,7 +124,7 @@ step 6.
 | 3. Moving things | done 2026-10-04 | `src/editor/manipulate.js` (moving, handles, resizing, turning, polygon corners, snapping, the ruler), dragging with a live preview and one edit on letting go (`HomeModel.batch`), a selection of several, arrows, Ctrl+D, a grid. A light's pool centre handle moves the pool alone. |
 | 4. Drawing things | done 2026-10-04 | `src/editor/create.js`: new homes (example, empty, over a picture kept in the browser, with the scale measured on it), the tools (wall, room, opening with its wall inferred, furniture, light, marker, label, scale), defaults by name and room. A lamp's shadows are toggled by Ctrl+click. Checked by tracing the background example's studio from its picture. |
 | 5. Entities | done 2026-10-04 | `src/editor/pickers.js`: entity pickers with names and states (a light's entities as a list), `snapshot.sh --all`, the label builder with the text it shows now, icon search from the MDI list, an effects form with a preview on a lamp. |
-| 6. Publishing | in progress | The Pages workflow and site (`scripts/site.sh`), scripts taken by path only, the README's editor section with a screenshot: published 2026-10-04 at viktorbalog.github.io/lightwell-card/editor/; the live HA connection (`src/editor/live.js`); `CHANGELOG.md`. The HA visual editor has [a plan of its own](../2026-10-04-ha-card-editor/00-plan.md). Left: a sign-in by the user, and a release. |
+| 6. Publishing | done 2026-10-04 | The Pages workflow and site (`scripts/site.sh`), scripts taken by path only, the README's editor section with a screenshot: published 2026-10-04 at viktorbalog.github.io/lightwell-card/editor/; the live HA connection (`src/editor/live.js`); `CHANGELOG.md`. The HA visual editor has [a plan of its own](../2026-10-04-ha-card-editor/00-plan.md). The user signed in with their local HA. Released as 0.2.0. |
 
 Each step's file has its Outcome. Still to do by hand from steps 1–3: Firefox, saving and reopening through the
 browser's real file dialogs, and drawing with a real mouse.
@@ -141,3 +141,24 @@ browser's real file dialogs, and drawing with a real mouse.
   example's (the same rooms, openings, lights and markers in the same places, within the snapping). And in Firefox:
   open, edit and download.
 - **A stranger's test** before announcing it: someone who hasn't seen the YAML draws their own home with it.
+
+## Outcome
+
+2026-10-04. The editor is done and released as 0.2.0, online at
+https://viktorbalog.github.io/lightwell-card/editor/ and in `tools/editor/` (each step's file has its own Outcome).
+
+- **What changed:** `src/editor/` (the model, the element, files, hit testing, moving, drawing, the pickers, the live
+  connection), `src/schema.js`, `dist/lightwell-editor.js` (a bundle of its own), `tools/editor/index.html`,
+  `scripts/site.sh` and the Pages workflow, the README's editor section, `CHANGELOG.md`. The card
+  (`dist/lightwell-card.js`) is unchanged but for its version.
+- **How it was checked:** 81 unit tests (the model's round trips and edits, the schema against `defineHome`, hit
+  testing, moving and snapping, drawing and the wall inference, the pickers, the live connection's helpers); in Chrome
+  step by step, with the example, the background example traced from its picture, the Taksony flat, and a snapshot of
+  the user's 249 entities; the site served as Pages serves it; the live connection against the user's HA, and the
+  user's own sign-in. The user moved things with a real mouse.
+- **Decided against or changed on the way:** a lamp's shadows toggled by Ctrl+click rather than a plain click; the
+  pool's centre handle moves the pool alone; a still in the README instead of a GIF; the example flat wasn't drawn from
+  a picture of its own (there's none), the background example's studio was.
+- **Left open:** Firefox; saving and reopening through the browser's real file dialogs; a stranger's test before
+  announcing it; the editor inside Home Assistant, in [its own plan](../2026-10-04-ha-card-editor/00-plan.md).
+

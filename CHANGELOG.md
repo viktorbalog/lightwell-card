@@ -5,6 +5,10 @@ versions [Semantic Versioning](https://semver.org/). Changes not released yet ar
 
 ## Unreleased
 
+## 0.2.0 (2026-10-04)
+
+The editor for homes. The card itself is the same as in 0.1.0.
+
 ### Added
 
 - **The editor** ([online](https://viktorbalog.github.io/lightwell-card/editor/), or `tools/editor/index.html`): a home

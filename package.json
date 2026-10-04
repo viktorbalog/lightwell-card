@@ -1,6 +1,6 @@
 {
   "name": "lightwell-card",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Lightwell: a living floor plan card for Home Assistant, with lights in their colours, the sun and daylight through your windows, and your devices.",
   "license": "MIT",
   "author": "Viktor Balog",

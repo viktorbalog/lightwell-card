@@ -1,4 +1,4 @@
-// Lightwell 0.1.0: a living floor plan for Home Assistant (MIT licence).
+// Lightwell 0.2.0: a living floor plan for Home Assistant (MIT licence).
 // Built from src/ by npm run build.
 (() => {
   // src/geometry.js
