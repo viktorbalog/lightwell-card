@@ -9424,7 +9424,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         label: name,
         // A room of rectangles: each of them (one polygon is the room itself).
         children: Array.isArray(region) && !Array.isArray(region[0]?.[0]) ? region.map((q, i) => ({ path: ["rooms", name, i], label: rectLabel(q) })) : [],
-        childList: ["rooms", name]
+        childList: ["rooms", name],
+        addChild: Array.isArray(region) && !Array.isArray(region[0]?.[0]) ? { path: ["rooms", name], add: "rect", title: "Add a rectangle to it" } : null
       }))
     });
     for (const slot of SLOTS) {
@@ -9457,7 +9458,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         label: name,
         title: p?.height ? `${p.height} m` : "no height: casts no shadows",
         children: (Array.isArray(p?.extra) ? p.extra : []).map((s, i) => ({ path: ["furniture", name, "extra", i], label: shapeLabel(s) })),
-        childList: ["furniture", name, "extra"]
+        childList: ["furniture", name, "extra"],
+        addChild: typeof p?.extra === "string" ? null : { path: ["furniture", name, "extra"], add: "extra", title: "Add a shape on it (a cushion, a device\u2026)" }
       }))
     });
     groups.push({
@@ -9535,6 +9537,14 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
             const from = +e.dataTransfer.getData("text/x-lightwell-item");
             if (from !== i) ctx.move(g.path, from, i);
           };
+        }
+        if (it.addChild) {
+          const plus = el("button", { type: "button", className: "add-child", textContent: "+", title: it.addChild.title });
+          plus.onclick = (e) => {
+            e.stopPropagation();
+            ctx.add(it.addChild);
+          };
+          li.append(plus);
         }
         ul.append(li);
         if (it.children?.length) ul.append(...insides(it, li));
@@ -9966,6 +9976,10 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
   .item.drop { box-shadow: inset 0 2px var(--accent); }
   .item.extra { padding-left: 40px; color: #555; } .item.in { font-weight: 600; }
   .item .fold { display: inline-block; width: 14px; margin-left: -14px; color: #888; }
+  .item { position: relative; }
+  .item .add-child { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); padding: 0 6px; line-height: 16px;
+    font-size: 12px; visibility: hidden; }
+  .item:hover .add-child, .item.on .add-child, .item .add-child:focus-visible { visibility: visible; }
   .props button.link { border: 0; background: none; padding: 0 2px; color: var(--accent); font: inherit; }
   .props button.link:hover { text-decoration: underline; background: none; }
   .props .links { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }

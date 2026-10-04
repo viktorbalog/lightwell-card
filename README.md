@@ -82,7 +82,7 @@ Draw your home over a picture of its plan and see the card light it as you go, u
 3. **Adjust:** click to select, drag to move, the handles to resize or turn; the panel on the right has every field,
    with your entities (by name and state), icons by search, a marker's label with the text it gives, and the effects
    with a preview. With a lamp selected, Ctrl+click a piece to add it to the lamp's shadows. Double-click a piece of
-   furniture to edit what's drawn on it (cushions, devices, lines) in its own frame, turned with it; resizing a piece
+   furniture (or use the + on its line in the list) to edit what's drawn on it (cushions, devices, lines) in its own frame, turned with it; resizing a piece
    scales them with it (Alt: they stay). A path's points (and its curves' control points) are dragged one by one.
    A room's rectangles are listed in its form (+ adds one) and selected on their own (double-click one in a
    selected room). The sun's daylight spills and blockers are on the plan too, under the

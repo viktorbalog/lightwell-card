@@ -138,6 +138,10 @@ const STYLE = `
   .item.drop { box-shadow: inset 0 2px var(--accent); }
   .item.extra { padding-left: 40px; color: #555; } .item.in { font-weight: 600; }
   .item .fold { display: inline-block; width: 14px; margin-left: -14px; color: #888; }
+  .item { position: relative; }
+  .item .add-child { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); padding: 0 6px; line-height: 16px;
+    font-size: 12px; visibility: hidden; }
+  .item:hover .add-child, .item.on .add-child, .item .add-child:focus-visible { visibility: visible; }
   .props button.link { border: 0; background: none; padding: 0 2px; color: var(--accent); font: inherit; }
   .props button.link:hover { text-decoration: underline; background: none; }
   .props .links { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }

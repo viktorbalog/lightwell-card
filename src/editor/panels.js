@@ -27,7 +27,8 @@ export function shapeLabel(s) {
 const rectLabel = q => (Array.isArray(q) && q.length === 4 ? `rect ${q[2]} × ${q[3]} at ${q[0]}, ${q[1]}` : 'rect ?');
 
 // The groups of the list, in the order they're drawn: [{title, path, add, reorder, items: [{path, label, title,
-// children}]}]. A piece's children are its extra shapes, in the order they're drawn: [{path, label}].
+// children, addChild}]}]. A piece's children are its extra shapes, in the order they're drawn, and a room's its
+// rectangles: [{path, label}]; `addChild` ({path, add, title}) adds one (a group for ctx.add).
 export function itemGroups(data) {
   const d = data && typeof data === 'object' ? data : {};
   const groups = [];
@@ -35,7 +36,8 @@ export function itemGroups(data) {
     items: Object.entries(d.rooms || {}).map(([name, region]) => ({path: ['rooms', name], label: name,
       // A room of rectangles: each of them (one polygon is the room itself).
       children: Array.isArray(region) && !Array.isArray(region[0]?.[0]) ? region.map((q, i) => ({path: ['rooms', name, i], label: rectLabel(q)})) : [],
-      childList: ['rooms', name]}))});
+      childList: ['rooms', name],
+      addChild: Array.isArray(region) && !Array.isArray(region[0]?.[0]) ? {path: ['rooms', name], add: 'rect', title: 'Add a rectangle to it'} : null}))});
   for (const slot of SLOTS) {
     const list = Array.isArray(d.drawing?.[slot]) ? d.drawing[slot] : [];
     groups.push({title: SLOT_NAMES[slot], path: ['drawing', slot], add: 'shape', reorder: true,
@@ -48,7 +50,8 @@ export function itemGroups(data) {
     items: Object.entries(d.furniture || {}).map(([name, p]) => ({path: ['furniture', name], label: name,
       title: p?.height ? `${p.height} m` : 'no height: casts no shadows',
       children: (Array.isArray(p?.extra) ? p.extra : []).map((s, i) => ({path: ['furniture', name, 'extra', i], label: shapeLabel(s)})),
-      childList: ['furniture', name, 'extra']}))});
+      childList: ['furniture', name, 'extra'],
+      addChild: typeof p?.extra === 'string' ? null : {path: ['furniture', name, 'extra'], add: 'extra', title: 'Add a shape on it (a cushion, a device…)'}}))});
   groups.push({title: 'Lights', path: ['lights'], add: 'light',
     items: (d.lights || []).map((g, i) => ({path: ['lights', i], label: g.entities?.[0] || `light ${i + 1}`}))});
   groups.push({title: 'Markers', path: ['markers'], add: 'marker',
@@ -97,6 +100,11 @@ export function renderList(box, data, selected, ctx, also = []) {
           const from = +e.dataTransfer.getData('text/x-lightwell-item');
           if (from !== i) ctx.move(g.path, from, i);
         };
+      }
+      if (it.addChild) {
+        const plus = el('button', {type: 'button', className: 'add-child', textContent: '+', title: it.addChild.title});
+        plus.onclick = e => { e.stopPropagation(); ctx.add(it.addChild); };
+        li.append(plus);
       }
       ul.append(li);
       if (it.children?.length) ul.append(...insides(it, li));

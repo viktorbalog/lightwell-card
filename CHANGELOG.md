@@ -14,6 +14,8 @@ versions [Semantic Versioning](https://semver.org/). Changes not released yet ar
   their order); the piece's form lists them as links.
 - **The editor:** the sun's daylight spills and blockers are items of their own: listed, selected and moved on the
   plan with their handles, with a form each (a spill's openings picked by name).
+- **The editor:** a + on a piece's line in the Items list adds a shape on it (and enters it), and on a room's a
+  rectangle; it shows on hover and on the selected line.
 - **The editor:** a room's rectangles are items of their own: the room's form lists them with a + to add one (next to
   its last), the list unfolds a room to show them, and a double-click in a selected room selects the one under the
   pointer. Each has its x, y, w and h, and is moved, resized, duplicated and deleted alone (a room keeps one).
