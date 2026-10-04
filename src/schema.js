@@ -5,7 +5,8 @@
 //
 // A field: {type, help, required, check, default, unit, ...}. Types:
 // - number (`unit`: u for the drawing's units, m, °, %, ms; `min`), string, bool, enum (`values`), color (CSS);
-// - entity (`domain`: the domain, or domains, that fit), room (a room's name), effect (an effect's name), icon (mdi:…),
+// - entity (`domain`: the domain, or domains, that fit), room (a room's name), opening (an opening's position in the
+//   list), effect (an effect's name), icon (mdi:…),
 //   attribute (an attribute of the entity a marker's label reads);
 // - numbers: a fixed list of numbers with `labels` ([x, y, w, h]); rgb: [r, g, b]; points: a polygon [[x, y], ...];
 // - list (`of`: the items' field), map (`of`: the values' field, by name), object (`fields`);
@@ -142,7 +143,7 @@ export const SCHEMA = {type: 'object', help: 'A home', fields: {
     spill: {type: 'list', help: 'Daylight carried on through doors into rooms without windows', of: {type: 'object', help: 'A spill', fields: {
       cx: n('Its centre'), cy: n('Its centre'), rx: n('Its radius across'), ry: n('Its radius down'),
       clip: {type: 'room', check: true, help: 'The room it stays in'},
-      from: {type: 'list', of: {type: 'number', check: true, help: "An opening's position in the list"}, help: 'The openings whose shutters dim it'},
+      from: {type: 'list', of: {type: 'opening', check: true, help: "An opening's position in the list"}, help: 'The openings whose shutters dim it'},
       k: {type: 'number', help: 'How much of the daylight gets through (0–1)'}}}},
     outdoor: {...SHAPES('Shapes in the sun whenever it comes in (a terrace)')},
   }},

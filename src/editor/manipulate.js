@@ -5,11 +5,18 @@
 // Handles are the points of a selected item that change its shape, by id: a rectangle's corners and edges
 // ('rect:1,-1': its right side and top, in its own turned frame) and its turn ('turn', furniture only), a circle's
 // radius ('r'), an ellipse's ('rx', 'ry'), a polygon's corners ('v:2') and the middles of its sides ('mid:2', which
-// adds a corner there). A light's are its pool's centre and radius ('pool', 'pool-r') and its glow shapes' ('s0/r');
-// a room's, its rectangles' ('q1/rect:1,1') or its polygon's ('p/v:0'); an opening's, its two ends ('end:0').
+// adds a corner there), a path's points ('pt:3', the end of its fourth segment) and its curves' control points
+// ('c:3:0'). A light's are its pool's centre and radius ('pool', 'pool-r') and its glow shapes' ('s0/r');
+// a room's, its rectangles' ('q1/rect:1,1') or its polygon's ('p/v:0'); an opening's, its two ends ('end:0'). The
+// sun's spills (['sun', 'spill', 0], ellipses {cx, cy, rx, ry}) have an ellipse's, its blockers a rect's or a polygon's.
+// One part of a room (['rooms', name, 1]: a rectangle, or its polygon) is an item too, with a rect's or a polygon's.
+//
+// A piece's extra shapes (['furniture', name, 'extra', i]) are in the piece's own frame, turned with it: the functions
+// take the piece as `piece` in their options, and work in the drawing's units like the rest (moves, handles, the
+// pointer), mapped into the piece's frame. Without the piece they work in its frame (its anchors, for snapping there).
 import {box} from '../geometry.js';
 import {isHorizontal, shutterRect} from '../openings.js';
-import {applyTransform, invertTransform, parseTransform, pieceOutline, regionPolys, shapeGeometry} from './hit.js';
+import {applyTransform, drawnExtra, partPoly, invertTransform, isExtra, parseTransform, pieceOutline, pieceTurn, regionPolys, shapeGeometry} from './hit.js';
 
 // Values written to the file: to a tenth of a unit (never -0).
 export const tidy = v => Math.round(v * 10) / 10 || 0;
@@ -19,12 +26,18 @@ const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 const isNum = v => typeof v === 'number';
 
 // The kind of item a path names.
-export const kindOf = path => ({drawing: 'shape', furniture: 'piece', lights: 'light', markers: 'marker', openings: 'opening', rooms: 'room'})[path[0]];
+export const kindOf = path => (isExtra(path) ? 'extra' : path[0] === 'rooms' && path.length === 3 ? 'part' : path[0] === 'sun' ? {spill: 'spill', blockers: 'blocker'}[path[1]] : {drawing: 'shape', furniture: 'piece', lights: 'light', markers: 'marker', openings: 'opening', rooms: 'room'}[path[0]]);
 
-// An SVG path moved by (dx, dy): its absolute coordinates change, everything else (relative moves, arcs' radii, the
-// spacing) stays as written.
-const ROLES = {M: 'xy', L: 'xy', T: 'xy', H: 'x', V: 'y', C: 'xyxyxy', S: 'xyxy', Q: 'xyxy', A: '-----xy'};
-export function movePath(d, dx, dy) {
+// A move (dx, dy) in the drawing as one in a piece's frame (the same, unless the piece is turned).
+function intoFrame(piece, [dx, dy]) {
+  const m = parseTransform(pieceTurn(piece));
+  return m ? applyTransform([...invertTransform(m).slice(0, 4), 0, 0], [dx, dy]) : [dx, dy];
+}
+
+// An SVG path's numbers changed: its absolute coordinates by `at` ([x => x', y => y']), and its relative ones and
+// arcs' radii by `by` (the same; null leaves them, and the spacing, as written).
+const ROLES = {M: 'xy', L: 'xy', T: 'xy', H: 'x', V: 'y', C: 'xyxyxy', S: 'xyxy', Q: 'xyxy', A: 'XY---xy'};
+function mapPath(d, at, by) {
   let cmd = null, k = 0, start = true;
   return String(d).replace(/[a-zA-Z]|-?(?:\d+\.?\d*|\.\d+)(?:e-?\d+)?/g, tok => {
     if (/^[a-zA-Z]$/.test(tok)) { cmd = tok; k = 0; return tok; }
@@ -34,8 +47,83 @@ export function movePath(d, dx, dy) {
     // A path's first move is absolute even when written m.
     const abs = cmd === C || (start && k < 2);
     if (++k >= 2) start = false;
-    return abs && role !== '-' ? String(tidy(+tok + (role === 'x' ? dx : dy))) : tok;
+    if (role === '-') return tok;
+    const axis = role.toLowerCase() === 'x' ? 0 : 1;
+    // An arc's radii (X, Y) are lengths, as relative coordinates are.
+    if (abs && role === role.toLowerCase()) return String(tidy(at[axis](+tok)));
+    return by ? String(tidy(by[axis](+tok))) : tok;
   });
+}
+// An SVG path moved by (dx, dy): its absolute coordinates change, everything else stays as written.
+export const movePath = (d, dx, dy) => mapPath(d, [x => x + dx, y => y + dy], null);
+
+// An SVG path's segments, with where they are: {toks: [{s, i}] (its numbers and letters, and where they start),
+// segs: [{C, rel, idx (its numbers' tokens), from, end, controls: [[x, y]], sub (the segment its subpath starts at)}]}.
+// A Z is a segment too (C 'Z', back to its subpath's start). Parsing stops at anything it doesn't follow.
+const TAKES = {M: 2, L: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, T: 2, A: 7};
+export function pathSegments(d) {
+  const re = /[a-zA-Z]|-?(?:\d+\.?\d*|\.\d+)(?:e-?\d+)?/g, toks = [], segs = [];
+  for (let m; (m = re.exec(String(d)));) toks.push({s: m[0], i: m.index});
+  let cmd = null, x = 0, y = 0, start = [0, 0], sub = 0;
+  for (let t = 0; t < toks.length;) {
+    if (/[a-zA-Z]/.test(toks[t].s)) {
+      cmd = toks[t++].s;
+      if (cmd.toUpperCase() === 'Z') {
+        segs.push({C: 'Z', rel: false, idx: [], from: [x, y], end: start, controls: [], sub});
+        [x, y] = start;
+      }
+      continue;
+    }
+    const C = cmd?.toUpperCase(), n = TAKES[C];
+    if (!n || t + n > toks.length) break;
+    const idx = Array.from({length: n}, (_, j) => t + j);
+    if (idx.some(j => /[a-zA-Z]/.test(toks[j].s))) break;
+    const v = idx.map(j => +toks[j].s), rel = cmd !== C, [ox, oy] = rel ? [x, y] : [0, 0];
+    const end = C === 'H' ? [ox + v[0], y] : C === 'V' ? [x, oy + v[0]] : [ox + v[n - 2], oy + v[n - 1]];
+    const controls = 'CSQ'.includes(C) ? Array.from({length: n / 2 - 1}, (_, j) => [ox + v[2 * j], oy + v[2 * j + 1]]) : [];
+    if (C === 'M') { sub = segs.length; start = end; }
+    segs.push({C, rel, idx, from: [x, y], end, controls, sub});
+    [x, y] = end;
+    // After a move, more pairs are lines.
+    if (C === 'M') cmd = rel ? 'l' : 'L';
+    t += n;
+  }
+  return {toks, segs};
+}
+
+// A path with its point `id` ('pt:i', or a control point 'c:i:j') moved to `p`, written as it was (absolute or
+// relative). The points after it stay where they are: a relative segment following it is made up for.
+export function movePathPoint(d, id, p) {
+  const {toks, segs} = pathSegments(d), vals = toks.map(t => t.s), set = (j, v) => { vals[j] = String(tidy(v)); };
+  let m;
+  if ((m = id.match(/^c:(\d+):(\d+)$/))) {
+    const seg = segs[+m[1]], k = +m[2];
+    if (!seg?.controls[k]) return d;
+    const [ox, oy] = seg.rel ? seg.from : [0, 0];
+    set(seg.idx[2 * k], p[0] - ox);
+    set(seg.idx[2 * k + 1], p[1] - oy);
+  } else if ((m = id.match(/^pt:(\d+)$/))) {
+    const i = +m[1], seg = segs[i];
+    if (!seg || seg.C === 'Z') return d;
+    const [ox, oy] = seg.rel ? seg.from : [0, 0], n = seg.idx.length;
+    // A horizontal or vertical line's point moves along it only.
+    const delta = [seg.C === 'V' ? 0 : p[0] - seg.end[0], seg.C === 'H' ? 0 : p[1] - seg.end[1]];
+    if (seg.C === 'H') set(seg.idx[0], p[0] - ox);
+    else if (seg.C === 'V') set(seg.idx[0], p[1] - oy);
+    else { set(seg.idx[n - 2], p[0] - ox); set(seg.idx[n - 1], p[1] - oy); }
+    // The segments starting from it: the next one, and after a Z the one starting from its subpath's start.
+    const next = [segs[i + 1]];
+    if (seg.C === 'M') segs.forEach((z, j) => { if (z.C === 'Z' && z.sub === i) next.push(segs[j + 1]); });
+    for (const s of next) {
+      if (!s?.rel || s.C === 'Z') continue;
+      const roles = {H: 'x', V: 'y', A: '-----xy'}[s.C] || 'xy'.repeat(s.idx.length / 2);
+      s.idx.forEach((j, r) => { if (roles[r] !== '-') set(j, +toks[j].s - delta[roles[r] === 'x' ? 0 : 1]); });
+    }
+  } else return d;
+  // Written back token by token, from the end, so the rest (its spacing) stays as it was.
+  let out = String(d);
+  for (let j = toks.length - 1; j >= 0; j--) if (vals[j] !== toks[j].s) out = out.slice(0, toks[j].i) + vals[j] + out.slice(toks[j].i + toks[j].s.length);
+  return out;
 }
 
 // A shape's SVG `transform` for the shape moved by (dx, dy), so that it does the same to it where it is now: a
@@ -67,15 +155,51 @@ export function moveShape(s, dx, dy) {
   return s;
 }
 
+// A shape scaled from the rectangle `from` ([x, y, w, h]) to `to`, as a piece's extra shapes are when it's resized:
+// its points keep their place in it, its sizes scale (a circle's radius by the smaller factor), a text's size stays.
+// Under a transform, a rotation's centre and a translation follow.
+export function scaleShape(s, from, to) {
+  if (!s || typeof s !== 'object' || s.svg !== undefined) return s;
+  const [sx, sy] = [to[2] / from[2], to[3] / from[3]];
+  const X = x => to[0] + (x - from[0]) * sx, Y = y => to[1] + (y - from[1]) * sy;
+  const at = ([x, y, ...rest]) => [tidy(X(x)), tidy(Y(y)), ...rest];
+  const out = {...s};
+  if (s.rect) out.rect = [...at(s.rect).slice(0, 2), tidy(s.rect[2] * sx), tidy(s.rect[3] * sy)];
+  else if (s.circle) out.circle = [...at(s.circle).slice(0, 2), tidy(s.circle[2] * Math.min(sx, sy))];
+  else if (s.ellipse) out.ellipse = [...at(s.ellipse).slice(0, 2), tidy(s.ellipse[2] * sx), tidy(s.ellipse[3] * sy)];
+  else if (s.poly) out.poly = s.poly.map(at);
+  else if (s.path !== undefined) out.path = mapPath(s.path, [X, Y], [x => x * sx, y => y * sy]);
+  else if (s.text !== undefined && s.at) out.at = at(s.at);
+  if (s.repeat?.step) out.repeat = {...s.repeat, step: [tidy(s.repeat.step[0] * sx), tidy(s.repeat.step[1] * sy)]};
+  if (typeof s.transform === 'string') {
+    const f = v => String(+v.toFixed(4) || 0);
+    out.transform = s.transform.replace(/(rotate|translate)\s*\(([^)]*)\)/g, (all, fn, args) => {
+      const v = args.split(/[\s,]+/).filter(Boolean).map(Number);
+      if (v.some(Number.isNaN)) return all;
+      if (fn === 'translate') return `translate(${f((v[0] || 0) * sx)} ${f((v[1] || 0) * sy)})`;
+      return v.length < 3 ? all : `rotate(${f(v[0])} ${f(X(v[1]))} ${f(Y(v[2]))})`;
+    });
+  }
+  return out;
+}
+
+// The rectangle a piece's extra shapes are scaled with: its rectangle, or the box around its circle (none for a
+// polygon).
+const pieceBox = shape => (shape?.rect ? shape.rect.slice(0, 4) : shape?.circle ? [shape.circle[0] - shape.circle[2], shape.circle[1] - shape.circle[2], 2 * shape.circle[2], 2 * shape.circle[2]] : null);
+
 // The item at `path` moved by (dx, dy): a piece with its extra shapes, a light with its glow and its pool, an
-// opening along its wall only.
-export function moveItem(path, item, dx, dy) {
+// opening along its wall only, an extra shape in its piece's frame (`piece`).
+export function moveItem(path, item, dx, dy, {piece} = {}) {
   switch (kindOf(path)) {
     case 'shape': return moveShape(item, dx, dy);
+    case 'extra': return moveShape(item, ...intoFrame(piece, [dx, dy]));
     case 'piece': return {...item, shape: moveShape(item.shape, dx, dy), ...(Array.isArray(item.extra) ? {extra: item.extra.map(s => moveShape(s, dx, dy))} : {})};
     case 'light': return {...item, ...(Array.isArray(item.shape) ? {shape: item.shape.map(s => moveShape(s, dx, dy))} : {}),
       ...(item.pool ? {pool: {...item.pool, x: tidy(item.pool.x + dx), y: tidy(item.pool.y + dy)}} : {})};
     case 'marker': return {...item, x: tidy(item.x + dx), y: tidy(item.y + dy)};
+    case 'spill': return {...item, cx: tidy(item.cx + dx), cy: tidy(item.cy + dy)};
+    case 'part': return moveItem(['rooms', 'r'], [item], dx, dy)[0];
+    case 'blocker': return {...item, ...moveShape(item.rect ? {rect: item.rect} : {poly: item.poly}, dx, dy)};
     case 'opening': return isHorizontal(item) ? {...item, x: tidy(item.x + dx)} : {...item, y: tidy(item.y + dy)};
     case 'room': return item.map(q => (Array.isArray(q[0]) ? q.map(([x, y]) => [tidy(x + dx), tidy(y + dy)]) : moveShape({rect: q}, dx, dy).rect));
     default: return item;
@@ -87,12 +211,13 @@ export const axesOf = (path, item) => (kindOf(path) === 'opening' ? (isHorizonta
 
 // The points an item is snapped by, and snapped to: corners, ends, centres, a circle's extremes. `k`: the view's
 // width / 1145 (for texts).
-export function anchors(path, item, k = 1) {
+export function anchors(path, item, k = 1, {piece} = {}) {
   const fromGeometry = g => [...g.polys.flat(), ...g.lines.flat(),
     ...g.circles.flatMap(([cx, cy, rx, ry]) => [[cx, cy], [cx - rx, cy], [cx + rx, cy], [cx, cy - ry], [cx, cy + ry]])];
   const circle = ([cx, cy, r]) => fromGeometry({polys: [], lines: [], circles: [[cx, cy, r, r]]});
   if (!item) return [];
   switch (kindOf(path)) {
+    case 'extra': return anchors(['drawing', 'extra', 0], drawnExtra(piece, item), k);
     case 'shape': {
       if (item.text !== undefined && item.at) return [applyTransform(parseTransform(item.transform), item.at.slice(0, 2))];
       return fromGeometry(shapeGeometry(item, k));
@@ -104,6 +229,9 @@ export function anchors(path, item, k = 1) {
     case 'light': return (Array.isArray(item.shape) ? item.shape : []).flatMap(s => fromGeometry(shapeGeometry(s, k)))
       .concat(item.pool ? [[item.pool.x, item.pool.y]] : []);
     case 'marker': return [[item.x, item.y]];
+    case 'part': return partPoly(item) || [];
+    case 'spill': return fromGeometry({polys: [], lines: [], circles: [[item.cx, item.cy, item.rx, item.ry]]});
+    case 'blocker': return item.rect ? box(...item.rect) : item.poly || [];
     case 'opening': {
       const [x, y, w, h] = shutterRect(item);
       return box(x, y, w, h);
@@ -135,6 +263,11 @@ function shapeHandles(s, {turnable, reach = 20} = {}) {
     }
     return out;
   }
+  if (typeof s.path === 'string' && !s.repeat) {
+    const {segs} = pathSegments(s.path);
+    return segs.flatMap((seg, i) => (seg.C === 'Z' ? [] : [{id: `pt:${i}`, at: seg.end},
+      ...seg.controls.map((c, j) => ({id: `c:${i}:${j}`, at: c, ctrl: true}))]));
+  }
   if (s.circle) return [{id: 'r', at: [s.circle[0] + s.circle[2], s.circle[1]]}];
   if (s.ellipse) return [{id: 'rx', at: [s.ellipse[0] + s.ellipse[2], s.ellipse[1]]}, {id: 'ry', at: [s.ellipse[0], s.ellipse[1] + s.ellipse[3]]}];
   if (Array.isArray(s.poly)) {
@@ -147,16 +280,25 @@ function shapeHandles(s, {turnable, reach = 20} = {}) {
 
 // The part of an item a handle belongs to: the shape-like object it changes, `put` to make the item from a new one,
 // and the handle's id within it. Null for the handles an item has of its own (a pool's, an opening's ends).
-function partOf(path, item, id) {
+function partOf(path, item, id, piece) {
   const [head, rest] = id.includes('/') ? [id.slice(0, id.indexOf('/')), id.slice(id.indexOf('/') + 1)] : [null, id];
   switch (kindOf(path)) {
     case 'shape': return {s: item, put: s => s, id};
+    // As it's drawn (turned with the piece), and back with its own transform.
+    case 'extra': return {s: drawnExtra(piece, item), put: s => {
+      const out = {...item, ...s, transform: item.transform};
+      if (item.transform === undefined) delete out.transform;
+      return out;
+    }, id};
     case 'piece': return {s: item.shape, put: s => ({...item, shape: s}), id, turnable: !!item.shape?.rect};
     case 'light': {
       const i = +head?.slice(1);
       if (!/^s\d+$/.test(head || '') || !item.shape?.[i]) return null;
       return {s: item.shape[i], put: s => ({...item, shape: item.shape.map((x, j) => (j === i ? s : x))}), id: rest};
     }
+    case 'part': return {s: Array.isArray(item[0]) ? {poly: item} : {rect: item}, put: s => s.rect || s.poly, id};
+    case 'spill': return {s: {ellipse: [item.cx, item.cy, item.rx, item.ry]}, put: ({ellipse: [cx, cy, rx, ry]}) => ({...item, cx, cy, rx, ry}), id};
+    case 'blocker': return {s: item.rect ? {rect: item.rect} : {poly: item.poly}, put: s => ({...item, ...s}), id};
     case 'room': {
       if (head === 'p' && Array.isArray(item[0]?.[0])) return {s: {poly: item[0]}, put: s => [s.poly], id: rest};
       const j = +head?.slice(1);
@@ -168,15 +310,19 @@ function partOf(path, item, id) {
 }
 
 // The handles of the item at `path`: [{id, at, turn?, mid?}].
-export function handles(path, item, {reach} = {}) {
+export function handles(path, item, {reach, piece} = {}) {
   if (!item || typeof item !== 'object') return [];
   const prefixed = (pre, list) => list.map(h => ({...h, id: `${pre}/${h.id}`}));
   switch (kindOf(path)) {
     case 'shape': return shapeHandles(item);
+    case 'extra': return shapeHandles(drawnExtra(piece, item));
     case 'piece': return shapeHandles(item.shape, {turnable: !!item.shape?.rect, reach});
     case 'light': return [
       ...(item.pool ? [{id: 'pool', at: [item.pool.x, item.pool.y]}, {id: 'pool-r', at: [item.pool.x + item.pool.r, item.pool.y]}] : []),
       ...(Array.isArray(item.shape) ? item.shape.flatMap((s, i) => prefixed(`s${i}`, shapeHandles(s))) : [])];
+    case 'part': return shapeHandles(Array.isArray(item[0]) ? {poly: item} : {rect: item});
+    case 'spill': return shapeHandles({ellipse: [item.cx, item.cy, item.rx, item.ry]});
+    case 'blocker': return shapeHandles(item.rect ? {rect: item.rect} : {poly: item.poly});
     case 'opening': {
       const [x, y, w, h] = shutterRect(item);
       return isHorizontal(item) ? [{id: 'end:0', at: [x, y + h / 2]}, {id: 'end:1', at: [x + w, y + h / 2]}]
@@ -188,15 +334,15 @@ export function handles(path, item, {reach} = {}) {
 }
 
 // Whether the pointer is snapped while a handle is dragged: not when turning, nor for the corners of a turned piece.
-export function snapsHandle(path, item, id) {
-  const part = partOf(path, item, id);
+export function snapsHandle(path, item, id, {piece} = {}) {
+  const part = partOf(path, item, id, piece);
   return !(part && (part.id === 'turn' || (part.s?.rect && part.s.turn)));
 }
 
 // Before a drag starts from a handle: dragging the middle of a polygon's side adds a corner there, and goes on with
 // that corner. Returns {item, id}.
-export function startHandle(path, item, id) {
-  const part = partOf(path, item, id), m = part?.id.match(/^mid:(\d+)$/);
+export function startHandle(path, item, id, {piece} = {}) {
+  const part = partOf(path, item, id, piece), m = part?.id.match(/^mid:(\d+)$/);
   if (!m) return {item, id};
   const i = +m[1], p = part.s.poly, q = p[(i + 1) % p.length];
   const poly = [...p.slice(0, i + 1), [tidy((p[i][0] + q[0]) / 2), tidy((p[i][1] + q[1]) / 2)], ...p.slice(i + 1)];
@@ -204,8 +350,8 @@ export function startHandle(path, item, id) {
 }
 
 // A polygon's corner removed (one with more than three). Null when it can't be.
-export function removeCorner(path, item, id) {
-  const part = partOf(path, item, id), m = part?.id.match(/^v:(\d+)$/);
+export function removeCorner(path, item, id, {piece} = {}) {
+  const part = partOf(path, item, id, piece), m = part?.id.match(/^v:(\d+)$/);
   if (!m || part.s.poly.length <= 3) return null;
   return part.put({...part.s, poly: part.s.poly.filter((_, i) => i !== +m[1])});
 }
@@ -242,6 +388,10 @@ function dragShape(s, id, p, {turnStep}) {
     const r = Math.max(tidy(dist(p, s.circle)), 1);
     return {s: {...s, circle: [s.circle[0], s.circle[1], r]}, ruler: {radius: r}};
   }
+  if (/^(pt|c):/.test(id) && typeof s.path === 'string') {
+    const path = movePathPoint(s.path, id, p), seg = pathSegments(path).segs[+id.split(':')[1]];
+    return {s: {...s, path}, ruler: seg && id.startsWith('pt') ? {length: dist(seg.from, seg.end)} : null};
+  }
   if ((id === 'rx' || id === 'ry') && s.ellipse) {
     const e = [...s.ellipse], k = id === 'rx' ? 0 : 1;
     e[2 + k] = Math.max(tidy(Math.abs(p[k] - e[k])), 1);
@@ -256,8 +406,9 @@ function dragShape(s, id, p, {turnStep}) {
 }
 
 // The item at `path` with its handle `id` dragged to `p` (snapped already, if it snaps): {item, ruler}. `turnStep`:
-// the degrees a turn snaps to (0: none).
-export function dragHandle(path, item, id, p, {turnStep = 15} = {}) {
+// the degrees a turn snaps to (0: none). A piece resized by its rectangle's or circle's handles scales its extra
+// shapes with it, unless `insides` is false.
+export function dragHandle(path, item, id, p, {turnStep = 15, piece, insides = true} = {}) {
   const kind = kindOf(path);
   if (kind === 'light' && item.pool && (id === 'pool' || id === 'pool-r')) {
     if (id === 'pool') return {item: {...item, pool: {...item.pool, x: tidy(p[0]), y: tidy(p[1])}}, ruler: null};
@@ -270,13 +421,18 @@ export function dragHandle(path, item, id, p, {turnStep = 15} = {}) {
     const from = Math.min(v, other), len = Math.max(Math.abs(v - other), 1);
     return {item: {...item, [a]: tidy(from), [l]: tidy(len)}, ruler: {length: tidy(len)}};
   }
-  const part = partOf(path, item, id);
+  const part = partOf(path, item, id, piece);
   if (!part) return {item, ruler: null};
   // Under an SVG transform, the pointer in the shape's own units.
   const m = !part.turnable && parseTransform(part.s.transform);
   if (m) p = applyTransform(invertTransform(m), p);
   const {s, ruler} = dragShape(part.s, part.id, p, {turnStep});
-  return {item: s === part.s ? item : part.put(s), ruler};
+  if (s === part.s) return {item, ruler};
+  const next = part.put(s), from = pieceBox(part.s), to = pieceBox(s);
+  if (kind === 'piece' && insides && Array.isArray(item.extra) && /^(rect:|r$)/.test(part.id) && from && to) {
+    next.extra = item.extra.map(x => scaleShape(x, from, to));
+  }
+  return {item: next, ruler};
 }
 
 // The ruler's text, in metres (or degrees).
@@ -300,6 +456,18 @@ export function snapTargets(items, except = [], k = 1) {
     if (skip.has(JSON.stringify(path))) continue;
     for (const [x, y] of anchors(path, item, k)) if (isNum(x) && isNum(y)) { xs.push(x); ys.push(y); }
   }
+  const sorted = a => [...new Set(a)].sort((p, q) => p - q);
+  return {xs: sorted(xs), ys: sorted(ys)};
+}
+
+// What a piece's extra shapes snap to, in its frame: its outline's corners and centre, and its extra shapes but
+// those at the indexes in `except`. `k`: as for anchors.
+export function insideTargets(piece, except = [], k = 1) {
+  const {rect, circle, poly} = piece?.shape || {}, xs = [], ys = [];
+  const own = rect ? [...box(...rect.slice(0, 4)), [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2]]
+    : circle ? anchors(['furniture', 'p'], {shape: {circle}}) : poly || [];
+  const extras = (Array.isArray(piece?.extra) ? piece.extra : []).flatMap((s, i) => (except.includes(i) ? [] : anchors(['furniture', 'p', 'extra', i], s, k)));
+  for (const [x, y] of [...own, ...extras]) if (isNum(x) && isNum(y)) { xs.push(x); ys.push(y); }
   const sorted = a => [...new Set(a)].sort((p, q) => p - q);
   return {xs: sorted(xs), ys: sorted(ys)};
 }

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {EXAMPLE} from '../../scripts/example.mjs';
 import {HomeModel} from './model.js';
-import {anchors, boundsOf, dragHandle, handles, moveItem, movePath, moveShape, moveTransform, removeCorner, rulerText, snapMove, snapPoint, snapTargets,
-  snapsHandle, startHandle} from './manipulate.js';
+import {anchors, boundsOf, dragHandle, handles, insideTargets, moveItem, movePath, moveShape, moveTransform, removeCorner, rulerText, scaleShape, movePathPoint,
+  snapMove, snapPoint, snapTargets, snapsHandle, startHandle} from './manipulate.js';
 
 const near = (a, b, eps = 0.051) => assert.ok(a.every((v, i) => Math.abs(v - b[i]) <= eps), `${JSON.stringify(a)} ≉ ${JSON.stringify(b)}`);
 
@@ -153,4 +153,132 @@ test('a shape under an SVG transform: its outline, hits, moves and handles', asy
   const wall = {rect: [0, 0, 100, 20], transform: 'rotate(90 0 0)'};
   near(handles(['drawing', 'walls', 0], wall).find(h => h.id === 'rect:1,1').at, [-20, 100]);
   assert.deepEqual(dragHandle(['drawing', 'walls', 0], wall, 'rect:1,1', [-20, 150]).item.rect, [0, 0, 150, 20]);
+});
+
+// The example's sofa, turned a quarter: its cushion (local x 40 to 65, y 380 to 580) lies across y 435 to 460 in the
+// drawing, x -15 to 185.
+const turnedSofa = {...EXAMPLE.furniture.sofa, shape: {...EXAMPLE.furniture.sofa.shape, turn: 90}};
+const cushion = ['furniture', 'sofa', 'extra', 0];
+
+test("a turned piece's extra shape: hit where it's drawn, its outline and anchors", async () => {
+  const {hitInside, hitTest, outlineSvg} = await import('./hit.js');
+  const home = {...EXAMPLE, furniture: {...EXAMPLE.furniture, sofa: turnedSofa}};
+  assert.deepEqual(hitInside(home, 'sofa', [150, 447]), [cushion]);
+  // Inside the cushion as written, but not where it's drawn.
+  assert.deepEqual(hitInside(home, 'sofa', [50, 400]), []);
+  assert.deepEqual(hitInside(EXAMPLE, 'sofa', [50, 400]), [cushion]);
+  // Outside a piece, a click still finds the piece, not its insides.
+  assert.deepEqual(hitTest(EXAMPLE, [50, 400])[0], ['furniture', 'sofa']);
+  assert.ok(!hitTest(EXAMPLE, [50, 400]).some(h => h[0] === 'furniture' && h.length > 2));
+  const [x0, y0, x1, y1] = boundsOf(anchors(cushion, turnedSofa.extra[0], 1, {piece: turnedSofa}));
+  near([x0, y0, x1, y1], [-15, 435, 185, 460]);
+  assert.match(outlineSvg(home, cushion), /^<polygon points="185,435 185,460 -15,460 -15,435"\/>$/);
+  // Without the piece: in its frame.
+  assert.deepEqual(boundsOf(anchors(cushion, turnedSofa.extra[0])), [40, 380, 65, 580]);
+});
+
+test("moving and reshaping an extra shape of a turned piece, in the piece's frame", () => {
+  const s = turnedSofa.extra[0], piece = turnedSofa;
+  // Down the drawing is along the sofa's x when it's turned a quarter.
+  assert.deepEqual(moveItem(cushion, s, 0, 10, {piece}).rect, [50, 380, 25, 200]);
+  assert.deepEqual(moveItem(cushion, s, 0, 10, {piece: EXAMPLE.furniture.sofa}).rect, [40, 390, 25, 200]);
+  // Its handles where the card draws it.
+  near(handles(cushion, s, {piece}).find(h => h.id === 'rect:1,1').at, [-15, 460]);
+  near(handles(cushion, s, {piece}).find(h => h.id === 'rect:1,0').at, [85, 460]);
+  // Its right side (in its frame) dragged 15 further down the drawing: 15 wider.
+  const {item, ruler} = dragHandle(cushion, s, 'rect:1,0', [85, 475], {piece});
+  assert.deepEqual(item, {...s, rect: [40, 380, 40, 200]});
+  assert.equal(rulerText(ruler, 100), '0.40 × 2.00 m');
+  assert.equal(snapsHandle(cushion, s, 'rect:1,0', {piece}), true);
+  // Its own transform stays its own.
+  const turned = {...s, transform: 'rotate(10 50 400)'};
+  assert.equal(dragHandle(cushion, turned, 'rect:1,1', [0, 470], {piece}).item.transform, 'rotate(10 50 400)');
+  assert.equal(moveItem(cushion, turned, 0, 10, {piece}).transform, 'rotate(10 60 400)');
+  // A polygon's corner added in the middle of a side, and taken out again.
+  const tri = {poly: [[40, 380], [65, 380], [40, 420]]}, added = startHandle(cushion, tri, 'mid:0', {piece});
+  assert.deepEqual(added, {item: {poly: [[40, 380], [52.5, 380], [65, 380], [40, 420]]}, id: 'v:1'});
+  assert.deepEqual(removeCorner(cushion, added.item, 'v:1', {piece}), tri);
+});
+
+test("a resized piece's insides scale with it, unless they're left", () => {
+  const sofa = EXAMPLE.furniture.sofa, path = ['furniture', 'sofa'];
+  const wider = dragHandle(path, sofa, 'rect:1,0', [220, 480]).item;
+  assert.deepEqual(wider.shape.rect, [40, 380, 180, 200]);
+  assert.deepEqual(wider.extra, [{rect: [40, 380, 50, 200], class: 'furn2', rx: 6}]);
+  assert.deepEqual(dragHandle(path, sofa, 'rect:1,0', [220, 480], {insides: false}).item.extra, sofa.extra);
+  // Turned, they keep their place in its frame.
+  const turned = dragHandle(path, turnedSofa, 'rect:-1,1', [0, 520]).item, [x, y, w, h] = turned.shape.rect;
+  near(turned.extra[0].rect, [x, y, 25 * w / 90, h]);
+  // Turning moves nothing in its frame.
+  assert.deepEqual(dragHandle(path, sofa, 'turn', [200, 480]).item.extra, sofa.extra);
+  // A circle by the smaller factor, a line's lengths, a text's place but not its size.
+  assert.deepEqual(scaleShape({circle: [50, 50, 10]}, [0, 0, 100, 100], [0, 0, 300, 200]), {circle: [150, 100, 20]});
+  assert.equal(scaleShape({path: 'M530,120 h60', class: 'line'}, [530, 40, 60, 160], [530, 40, 120, 80]).path, 'M530,80 h120');
+  assert.deepEqual(scaleShape({text: 'TV', at: [10, 10], class: 'lbl'}, [0, 0, 20, 20], [0, 0, 40, 20]), {text: 'TV', at: [20, 10], class: 'lbl'});
+  // A circular piece: around its centre.
+  const lamp = {shape: {circle: [100, 100, 10]}, extra: [{circle: [100, 100, 4]}, {rect: [95, 95, 5, 5]}]};
+  assert.deepEqual(dragHandle(['furniture', 'lamp'], lamp, 'r', [120, 100]).item.extra, [{circle: [100, 100, 8]}, {rect: [90, 90, 10, 10]}]);
+});
+
+test("snapping inside a piece: its outline's corners and centre, and its other shapes", () => {
+  assert.deepEqual(insideTargets(EXAMPLE.furniture.bed, [0]), {xs: [600, 700, 705, 785, 800], ys: [420, 510, 560, 590, 600]});
+  assert.deepEqual(insideTargets({shape: {circle: [0, 0, 10]}}), {xs: [-10, 0, 10], ys: [-10, 0, 10]});
+});
+
+test("a moved extra shape changes only its numbers in the file", () => {
+  const text = fs.readFileSync(new URL('../../example/home.yaml', import.meta.url), 'utf8');
+  const m = new HomeModel(text), path = ['furniture', 'bed', 'extra', 1];
+  m.set(path, dragHandle(path, m.get(path), 'rect:1,0', [795, 575], {piece: m.get(['furniture', 'bed'])}).item);
+  const changed = m.text.split('\n').filter((line, i) => line !== text.split('\n')[i]);
+  assert.deepEqual(changed.map(l => l.trim()), ['- {rect: [705, 560, 90, 30], class: furn2, rx: 10}']);
+});
+
+test("the sun's spills and blockers: hit behind the drawing, moved and reshaped", async () => {
+  const {hitTest, outlineSvg} = await import('./hit.js');
+  const spill = {cx: 100, cy: 100, rx: 50, ry: 20, clip: 'hall', from: [0], k: 0.5}, blocker = {rect: [300, 0, 20, 40], height: 3};
+  const home = {view: {x: 0, y: 0, w: 1145, h: 500}, rooms: {hall: [[0, 0, 400, 400]]}, drawing: {floors: [{rect: [0, 0, 400, 400]}]},
+    sun: {spill: [spill], blockers: [blocker]}};
+  assert.deepEqual(hitTest(home, [140, 100]), [['drawing', 'floors', 0], ['sun', 'spill', 0], ['rooms', 'hall']]);
+  assert.deepEqual(hitTest(home, [100, 125]).map(h => h[0]), ['drawing', 'rooms']);
+  assert.deepEqual(hitTest(home, [310, 20])[1], ['sun', 'blockers', 0]);
+  assert.equal(outlineSvg(home, ['sun', 'spill', 0]), '<ellipse cx="100" cy="100" rx="50" ry="20"/>');
+  assert.deepEqual(moveItem(['sun', 'spill', 0], spill, 5, -5), {...spill, cx: 105, cy: 95});
+  assert.deepEqual(handles(['sun', 'spill', 0], spill).map(h => h.id), ['rx', 'ry']);
+  assert.deepEqual(dragHandle(['sun', 'spill', 0], spill, 'ry', [0, 140]).item, {...spill, ry: 40});
+  assert.deepEqual(moveItem(['sun', 'blockers', 0], blocker, 10, 0), {rect: [310, 0, 20, 40], height: 3});
+  assert.deepEqual(dragHandle(['sun', 'blockers', 0], blocker, 'rect:1,1', [330, 50]).item, {rect: [300, 0, 30, 50], height: 3});
+});
+
+test("a path's points: handles where they are, moved one by one with the rest staying", () => {
+  const line = {path: 'M530,120 h60', class: 'line'}, path = ['drawing', 'fittings', 0];
+  assert.deepEqual(handles(path, line).map(h => [h.id, h.at]), [['pt:0', [530, 120]], ['pt:1', [590, 120]]]);
+  // The start moved: the relative h is made up for, so its end stays; it moves along x only.
+  assert.equal(dragHandle(path, line, 'pt:0', [500, 100]).item.path, 'M500,100 h90');
+  assert.equal(dragHandle(path, line, 'pt:1', [600, 140]).item.path, 'M530,120 h70');
+  assert.equal(rulerText(dragHandle(path, line, 'pt:1', [600, 140]).ruler, 100), '0.70 m');
+  // Absolute and relative, a curve's control points, a closed subpath with a relative move after it.
+  assert.equal(movePathPoint('M0 0 L10 0 l5 5', 'pt:1', [20, 2]), 'M0 0 L20 2 l-5 3');
+  assert.equal(movePathPoint('M0,0 C 0,10 10,10 10,0', 'c:1:1', [12, 15]), 'M0,0 C 0,10 12,15 10,0');
+  assert.deepEqual(handles(path, {path: 'M0,0 c0,10 10,10 10,0'}).map(h => h.id), ['pt:0', 'pt:1', 'c:1:0', 'c:1:1']);
+  assert.equal(movePathPoint('m0 0 l10 0 l0 10 z m5 5 l1 1', 'pt:0', [2, 0]), 'm2 0 l8 0 l0 10 z m3 5 l1 1');
+  // Under a transform, and on a turned piece: where it's drawn.
+  const turned = {...line, transform: 'translate(10 0)'};
+  assert.equal(dragHandle(path, turned, 'pt:1', [610, 120]).item.path, 'M530,120 h70');
+  const piece = {shape: {rect: [500, 100, 100, 40], turn: 90}};
+  const end = handles(cushion, line, {piece}).find(h => h.id === 'pt:1').at;
+  near(end, [550, 160]);
+  assert.equal(dragHandle(cushion, line, 'pt:1', [550, 170], {piece}).item.path, 'M530,120 h70');
+});
+
+test("a room's rectangle on its own: outlined, moved and resized, the others staying", async () => {
+  const {outlineSvg} = await import('./hit.js');
+  const home = {view: {x: 0, y: 0, w: 1145, h: 500}, rooms: {hall: [[0, 0, 100, 50], [100, 0, 50, 200]]}};
+  const part = ['rooms', 'hall', 1], q = home.rooms.hall[1];
+  assert.equal(outlineSvg(home, part), '<polygon points="100,0 150,0 150,200 100,200"/>');
+  assert.deepEqual(moveItem(part, q, 10, 5), [110, 5, 50, 200]);
+  assert.deepEqual(anchors(part, q), [[100, 0], [150, 0], [150, 200], [100, 200]]);
+  assert.deepEqual(dragHandle(part, q, 'rect:1,1', [170, 220]).item, [100, 0, 70, 220]);
+  assert.ok(handles(part, q).some(h => h.id === 'rect:-1,-1'));
+  // A polygon room's polygon as one part.
+  assert.deepEqual(dragHandle(['rooms', 'x', 0], [[0, 0], [10, 0], [0, 10]], 'v:1', [20, 0]).item, [[0, 0], [20, 0], [0, 10]]);
 });

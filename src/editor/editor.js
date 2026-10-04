@@ -3,7 +3,8 @@
 // selected item's properties (panels.js, from the schema) and the home's YAML. Every change re-derives the home and
 // redraws the card, or lists the check's messages at the bottom while it doesn't pass (a message selects its item).
 // Items are moved, resized and turned on the plan (manipulate.js): the card follows the pointer, and the model gets
-// one edit when it's let go. The tools draw new ones (create.js); a home starts from the example, empty, or over a
+// one edit when it's let go. A piece of furniture is entered (double-click, or Enter) to edit its insides, the shapes
+// drawn with it, in its own frame. The tools draw new ones (create.js); a home starts from the example, empty, or over a
 // picture of its plan, whose scale is set by measuring a known length on it. Connected to Home Assistant (live.js),
 // the states are the house's own, live.
 // The file is opened and saved as YAML (comments kept, model.js) or JSON (for the card's home_url), and the work in
@@ -16,8 +17,9 @@ import {simulatorControls} from './controls.js';
 import {droppedFile, formatOf, hasFileAccess, imageSize, loadPicture, pickFile, renamed, savePicture, saveFileAs, writeFile} from './files.js';
 import {HaConnection, cannotReach, finishSignIn, haUrl, savedTokens, signIn, signOut} from './live.js';
 import {OPENING_KINDS, emptyHome, lightFrom, openingFrom, pictureHome, pieceFrom, scaleFrom, wallFrom} from './create.js';
-import {hitTest, itemAt, lightCentre, outlineSvg} from './hit.js';
-import {anchors, axesOf, boundsOf, dragHandle, handles, moveItem, removeCorner, rulerText, snapMove, snapPoint, snapTargets,
+import {applyTransform, hitInside, hitTest, inPoly, invertTransform, isExtra, itemAt, lightCentre, onPiece, outlineSvg, parseTransform, partPoly,
+  pieceOutline, pieceTurn} from './hit.js';
+import {anchors, axesOf, boundsOf, dragHandle, handles, insideTargets, moveItem, removeCorner, rulerText, snapMove, snapPoint, snapTargets,
   snapsHandle, startHandle, tidy} from './manipulate.js';
 import {itemGroups, pathKey, renderList, renderProperties} from './panels.js';
 import {fieldAt} from '../schema.js';
@@ -37,7 +39,7 @@ const TURN_STEP = 15;
 const GRID = 0.05;
 // What each tool does, under the plan.
 const HINTS = {
-  select: "Click to select (again, or Tab: what's under it; Shift+click: more), drag on empty space for a box · drag to move, the handles to resize, turn or reshape (double-click a corner removes it) · Shift: along an axis, Alt: no snapping · arrows nudge (Shift: ×10) · Ctrl+D duplicates · with a lamp selected, Ctrl+click a piece to add it to its shadows or take it out · Alt+click taps the card · Esc clears",
+  select: "Click to select (again, or Tab: what's under it; Shift+click: more), drag on empty space for a box · drag to move, the handles to resize, turn or reshape (double-click a corner removes it; Alt: a piece's insides stay) · Shift: along an axis, Alt: no snapping · arrows nudge (Shift: ×10) · Ctrl+D duplicates · double-click a piece (or Enter) to edit its insides · with a lamp selected, Ctrl+click a piece to add it to its shadows or take it out · Alt+click taps the card · Esc clears",
   wall: "Drag a wall's box, or along its middle for a wall of the usual thickness (25 cm outside, 15 cm inside a room) · Esc: back to selecting",
   room: 'Drag a rectangle, or click its corners for a polygon (click the first again, double-click or Enter to finish; Backspace takes the last back) · Esc: back to selecting',
   opening: 'Drag along an outer wall, from one end of the window or door to the other: its side and thickness come from the wall · Esc: back to selecting',
@@ -46,6 +48,13 @@ const HINTS = {
   marker: 'Click where the marker goes · Esc: back to selecting',
   label: 'Click where the label goes (its middle) · Esc: back to selecting',
   scale: 'Drag along something whose length you know (a wall, a door), then type its length to set the scale; or just measure · Esc: back to selecting',
+};
+// Inside a piece of furniture: what the tools do there, and the ones offered.
+const INSIDE_HINTS = {
+  select: "Inside {name}: click its shapes to select them (again, or Tab: what's under it; Shift+click: more), drag on its empty space for a box · drag to move, the handles to resize · Shift: along an axis, Alt: no snapping · arrows nudge · Ctrl+D duplicates · Esc or a click outside it leaves",
+  piece: 'Inside {name}: drag a rectangle (a cushion, a device), a circle from its middle, or a line (choose above); a click places a small one · Esc: back to selecting',
+  label: 'Inside {name}: click where the label goes · Esc: back to selecting',
+  scale: HINTS.scale,
 };
 // The keys of the tools.
 const TOOL_KEYS = {v: 'select', w: 'wall', r: 'room', o: 'opening', f: 'piece', l: 'light', m: 'marker', t: 'label', s: 'scale'};
@@ -95,6 +104,9 @@ const STYLE = `
   .overlay .draft * { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 5 3; fill: rgba(30, 136, 229, 0.15); }
   .overlay .draft circle.point { fill: var(--accent); stroke: none; }
   .overlay .shadows * { stroke: #ef6c00; stroke-width: 1.5; stroke-dasharray: 3 3; }
+  .overlay .inside .dim { fill: rgba(246, 246, 244, 0.6); fill-rule: evenodd; stroke: none; }
+  .preview.dark .overlay .inside .dim { fill: rgba(17, 17, 17, 0.6); }
+  .overlay .inside .piece { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 6 4; }
   .overlay.drawing { cursor: crosshair !important; }
   .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 10px; font-size: 13px; }
   .tools button { padding: 3px 8px; }
@@ -124,6 +136,11 @@ const STYLE = `
   .item.home { padding-left: 10px; font-weight: 600; }
   .item:hover { background: #f2f6fb; } .item.on { background: #e3f0fc; box-shadow: inset 3px 0 var(--accent); }
   .item.drop { box-shadow: inset 0 2px var(--accent); }
+  .item.extra { padding-left: 40px; color: #555; } .item.in { font-weight: 600; }
+  .item .fold { display: inline-block; width: 14px; margin-left: -14px; color: #888; }
+  .props button.link { border: 0; background: none; padding: 0 2px; color: var(--accent); font: inherit; }
+  .props button.link:hover { text-decoration: underline; background: none; }
+  .props .links { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
   /* The properties */
   .props { padding: 10px 12px 16px; font-size: 13px; }
   .props .title { display: flex; align-items: center; gap: 8px; }
@@ -212,7 +229,7 @@ const HTML = `
         <button data-tool="scale" title="Measure, or set the scale from a known length (S)">Scale</button>
         <span class="options"></span>
       </div>
-      <div class="stage"><svg class="overlay"><g class="grid"></g><g class="hover"></g><g class="shadows"></g><g class="sel"></g><g class="guides"></g><g class="handles"></g><g class="draft"></g><rect class="box" width="0" height="0"/></svg><div class="ruler"></div></div>
+      <div class="stage"><svg class="overlay"><g class="inside"></g><g class="grid"></g><g class="hover"></g><g class="shadows"></g><g class="sel"></g><g class="guides"></g><g class="handles"></g><g class="draft"></g><rect class="box" width="0" height="0"/></svg><div class="ruler"></div></div>
       <p class="hint"></p></div>
     </div>
     <div class="side right">
@@ -259,11 +276,13 @@ const byPathDescending = (a, b) => {
   }
   return b.length - a.length;
 };
-// The item a check's message is about: "furniture.sofa.height: …" → ['furniture', 'sofa'].
+// The item a check's message is about: "furniture.sofa.height: …" → ['furniture', 'sofa'], and one of a piece's
+// extra shapes: "furniture.sofa.extra[0]: …" → ['furniture', 'sofa', 'extra', 0].
 export function messagePath(message) {
   const where = message.slice(0, message.indexOf(': '));
   const path = where.split(/\.|(?=\[)/).filter(Boolean).map(k => (/^\[\d+\]$/.test(k) ? +k.slice(1, -1) : k));
-  const depth = path[0] === 'drawing' ? 3 : ['furniture', 'rooms', 'openings', 'lights', 'markers'].includes(path[0]) ? 2 : 0;
+  if (isExtra(path.slice(0, 4))) return path.slice(0, 4);
+  const depth = path[0] === 'drawing' || (path[0] === 'sun' && ['spill', 'blockers'].includes(path[1])) ? 3 : ['furniture', 'rooms', 'openings', 'lights', 'markers'].includes(path[0]) ? 2 : 0;
   return depth && path.length >= depth ? path.slice(0, depth) : null;
 }
 
@@ -285,7 +304,7 @@ export class LightwellEditor extends HTMLElement {
       overlay: $('.overlay'), hover: $('.overlay .hover'), sel: $('.overlay .sel'), list: $('.list'), props: $('.props'),
       handles: $('.overlay .handles'), guides: $('.overlay .guides'), box: $('.overlay .box'), grid: $('.overlay .grid'), ruler: $('.ruler'),
       draft: $('.overlay .draft'), shadows: $('.overlay .shadows'), hint: $('.hint'), options: $('.tools .options'), start: $('dialog.start'),
-      ha: $('dialog.ha'), haButton: $('header .ha'),
+      ha: $('dialog.ha'), haButton: $('header .ha'), inside: $('.overlay .inside'),
       buttons: Object.fromEntries([...root.querySelectorAll('[data-act]')].map(b => [b.dataset.act, b]))};
 
     const draft = storage.get();
@@ -294,10 +313,12 @@ export class LightwellEditor extends HTMLElement {
     this._dark = false;
     this._sel = null;
     this._sels = [];
+    // The piece of furniture whose insides are being edited (its name), or null.
+    this._inside = null;
     this._showGrid = false;
     this._preview = null;
     this._pictures = {};
-    this._opts = {wall: 'auto', floor: true, kind: 'window', glass: true, piece: 'rect'};
+    this._opts = {wall: 'auto', floor: true, kind: 'window', glass: true, piece: 'rect', extra: 'rect'};
     this._shown = {states: this.states, north: undefined};
 
     this._card = document.createElement('lightwell-card');
@@ -369,6 +390,7 @@ export class LightwellEditor extends HTMLElement {
       rename: (path, name) => this._rename(path, name),
       move: (path, from, to) => this._move(path, from, to),
       template: path => this._template(path),
+      enter: name => this._enter(name),
       shapeTemplate: (kind, old) => this._shapeTemplate(kind, old),
     };
     this.setTool('select');
@@ -468,6 +490,7 @@ export class LightwellEditor extends HTMLElement {
       this._home = home;
       this._controls.setPlan(home);
     } else this._renderCard();
+    if (this._inside !== null && !data?.furniture?.[this._inside]) this._inside = null;
     this._sels = this._sels.filter(p => itemAt(data, p) !== undefined);
     if (this._sel && itemAt(data, this._sel) === undefined) this._sel = this._sels.at(-1) || null;
     this._el.footer.textContent = '';
@@ -524,9 +547,10 @@ export class LightwellEditor extends HTMLElement {
     const home = this._preview?.home || this._home, data = this._preview?.data || this._data;
     this._el.sel.innerHTML = home ? this._sels.map(p => outlineSvg(home, p)).join('') : '';
     const px = this._px(), f = v => +v.toFixed(2), s = HANDLE * px;
-    this._el.handles.innerHTML = this._handles(data).map(h => (h.turn || h.mid || h.id.startsWith('pool')
-      ? `<circle class="${h.turn ? 'turn' : h.mid ? 'mid' : ''}" cx="${f(h.at[0])}" cy="${f(h.at[1])}" r="${f(s / (h.mid ? 2.6 : 2))}"/>`
+    this._el.handles.innerHTML = this._handles(data).map(h => (h.turn || h.mid || h.ctrl || h.id.startsWith('pool')
+      ? `<circle class="${h.turn ? 'turn' : h.mid || h.ctrl ? 'mid' : ''}" cx="${f(h.at[0])}" cy="${f(h.at[1])}" r="${f(s / (h.mid || h.ctrl ? 2.6 : 2))}"/>`
       : `<rect x="${f(h.at[0] - s / 2)}" y="${f(h.at[1] - s / 2)}" width="${f(s)}" height="${f(s)}"/>`)).join('');
+    this._renderInside(home);
     // A selected lamp's pieces in shadow.
     const pool = this._sels.length === 1 && this._sel[0] === 'lights' && itemAt(data, this._sel)?.pool;
     this._el.shadows.innerHTML = home && pool ? (pool.shadows || []).map(n => outlineSvg(home, ['furniture', n])).join('') : '';
@@ -536,7 +560,79 @@ export class LightwellEditor extends HTMLElement {
   // The handles of the selected item, if it's the only one and can be changed.
   _handles(data = this._data) {
     if (this._tool !== 'select' || this._sels.length !== 1 || !this.model.home || !data) return [];
-    return handles(this._sel, itemAt(data, this._sel), {reach: 3 * HANDLE * this._px()});
+    return handles(this._sel, itemAt(data, this._sel), this._withPiece(this._sel, data, {reach: 3 * HANDLE * this._px()}));
+  }
+
+  // Inside a piece: the rest of the plan dimmed, the piece outlined; the guides and the drawing in its frame.
+  _renderInside(home) {
+    const piece = home?.furniture?.[this._inside], v = home?.view;
+    const turn = pieceTurn(piece);
+    for (const g of [this._el.guides, this._el.draft]) turn ? g.setAttribute('transform', turn) : g.removeAttribute('transform');
+    if (!piece) { this._el.inside.innerHTML = ''; return; }
+    const o = pieceOutline(piece), f = v => +v.toFixed(1);
+    const d = o.poly ? `M${o.poly.map(q => q.map(f).join(',')).join(' L')} Z`
+      : `M${f(o.circle[0] - o.circle[2])},${o.circle[1]} a${o.circle[2]},${o.circle[2]} 0 1,0 ${f(2 * o.circle[2])},0 a${o.circle[2]},${o.circle[2]} 0 1,0 ${f(-2 * o.circle[2])},0 Z`;
+    // Far beyond the view, so that the overlay's overflow is dimmed too.
+    const [x0, y0, x1, y1] = [v.x - v.w, v.y - v.h, v.x + 2 * v.w, v.y + 2 * v.h];
+    this._el.inside.innerHTML = `<path class="dim" d="M${x0},${y0} H${x1} V${y1} H${x0} Z ${d}"/><path class="piece" d="${d}"/>`;
+  }
+
+  // The options the manipulate functions take for the item at `path` (plus `rest`): an extra shape's piece.
+  _withPiece(path, data = this.model.data, rest = {}) {
+    return isExtra(path) ? {...rest, piece: itemAt(data, path.slice(0, 2))} : rest;
+  }
+
+  // The piece whose insides are being edited, in `data`.
+  _piece(data = this._data) {
+    return this._inside === null ? undefined : data?.furniture?.[this._inside];
+  }
+
+  // A point in the drawing in the frame of the piece being edited, and back (the same unless it's turned).
+  _toFrame(p, data) {
+    const m = parseTransform(pieceTurn(this._piece(data)));
+    return m ? applyTransform(invertTransform(m), p) : p;
+  }
+
+  _fromFrame(p, data) {
+    return applyTransform(parseTransform(pieceTurn(this._piece(data))), p);
+  }
+
+  // What's under the pointer: inside a piece, its shapes, front to back (`inside` true); otherwise every item.
+  _hitsAt(at) {
+    const piece = this._home?.furniture?.[this._inside];
+    if (piece && onPiece(piece, at.p, at.tol)) return {hits: hitInside(this._home, this._inside, at.p, at.tol), inside: true};
+    return {hits: hitTest(this._home, at.p, at.tol), inside: false};
+  }
+
+  // Edits the insides of the piece `name`, selecting `paths` (its shapes).
+  _enter(name, paths = []) {
+    if (!this.model.data?.furniture?.[name]) return;
+    this._inside = name;
+    this._hits = null;
+    this._poly = null;
+    this._el.draft.innerHTML = '';
+    if (!INSIDE_HINTS[this._tool]) this._tool = 'select';
+    this._selectAll(paths);
+    this._renderTools();
+  }
+
+  // Out of the piece, with nothing selected (before selecting what's outside it).
+  _out() {
+    this._inside = null;
+    this._hits = null;
+    this._sels = [];
+    this._sel = null;
+    this._renderTools();
+    this._renderOverlay();
+  }
+
+  // Back out of the piece, selecting it.
+  _leave() {
+    const name = this._inside;
+    this._inside = null;
+    this._hits = null;
+    this._selectAll(name === null ? [] : [['furniture', name]]);
+    this._renderTools();
   }
 
   // The grid things snap to (GRID), with a stronger line every metre; the minor lines only when they're far enough
@@ -556,7 +652,7 @@ export class LightwellEditor extends HTMLElement {
   }
 
   _renderPanels() {
-    renderList(this._el.list, this.model.data, this._sel, this._ctx, this._sels);
+    renderList(this._el.list, this.model.data, this._sel, {...this._ctx, inside: this._inside}, this._sels);
     renderProperties(this._el.props, this.model.data, this._sel, {...this._ctx, data: this.model.data, states: this._shown.states,
       previewing: this._effect});
     if (this._sels.length > 1) {
@@ -568,15 +664,22 @@ export class LightwellEditor extends HTMLElement {
 
   // Selects the item at `path` (null: the home itself) in the list, on the plan and in the text.
   select(path) {
+    if (!path) this._inside = null;
     this._selectAll(path ? [path] : []);
     if (this._sel && !this._el.text.closest('[hidden]')) this._showInText(this._sel);
   }
 
   // Selects several items; the last is the one whose properties show.
+  // Selecting a piece's shapes enters it (only its shapes stay selected); selecting anything else leaves it.
   _selectAll(paths) {
-    const seen = new Set();
+    const seen = new Set(), was = this._inside;
     this._sels = paths.filter(p => itemAt(this.model.data, p) !== undefined && !seen.has(pathKey(p)) && seen.add(pathKey(p)));
+    const extra = this._sels.findLast(isExtra);
+    if (extra) this._inside = extra[1];
+    else if (this._sels.length) this._inside = null;
+    if (this._inside !== null) this._sels = this._sels.filter(p => isExtra(p) && p[1] === this._inside);
     this._sel = this._sels.at(-1) || null;
+    if (was !== this._inside) this._renderTools();
     this._renderPanels();
   }
 
@@ -642,7 +745,7 @@ export class LightwellEditor extends HTMLElement {
       if (this._poly) this._drawDraft(this._snap(e, at, this._poly.points.at(-1)), null, e);
       return;
     }
-    const handle = this._handleAt(at), hit = !handle && hitTest(this._home, at.p, at.tol)[0];
+    const handle = this._handleAt(at), hit = !handle && this._hitsAt(at).hits[0];
     this._el.hover.innerHTML = hit && !this._sels.some(p => samePath(p, hit)) ? outlineSvg(this._home, hit) : '';
     this._el.overlay.style.cursor = handle ? 'crosshair' : hit && this.model.home ? 'move' : 'default';
   }
@@ -677,7 +780,9 @@ export class LightwellEditor extends HTMLElement {
       return;
     }
     if (press.handle) return;
-    const hits = hitTest(this._home, press.at.p, press.at.tol);
+    const {hits, inside} = this._hitsAt(press.at);
+    // A click outside the piece being edited leaves it.
+    if (this._inside !== null && !inside) this._out();
     if ((e.ctrlKey || e.metaKey) && this._toggleShadow(hits)) return;
     if (press.shift) {
       if (hits[0]) this._toggle(hits[0]);
@@ -686,13 +791,14 @@ export class LightwellEditor extends HTMLElement {
     const again = this._hits && hits.length && hits.map(pathKey).join() === this._hits.map(pathKey).join();
     this._hits = hits;
     if (again) return this._cycle();
-    this.select(hits[0] || null);
+    if (inside) this._selectAll(hits.slice(0, 1));
+    else this.select(hits[0] || null);
   }
 
   // With a lamp with a pool selected: the piece among `hits` added to its shadows, or taken out. False when it isn't.
   _toggleShadow(hits) {
     const path = this._sels.length === 1 && this._sel[0] === 'lights' ? this._sel : null;
-    const light = path && itemAt(this.model.data, path), piece = hits.find(h => h[0] === 'furniture');
+    const light = path && itemAt(this.model.data, path), piece = hits.find(h => h[0] === 'furniture' && h.length === 2);
     if (!light?.pool || !piece) return false;
     if (!this.model.data.furniture[piece[1]]?.height) {
       this._message(`${piece[1]} has no height, so it casts no shadows: give it one first`);
@@ -704,12 +810,26 @@ export class LightwellEditor extends HTMLElement {
     return true;
   }
 
-  // A double click on a polygon's corner removes it; while drawing a polygon, it finishes it.
+  // A double click on a polygon's corner removes it; on a piece of furniture, it enters it (to edit its insides,
+  // selecting the one under the pointer); while drawing a polygon, it finishes it.
   _dblclick(e) {
     if (this._tool !== 'select') return this._poly && this._finishPoly();
     const at = this._at(e), handle = at && this._handleAt(at);
-    if (!handle?.id.match(/(^|\/)v:\d+$/)) return;
-    const item = removeCorner(this._sel, itemAt(this.model.data, this._sel), handle.id);
+    if (at && !handle?.id.match(/(^|\/)v:\d+$/)) {
+      if (this._hitsAt(at).inside) return;
+      const hits = hitTest(this._home, at.p, at.tol);
+      // In a selected room (or one of its rectangles): the rectangle under the pointer, the last listed first.
+      const room = this._sel?.[0] === 'rooms' && hits.some(h => h[0] === 'rooms' && h[1] === this._sel[1]) && this.model.data.rooms[this._sel[1]];
+      if (Array.isArray(room) && !Array.isArray(room[0]?.[0])) {
+        const i = room.findLastIndex(q => inPoly(partPoly(q) || [], at.p));
+        if (i >= 0) return this.select(['rooms', this._sel[1], i]);
+      }
+      const piece = hits.find(h => h[0] === 'furniture');
+      if (piece) this._enter(piece[1], hitInside(this._home, piece[1], at.p, at.tol).slice(0, 1));
+      return;
+    }
+    if (!handle) return;
+    const item = removeCorner(this._sel, itemAt(this.model.data, this._sel), handle.id, this._withPiece(this._sel));
     if (item) this._edit(() => this.model.set(this._sel, item));
     else this._message('A polygon keeps at least three corners');
   }
@@ -718,27 +838,44 @@ export class LightwellEditor extends HTMLElement {
   // the selection (the item first selected, if it wasn't); with Shift or on empty space, selects with a box.
   _startDrag(press) {
     const {at} = press;
-    const hits = press.handle ? [] : hitTest(this._home, at.p, at.tol);
+    let hits = [];
+    if (!press.handle) {
+      const found = this._hitsAt(at);
+      // A drag starting outside the piece being edited leaves it.
+      if (this._inside !== null && !found.inside) this._out();
+      hits = found.hits;
+    }
     if (press.shift || (!press.handle && !hits.length)) return {kind: 'box', from: at.p, add: press.shift};
     if (!this.model.home) {
       this._message('Fix the mistakes listed here first: the plan shows the last version without them.');
       return {kind: 'none'};
     }
     const data = this.model.data, view = this._home.view.w / 1145;
+    // Inside a piece, snapping is in its frame: to its outline and its other shapes.
+    const frame = this._inside !== null, piece = this._piece(data);
+    const targets = except => (frame ? insideTargets(piece, except.filter(isExtra).map(p => p[3]), view) : snapTargets(this._items(data, except), except, view));
     if (press.handle) {
-      const {item, id} = startHandle(this._sel, itemAt(data, this._sel), press.handle.id);
-      return {kind: 'handle', path: this._sel, item, id, from: press.handle.at,
-        targets: snapTargets(this._items(data), [this._sel], view)};
+      const {item, id} = startHandle(this._sel, itemAt(data, this._sel), press.handle.id, this._withPiece(this._sel, data));
+      return {kind: 'handle', path: this._sel, item, id, from: press.handle.at, frame, targets: targets([this._sel])};
     }
-    if (!hits.some(h => this._sels.some(p => samePath(p, h)))) this.select(hits[0]);
+    if (!hits.some(h => this._sels.some(p => samePath(p, h)))) frame ? this._selectAll(hits.slice(0, 1)) : this.select(hits[0]);
     const paths = this._sels, items = paths.map(p => itemAt(data, p));
-    return {kind: 'move', paths, items, from: at.p, pts: paths.flatMap((p, i) => anchors(p, items[i], view)),
-      axes: paths.length === 1 ? axesOf(paths[0], items[0]) : [1, 1], targets: snapTargets(this._items(data), paths, view)};
+    // Anchors in the piece's frame inside it (without the piece, they're in its frame).
+    return {kind: 'move', paths, items, from: at.p, frame, pts: paths.flatMap((p, i) => anchors(p, items[i], view, frame ? {} : this._withPiece(p, data))),
+      axes: paths.length === 1 ? axesOf(paths[0], items[0]) : [1, 1], targets: targets(paths)};
   }
 
-  // Every item of the home: [[path, item]].
-  _items(data) {
-    return itemGroups(data).flatMap(g => g.items.map(it => [it.path, itemAt(data, it.path)]));
+  // Every item of the home: [[path, item]]; inside a piece, its shapes. A room without its rectangles in `except`.
+  _items(data, except = []) {
+    if (this._inside !== null) {
+      const list = this._piece(data)?.extra;
+      return Array.isArray(list) ? list.map((s, i) => [['furniture', this._inside, 'extra', i], s]) : [];
+    }
+    const parts = except.filter(p => p[0] === 'rooms' && p.length === 3);
+    return itemGroups(data).flatMap(g => g.items.map(it => {
+      const item = itemAt(data, it.path), out = parts.filter(p => p[1] === it.path[1] && it.path[0] === 'rooms').map(p => p[2]);
+      return [it.path, out.length ? item.filter((_, i) => !out.includes(i)) : item];
+    }));
   }
 
   // The pointer moved while pressed: starts the drag once it's far enough, then previews it.
@@ -763,14 +900,22 @@ export class LightwellEditor extends HTMLElement {
       this._el.box.setAttribute('height', y1 - y0);
       ruler = {size: [x1 - x0, y1 - y0]};
     } else if (drag.kind === 'move') {
-      const moved = snapMove(drag.pts, at.p[0] - drag.from[0], at.p[1] - drag.from[1], {...snap, axes: drag.axes});
+      // Inside a piece, the move is snapped in its frame, and made in the drawing again.
+      const [to, from] = drag.frame ? [this._toFrame(at.p), this._toFrame(drag.from)] : [at.p, drag.from];
+      const moved = snapMove(drag.pts, to[0] - from[0], to[1] - from[1], {...snap, axes: drag.axes});
       guides = moved.guides;
-      drag.changes = drag.paths.map((p, i) => [p, moveItem(p, drag.items[i], moved.dx, moved.dy)]);
+      const [o, d] = drag.frame ? [this._fromFrame([0, 0]), this._fromFrame([moved.dx, moved.dy])] : [[0, 0], [moved.dx, moved.dy]];
+      drag.changes = drag.paths.map((p, i) => [p, moveItem(p, drag.items[i], d[0] - o[0], d[1] - o[1], this._withPiece(p, this._data))]);
       ruler = {move: [moved.dx, moved.dy]};
     } else if (drag.kind === 'handle') {
       let p = at.p;
-      if (!e.altKey && snapsHandle(drag.path, drag.item, drag.id)) ({p, guides} = snapPoint(p, {...snap, from: drag.from}));
-      const done = dragHandle(drag.path, drag.item, drag.id, p, {turnStep: e.altKey ? 0 : TURN_STEP});
+      const piece = this._withPiece(drag.path, this._data);
+      if (!e.altKey && snapsHandle(drag.path, drag.item, drag.id, piece)) {
+        const local = drag.frame ? snapPoint(this._toFrame(p), {...snap, from: this._toFrame(drag.from)}) : snapPoint(p, {...snap, from: drag.from});
+        ({guides} = local);
+        p = drag.frame ? this._fromFrame(local.p) : local.p;
+      }
+      const done = dragHandle(drag.path, drag.item, drag.id, p, {turnStep: e.altKey ? 0 : TURN_STEP, insides: !e.altKey, ...piece});
       drag.changes = [[drag.path, done.item]];
       ruler = done.ruler;
     }
@@ -782,10 +927,12 @@ export class LightwellEditor extends HTMLElement {
   }
 
   // Lines across the view where a snap lined things up.
+  // Inside a turned piece they're in its frame (the guides are drawn turned with it), so they reach further.
   _showGuides({x, y} = {}) {
-    const v = this._home.view;
-    this._el.guides.innerHTML = (x !== undefined ? `<line x1="${x}" y1="${v.y}" x2="${x}" y2="${v.y + v.h}"/>` : '')
-      + (y !== undefined ? `<line x1="${v.x}" y1="${y}" x2="${v.x + v.w}" y2="${y}"/>` : '');
+    const v = this._home.view, far = this._inside === null ? 0 : Math.max(v.w, v.h);
+    const [x0, y0, x1, y1] = [v.x - far, v.y - far, v.x + v.w + far, v.y + v.h + far];
+    this._el.guides.innerHTML = (x !== undefined ? `<line x1="${x}" y1="${y0}" x2="${x}" y2="${y1}"/>` : '')
+      + (y !== undefined ? `<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}"/>` : '');
   }
 
   // The card and the overlay as they'd be with `changes` ([[path, value]]), drawn at most once a frame. A version
@@ -814,7 +961,7 @@ export class LightwellEditor extends HTMLElement {
     if (drag.kind === 'box' && drag.rect) {
       const [x0, y0, x1, y1] = drag.rect, view = this._home.view.w / 1145;
       const inside = this._items(this._data).filter(([path, item]) => {
-        const pts = anchors(path, item, view);
+        const pts = anchors(path, item, view, this._withPiece(path, this._data));
         return pts.length && pts.every(([x, y]) => x >= x0 && x <= x1 && y >= y0 && y <= y1);
       }).map(([path]) => path);
       this._selectAll(drag.add ? [...this._sels, ...inside] : inside);
@@ -860,17 +1007,30 @@ export class LightwellEditor extends HTMLElement {
   }
 
   // The tool in use: 'select', or one that draws (wall, room, opening, piece, light, marker, label, scale).
+  // Inside a piece of furniture, only those that draw its insides (piece, label) and the scale.
   setTool(tool) {
-    if (!HINTS[tool]) return;
+    if (!HINTS[tool] || (this._inside !== null && !INSIDE_HINTS[tool])) return;
     this._tool = tool;
     this._poly = null;
     this._cancelDrag();
     this._el.draft.innerHTML = '';
-    for (const b of this._root.querySelectorAll('[data-tool]')) b.setAttribute('aria-pressed', b.dataset.tool === tool);
-    this._el.overlay.classList.toggle('drawing', tool !== 'select');
-    this._el.hint.textContent = HINTS[tool];
-    this._renderOptions();
+    this._renderTools();
     this._renderOverlay();
+  }
+
+  // The tools' buttons, options and hint, for the tool in use and whether a piece is being edited.
+  _renderTools() {
+    const inside = this._inside !== null, tool = this._tool;
+    for (const b of this._root.querySelectorAll('[data-tool]')) {
+      b.setAttribute('aria-pressed', b.dataset.tool === tool);
+      b.disabled = inside && !INSIDE_HINTS[b.dataset.tool];
+    }
+    const piece = this._root.querySelector('[data-tool="piece"]');
+    piece.textContent = inside ? 'Shapes' : 'Furniture';
+    piece.title = inside ? `Shapes on ${this._inside} (F)` : 'Furniture (F)';
+    this._el.overlay.classList.toggle('drawing', tool !== 'select');
+    this._el.hint.textContent = inside ? INSIDE_HINTS[tool].replace('{name}', this._inside) : HINTS[tool];
+    this._renderOptions();
   }
 
   // The tool's options, next to the tools.
@@ -882,7 +1042,8 @@ export class LightwellEditor extends HTMLElement {
       wall: select('wall', {auto: 'Outer or inner, by where', outer: 'Outer wall', inner: 'Inner wall'}),
       room: check('floor', 'with its floor'),
       opening: select('kind', {window: 'Window', door: 'Door'}) + check('glass', 'with its glass'),
-      piece: select('piece', {rect: 'Rectangle', circle: 'Circle', poly: 'Polygon'}),
+      piece: this._inside !== null ? select('extra', {rect: 'Rectangle', circle: 'Circle', line: 'Line'})
+        : select('piece', {rect: 'Rectangle', circle: 'Circle', poly: 'Polygon'}),
     }[this._tool] || '';
     for (const input of box.querySelectorAll('[data-opt]')) {
       input.onchange = () => { o[input.dataset.opt] = input.type === 'checkbox' ? input.checked : input.value; this._poly = null; this._el.draft.innerHTML = ''; };
@@ -891,11 +1052,13 @@ export class LightwellEditor extends HTMLElement {
 
   // A pointer position snapped for drawing: to the other items and the grid (Shift: along an axis from `from`; Alt:
   // not at all), with the guides shown.
+  // Inside a piece of furniture, in its frame: snapped to its outline and its shapes.
   _snap(e, at, from) {
-    if (e.altKey || !this._data) { this._showGuides(); return at.p; }
-    const key = this.model.text;
-    if (this._targets?.key !== key) this._targets = {key, ...snapTargets(this._items(this._data), [], this._home.view.w / 1145)};
-    const {p, guides} = snapPoint(at.p, {...this._targets, tol: at.tol, grid: this._grid(), axis: e.shiftKey && !!from, from});
+    const inside = this._inside !== null, q = inside ? this._toFrame(at.p) : at.p;
+    if (e.altKey || !this._data) { this._showGuides(); return q; }
+    const key = `${this._inside}:${this.model.text}`, k = this._home.view.w / 1145;
+    if (this._targets?.key !== key) this._targets = {key, ...(inside ? insideTargets(this._piece(), [], k) : snapTargets(this._items(this._data), [], k))};
+    const {p, guides} = snapPoint(q, {...this._targets, tol: at.tol, grid: this._grid(), axis: e.shiftKey && !!from, from});
     this._showGuides(guides);
     return p;
   }
@@ -908,10 +1071,10 @@ export class LightwellEditor extends HTMLElement {
       const pts = [...this._poly.points, p];
       svg = `<polyline points="${pts.map(q => q.map(f).join(',')).join(' ')}"/>` + this._poly.points.map(q => `<circle class="point" cx="${f(q[0])}" cy="${f(q[1])}" r="${f(3 * this._px())}"/>`).join('');
       ruler = {length: Math.hypot(p[0] - pts.at(-2)[0], p[1] - pts.at(-2)[1])};
-    } else if (a && (tool === 'scale' || tool === 'opening')) {
+    } else if (a && (tool === 'scale' || tool === 'opening' || (tool === 'piece' && this._inside !== null && this._opts.extra === 'line'))) {
       svg = `<line x1="${f(a[0])}" y1="${f(a[1])}" x2="${f(p[0])}" y2="${f(p[1])}"/>`;
       ruler = {length: Math.hypot(p[0] - a[0], p[1] - a[1])};
-    } else if (a && (tool === 'light' || (tool === 'piece' && this._opts.piece === 'circle'))) {
+    } else if (a && (tool === 'light' || (tool === 'piece' && (this._inside !== null ? this._opts.extra : this._opts.piece) === 'circle'))) {
       const r = Math.hypot(p[0] - a[0], p[1] - a[1]);
       svg = `<circle cx="${f(a[0])}" cy="${f(a[1])}" r="${f(r)}"/>`;
       ruler = {radius: r};
@@ -956,6 +1119,7 @@ export class LightwellEditor extends HTMLElement {
     const data = this.model.data, m = data.units_per_metre || 100, tool = this._tool, r = v => tidy(v);
     const d = Math.hypot(b[0] - a[0], b[1] - a[1]);
     const box = () => { const [x0, y0, x1, y1] = boundsOf([a, b]); return [x0, y0, x1 - x0, y1 - y0].map(r); };
+    if (this._inside !== null && tool !== 'scale') return this._drawInside(a, b, moved);
     if ((tool === 'room' || (tool === 'piece' && this._opts.piece === 'poly')) && (!moved || this._poly)) return this._addCorner(moved ? b : a);
     if (tool === 'wall') {
       if (!moved) return;
@@ -995,6 +1159,30 @@ export class LightwellEditor extends HTMLElement {
       this._edit(() => this.model.set(['units_per_metre'], scale));
       this._message(`The scale is ${scale} units a metre now. Lengths in metres (heights, the ruler, shadows) follow it.`, 'info');
     }
+  }
+
+  // A shape drawn inside the piece being edited (from `a` to `b`, in its frame), with the usual class for it: a
+  // rectangle (furn2), a circle (dev), a line, a label (lbl).
+  _drawInside(a, b, moved) {
+    const data = this.model.data, m = data.units_per_metre || 100, r = v => tidy(v), name = this._inside;
+    const list = data.furniture[name].extra;
+    if (list !== undefined && !Array.isArray(list)) return this._message(`${name}'s extra is raw SVG: edit it in the YAML`);
+    const [x0, y0, x1, y1] = boundsOf([a, b]);
+    let value;
+    if (this._tool === 'label') {
+      if (moved) return;
+      const text = prompt('The label:', 'Label')?.trim();
+      if (!text) return;
+      value = {text, at: [r(a[0]), r(a[1])], class: 'lbl'};
+    } else if (this._opts.extra === 'circle') {
+      value = {circle: [r(a[0]), r(a[1]), r(moved ? Math.hypot(b[0] - a[0], b[1] - a[1]) : 0.1 * m)], class: 'dev'};
+    } else if (this._opts.extra === 'line') {
+      if (!moved) return;
+      value = {path: `M${r(a[0])},${r(a[1])} L${r(b[0])},${r(b[1])}`, class: 'line'};
+    } else {
+      value = {rect: moved ? [x0, y0, x1 - x0, y1 - y0].map(r) : [r(a[0] - 0.2 * m), r(a[1] - 0.1 * m), r(0.4 * m), r(0.2 * m)], class: 'furn2'};
+    }
+    this._create([{insert: ['furniture', name, 'extra'], value}], ['furniture', name, 'extra', (list || []).length]);
   }
 
   // Adds ops as one edit and selects `path`, staying in the tool.
@@ -1039,7 +1227,7 @@ export class LightwellEditor extends HTMLElement {
   _moveBy(dx, dy) {
     if (!this._sels.length) return;
     if (!this.model.home) return this._message('Fix the mistakes listed here first: the plan shows the last version without them.');
-    this._edit(() => this.model.batch(this._sels.map(p => ({set: p, value: moveItem(p, itemAt(this.model.data, p), dx, dy)}))));
+    this._edit(() => this.model.batch(this._sels.map(p => ({set: p, value: moveItem(p, itemAt(this.model.data, p), dx, dy, this._withPiece(p))}))));
   }
 
   // Copies of the selected items, a little down and to the right, selected: pieces and rooms under a new name, the
@@ -1049,8 +1237,8 @@ export class LightwellEditor extends HTMLElement {
     if (!this.model.home) return this._message('Fix the mistakes listed here first: the plan shows the last version without them.');
     const data = this.model.data, off = 4 * this._grid(), ops = [], made = [], ends = {};
     for (const path of this._sels) {
-      const value = moveItem(path, structuredClone(itemAt(data, path)), off, off);
-      if (path[0] === 'furniture' || path[0] === 'rooms') {
+      const value = moveItem(path, structuredClone(itemAt(data, path)), off, off, this._withPiece(path, data));
+      if (path.length === 2 && (path[0] === 'furniture' || path[0] === 'rooms')) {
         const base = String(path[1]).replace(/\d+$/, '');
         let k = 2;
         while (data[path[0]][`${base}${k}`] !== undefined || made.some(p => p[0] === path[0] && p[1] === `${base}${k}`)) k++;
@@ -1102,6 +1290,8 @@ export class LightwellEditor extends HTMLElement {
     const {cx, cy, m, v} = this._frame(), r = round, room = this._roomAt(cx, cy);
     const kind = group.add, list = this.model.get(group.path);
     let path, value;
+    if (kind === 'extra') return this._addInside(group.path[1]);
+    if (kind === 'rect') return this._addRect(group.path);
     if (kind === 'room' || kind === 'piece') {
       const name = this._newName(group.path, kind === 'room' ? 'room' : 'piece');
       if (!name) return;
@@ -1114,9 +1304,34 @@ export class LightwellEditor extends HTMLElement {
       else if (kind === 'opening') value = {wall: 'top', at: r(v.y), depth: r(0.25 * m), x: r(cx - 0.6 * m), w: r(1.2 * m), lo: 0.9, hi: 2.2, ...(room ? {room} : {})};
       else if (kind === 'light') value = {entities: ['light.new_light'], shape: [{circle: [r(cx), r(cy), r(0.4 * m)]}], ...(room ? {clip: room} : {})};
       else if (kind === 'marker') value = {entity: 'light.new_light', x: r(cx), y: r(cy), icon: 'mdi:lightbulb', tap: 'toggle'};
+      else if (kind === 'spill') value = {cx: r(cx), cy: r(cy), rx: r(2 * m), ry: r(2 * m), ...(room ? {clip: room} : {}), from: [], k: 0.5};
+      else if (kind === 'blocker') value = {rect: [r(cx - m / 2), r(cy - m / 2), r(m), r(m)], height: 3};
     }
     this._edit(() => (kind === 'room' || kind === 'piece' ? this.model.set(path, value) : this.model.insert(group.path, value)));
     this.select(path);
+  }
+
+  // A rectangle added to the room at `path`, next to its last one (to its right, as tall), selected.
+  _addRect(path) {
+    const region = this.model.get(path), {cx, cy, m} = this._frame(), r = round;
+    if (!Array.isArray(region) || Array.isArray(region[0]?.[0])) return this._message('A polygon room is one shape: drag its corners instead');
+    const last = region.at(-1);
+    const value = last?.length === 4 ? [r(last[0] + last[2]), last[1], r(m), last[3]] : [r(cx - m), r(cy - m), r(2 * m), r(2 * m)];
+    this._edit(() => this.model.insert(path, value));
+    this.select([...path, region.length]);
+  }
+
+  // A shape added in the middle of the piece `name` (in its frame), selected: inside it.
+  _addInside(name) {
+    const piece = this.model.data?.furniture?.[name], {m} = this._frame(), r = round;
+    if (!piece) return;
+    if (piece.extra !== undefined && !Array.isArray(piece.extra)) return this._message(`${name}'s extra is raw SVG: edit it in the YAML`);
+    const {rect, circle, poly} = piece.shape || {};
+    const c = rect ? [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2] : circle ? circle.slice(0, 2)
+      : (poly || [[0, 0]]).reduce((a, q, _, all) => [a[0] + q[0] / all.length, a[1] + q[1] / all.length], [0, 0]);
+    const value = {rect: [r(c[0] - 0.2 * m), r(c[1] - 0.1 * m), r(0.4 * m), r(0.2 * m)], class: 'furn2'};
+    this._edit(() => this.model.insert(['furniture', name, 'extra'], value));
+    this.select(['furniture', name, 'extra', (piece.extra || []).length]);
   }
 
   // A shape of `kind` where `old` was (or in the middle of the view), with the slot's usual class.
@@ -1157,15 +1372,22 @@ export class LightwellEditor extends HTMLElement {
     return out;
   }
 
-  // Deletes items, as one edit; a piece of furniture leaves the lights' shadows too.
+  // Deletes items, as one edit; a piece of furniture leaves the lights' shadows too. A room keeps one rectangle.
   _remove(paths) {
-    const refs = paths.flatMap(p => (p[0] === 'furniture' ? this._references('furniture', p[1]) : []));
+    const parts = paths.filter(p => p[0] === 'rooms' && p.length === 3);
+    for (const name of new Set(parts.map(p => p[1]))) {
+      if (parts.filter(p => p[1] === name).length >= (this.model.get(['rooms', name]) || []).length) {
+        return this._message(`${name} needs a rectangle at least: delete the room itself instead`);
+      }
+    }
+    const refs = paths.flatMap(p => (p[0] === 'furniture' && p.length === 2 ? this._references('furniture', p[1]) : []));
     // Last first, so that the indexes of the others stay right.
     const all = [...paths, ...refs].sort(byPathDescending).filter((p, i, a) => !i || !samePath(p, a[i - 1]));
     this._edit(() => this.model.edit(doc => {
       for (const p of all) if (!doc.deleteIn(p) && paths.includes(p)) throw new Error(`Nothing at ${p.join('.')}`);
     }));
-    this.select(null);
+    if (this._inside !== null && paths.every(isExtra)) this._selectAll([]);
+    else this.select(null);
   }
 
   // Renames a room or a piece of furniture; the fields naming it follow.
@@ -1316,6 +1538,8 @@ export class LightwellEditor extends HTMLElement {
     }
     this.model.open(text);
     this._file = {name, handle, saved: this.model.text};
+    this._inside = null;
+    this._renderTools();
     this._data = null;
     this._home = null;
     this._sel = null;
@@ -1370,7 +1594,11 @@ export class LightwellEditor extends HTMLElement {
       if (this._press) this._cancelDrag();
       else if (this._poly) { this._poly = null; this._el.draft.innerHTML = ''; this._el.ruler.textContent = ''; }
       else if (this._tool !== 'select') this.setTool('select');
+      else if (this._inside !== null) this._leave();
       else this.select(null);
+    } else if (e.key === 'Enter' && this._tool === 'select' && this._sels.length === 1 && this._sel[0] === 'furniture' && this._sel.length === 2) {
+      e.preventDefault();
+      this._enter(this._sel[1]);
     } else if (!e.altKey && !e.shiftKey && TOOL_KEYS[e.key.toLowerCase()] && e.key.length === 1) this.setTool(TOOL_KEYS[e.key.toLowerCase()]);
     else if ((e.key === 'Delete' || e.key === 'Backspace') && this._sels.length) {
       e.preventDefault();

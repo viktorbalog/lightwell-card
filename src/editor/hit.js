@@ -3,7 +3,7 @@
 // home: ['furniture', 'sofa'], ['lights', 2], ['drawing', 'walls', 3], ['rooms', 'living'].
 //
 // Front to back: markers, the centres of lights, furniture, openings, the lights' glows, the drawing's shapes (top
-// slot first, and the last drawn first within a slot), rooms. The centres of lights come before the furniture and
+// slot first, and the last drawn first within a slot), the sun's blockers and spills (['sun', 'spill', 0]), rooms. The centres of lights come before the furniture and
 // their glows after it, so that a lamp's glow over a sofa doesn't hide the sofa.
 import {box} from '../geometry.js';
 import {shutterRect} from '../openings.js';
@@ -139,14 +139,39 @@ const inGeometry = (g, p, tol) => g.polys.some(poly => inPoly(poly, p) || nearPo
   || g.lines.some(l => nearPoly(l, p, tol + g.width / 2, false))
   || g.circles.some(([cx, cy, rx, ry]) => ((p[0] - cx) / (rx + tol)) ** 2 + ((p[1] - cy) / (ry + tol)) ** 2 <= 1);
 
+// The sun's blockers ({rect} or {poly}) and spills ({cx, cy, rx, ry}) as geometry (as shapeGeometry's).
+const blockerGeometry = b => ({polys: b?.rect ? [box(...b.rect)] : Array.isArray(b?.poly) ? [b.poly] : [], lines: [], circles: [], width: 0});
+const spillGeometry = s => ({polys: [], lines: [], circles: [s].filter(x => [x?.cx, x?.cy, x?.rx, x?.ry].every(v => typeof v === 'number')).map(x => [x.cx, x.cy, x.rx, x.ry]), width: 0});
+
 // A piece of furniture's outline: a polygon, or a circle [cx, cy, r].
 export function pieceOutline({shape: {rect, turn = 0, circle, poly}}) {
   if (rect) return {poly: box(...rect, turn)};
   if (circle) return {circle};
   return {poly};
 }
+// Whether the point `p` is on a piece of furniture (within `tol` of its outline).
+export function onPiece(piece, p, tol = 0) {
+  const o = pieceOutline(piece);
+  return o.poly ? inPoly(o.poly, p) || nearPoly(o.poly, p, tol) : Math.hypot(p[0] - o.circle[0], p[1] - o.circle[1]) <= o.circle[2] + tol;
+}
+
+// Whether a path names a shape drawn with a piece: ['furniture', name, 'extra', i].
+export const isExtra = path => Array.isArray(path) && path.length === 4 && path[0] === 'furniture' && path[2] === 'extra';
+// The transform that turns a piece and its extra shapes ('rotate(turn cx cy)', as furniture.js draws it), or ''.
+export const pieceTurn = piece => {
+  const {rect, turn} = piece?.shape || {};
+  return rect && turn ? `rotate(${turn} ${rect[0] + rect[2] / 2} ${rect[1] + rect[3] / 2})` : '';
+};
+// A piece's extra shape as it's drawn: under the piece's turn, then its own transform. Without a piece (or unturned),
+// the shape as it is.
+export function drawnExtra(piece, s) {
+  const t = pieceTurn(piece);
+  return t && s && typeof s === 'object' && s.svg === undefined ? {...s, transform: [t, s.transform].filter(Boolean).join(' ')} : s;
+}
 // A room's region as polygons.
 export const regionPolys = region => (Array.isArray(region?.[0]?.[0]) ? [region[0]] : (region || []).map(r => box(...r)));
+// One part of a room's region (['rooms', name, i]): a rectangle [x, y, w, h], or its polygon [[x, y], ...].
+export const partPoly = q => (Array.isArray(q?.[0]) ? q : Array.isArray(q) && q.length === 4 ? box(...q) : null);
 // A light's centre: its pool's, or its first shape's middle.
 export function lightCentre(g) {
   if (g.pool) return [g.pool.x, g.pool.y];
@@ -167,10 +192,7 @@ export function hitTest(home, p, tol = 0) {
     const c = lightCentre(g);
     if (c && Math.hypot(p[0] - c[0], p[1] - c[1]) <= 2 * tol + 4 * k) hits.push(['lights', i]);
   });
-  for (const [name, piece] of Object.entries(home.furniture || {}).reverse()) {
-    const o = pieceOutline(piece);
-    if (o.poly ? inPoly(o.poly, p) || nearPoly(o.poly, p, tol) : Math.hypot(p[0] - o.circle[0], p[1] - o.circle[1]) <= o.circle[2] + tol) hits.push(['furniture', name]);
-  }
+  for (const [name, piece] of Object.entries(home.furniture || {}).reverse()) if (onPiece(piece, p, tol)) hits.push(['furniture', name]);
   (home.openings || []).forEach((o, i) => { if (inRect(shutterRect(o), p, tol)) hits.push(['openings', i]); });
   (home.lights || []).forEach((g, i) => {
     if (!hits.some(h => h[0] === 'lights' && h[1] === i) && (g.shape || []).some(s => inGeometry(shapeGeometry(s, k), p, tol))) hits.push(['lights', i]);
@@ -180,9 +202,19 @@ export function hitTest(home, p, tol = 0) {
     if (!Array.isArray(list)) continue;
     for (let i = list.length - 1; i >= 0; i--) if (inGeometry(shapeGeometry(list[i], k), p, tol)) hits.push(['drawing', slot, i]);
   }
+  (home.sun?.blockers || []).forEach((b, i) => { if (inGeometry(blockerGeometry(b), p, tol)) hits.push(['sun', 'blockers', i]); });
+  (home.sun?.spill || []).forEach((s, i) => { if (inGeometry(spillGeometry(s), p, tol)) hits.push(['sun', 'spill', i]); });
   for (const [name, region] of Object.entries(home.rooms || {}).reverse()) {
     if (regionPolys(region).some(poly => inPoly(poly, p))) hits.push(['rooms', name]);
   }
+  return hits;
+}
+
+// The extra shapes of the piece `name` under the point `p`, front to back (the last drawn first), as paths.
+export function hitInside(home, name, p, tol = 0) {
+  const piece = home.furniture?.[name], list = piece?.extra, k = home.view.w / 1145, hits = [];
+  if (!Array.isArray(list)) return hits;
+  for (let i = list.length - 1; i >= 0; i--) if (inGeometry(shapeGeometry(drawnExtra(piece, list[i]), k), p, tol)) hits.push(['furniture', name, 'extra', i]);
   return hits;
 }
 
@@ -201,6 +233,8 @@ export function outlineSvg(home, path) {
   switch (path[0]) {
     case 'markers': return `<circle cx="${item.x}" cy="${item.y}" r="${f(MARKER * home.view.w)}"/>`;
     case 'furniture': {
+      if (isExtra(path)) return geometry(shapeGeometry(drawnExtra(home.furniture[path[1]], item), k));
+      if (path.length !== 2) return '';
       const o = pieceOutline(item);
       return o.poly ? `<polygon points="${pts(o.poly)}"/>` : `<circle cx="${o.circle[0]}" cy="${o.circle[1]}" r="${o.circle[2]}"/>`;
     }
@@ -215,7 +249,8 @@ export function outlineSvg(home, path) {
       return shapes + pool + (c ? `<circle class="dot" cx="${f(c[0])}" cy="${f(c[1])}" r="${f(4 * k)}"/>` : '');
     }
     case 'drawing': return path.length === 3 ? geometry(shapeGeometry(item, k)) : '';
-    case 'rooms': return regionPolys(item).map(poly => `<polygon points="${pts(poly)}"/>`).join('');
+    case 'rooms': return (path.length === 3 ? [partPoly(item)].filter(Boolean) : regionPolys(item)).map(poly => `<polygon points="${pts(poly)}"/>`).join('');
+    case 'sun': return path.length !== 3 ? '' : geometry(path[1] === 'spill' ? spillGeometry(item) : path[1] === 'blockers' ? blockerGeometry(item) : {polys: [], lines: [], circles: []});
     default: return '';
   }
 }

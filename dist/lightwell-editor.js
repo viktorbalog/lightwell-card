@@ -8307,12 +8307,28 @@ ${end.comment}` : end.comment;
     return { polys: [...g.polys, ...g.circles.map(ellipse)].map(map2), lines: g.lines.map(map2), circles: [], width: g.width };
   }
   var inGeometry = (g, p, tol) => g.polys.some((poly) => inPoly(poly, p) || nearPoly(poly, p, tol)) || g.lines.some((l) => nearPoly(l, p, tol + g.width / 2, false)) || g.circles.some(([cx, cy, rx, ry]) => ((p[0] - cx) / (rx + tol)) ** 2 + ((p[1] - cy) / (ry + tol)) ** 2 <= 1);
+  var blockerGeometry = (b) => ({ polys: b?.rect ? [box(...b.rect)] : Array.isArray(b?.poly) ? [b.poly] : [], lines: [], circles: [], width: 0 });
+  var spillGeometry = (s) => ({ polys: [], lines: [], circles: [s].filter((x) => [x?.cx, x?.cy, x?.rx, x?.ry].every((v) => typeof v === "number")).map((x) => [x.cx, x.cy, x.rx, x.ry]), width: 0 });
   function pieceOutline({ shape: { rect, turn: turn2 = 0, circle, poly } }) {
     if (rect) return { poly: box(...rect, turn2) };
     if (circle) return { circle };
     return { poly };
   }
+  function onPiece(piece, p, tol = 0) {
+    const o = pieceOutline(piece);
+    return o.poly ? inPoly(o.poly, p) || nearPoly(o.poly, p, tol) : Math.hypot(p[0] - o.circle[0], p[1] - o.circle[1]) <= o.circle[2] + tol;
+  }
+  var isExtra = (path) => Array.isArray(path) && path.length === 4 && path[0] === "furniture" && path[2] === "extra";
+  var pieceTurn = (piece) => {
+    const { rect, turn: turn2 } = piece?.shape || {};
+    return rect && turn2 ? `rotate(${turn2} ${rect[0] + rect[2] / 2} ${rect[1] + rect[3] / 2})` : "";
+  };
+  function drawnExtra(piece, s) {
+    const t = pieceTurn(piece);
+    return t && s && typeof s === "object" && s.svg === void 0 ? { ...s, transform: [t, s.transform].filter(Boolean).join(" ") } : s;
+  }
   var regionPolys = (region) => Array.isArray(region?.[0]?.[0]) ? [region[0]] : (region || []).map((r) => box(...r));
+  var partPoly = (q) => Array.isArray(q?.[0]) ? q : Array.isArray(q) && q.length === 4 ? box(...q) : null;
   function lightCentre(g) {
     if (g.pool) return [g.pool.x, g.pool.y];
     const s = g.shape?.[0];
@@ -8331,10 +8347,7 @@ ${end.comment}` : end.comment;
       const c = lightCentre(g);
       if (c && Math.hypot(p[0] - c[0], p[1] - c[1]) <= 2 * tol + 4 * k) hits.push(["lights", i]);
     });
-    for (const [name, piece] of Object.entries(home.furniture || {}).reverse()) {
-      const o = pieceOutline(piece);
-      if (o.poly ? inPoly(o.poly, p) || nearPoly(o.poly, p, tol) : Math.hypot(p[0] - o.circle[0], p[1] - o.circle[1]) <= o.circle[2] + tol) hits.push(["furniture", name]);
-    }
+    for (const [name, piece] of Object.entries(home.furniture || {}).reverse()) if (onPiece(piece, p, tol)) hits.push(["furniture", name]);
     (home.openings || []).forEach((o, i) => {
       if (inRect(shutterRect(o), p, tol)) hits.push(["openings", i]);
     });
@@ -8346,9 +8359,21 @@ ${end.comment}` : end.comment;
       if (!Array.isArray(list)) continue;
       for (let i = list.length - 1; i >= 0; i--) if (inGeometry(shapeGeometry(list[i], k), p, tol)) hits.push(["drawing", slot, i]);
     }
+    (home.sun?.blockers || []).forEach((b, i) => {
+      if (inGeometry(blockerGeometry(b), p, tol)) hits.push(["sun", "blockers", i]);
+    });
+    (home.sun?.spill || []).forEach((s, i) => {
+      if (inGeometry(spillGeometry(s), p, tol)) hits.push(["sun", "spill", i]);
+    });
     for (const [name, region] of Object.entries(home.rooms || {}).reverse()) {
       if (regionPolys(region).some((poly) => inPoly(poly, p))) hits.push(["rooms", name]);
     }
+    return hits;
+  }
+  function hitInside(home, name, p, tol = 0) {
+    const piece = home.furniture?.[name], list = piece?.extra, k = home.view.w / 1145, hits = [];
+    if (!Array.isArray(list)) return hits;
+    for (let i = list.length - 1; i >= 0; i--) if (inGeometry(shapeGeometry(drawnExtra(piece, list[i]), k), p, tol)) hits.push(["furniture", name, "extra", i]);
     return hits;
   }
   var itemAt = (home, path) => path.reduce((o, k) => o?.[k], home);
@@ -8365,6 +8390,8 @@ ${end.comment}` : end.comment;
       case "markers":
         return `<circle cx="${item.x}" cy="${item.y}" r="${f(MARKER * home.view.w)}"/>`;
       case "furniture": {
+        if (isExtra(path)) return geometry(shapeGeometry(drawnExtra(home.furniture[path[1]], item), k));
+        if (path.length !== 2) return "";
         const o = pieceOutline(item);
         return o.poly ? `<polygon points="${pts(o.poly)}"/>` : `<circle cx="${o.circle[0]}" cy="${o.circle[1]}" r="${o.circle[2]}"/>`;
       }
@@ -8381,7 +8408,9 @@ ${end.comment}` : end.comment;
       case "drawing":
         return path.length === 3 ? geometry(shapeGeometry(item, k)) : "";
       case "rooms":
-        return regionPolys(item).map((poly) => `<polygon points="${pts(poly)}"/>`).join("");
+        return (path.length === 3 ? [partPoly(item)].filter(Boolean) : regionPolys(item)).map((poly) => `<polygon points="${pts(poly)}"/>`).join("");
+      case "sun":
+        return path.length !== 3 ? "" : geometry(path[1] === "spill" ? spillGeometry(item) : path[1] === "blockers" ? blockerGeometry(item) : { polys: [], lines: [], circles: [] });
       default:
         return "";
     }
@@ -8393,9 +8422,13 @@ ${end.comment}` : end.comment;
   var turnBy = ([x, y], deg) => [x * Math.cos(rad(deg)) - y * Math.sin(rad(deg)), x * Math.sin(rad(deg)) + y * Math.cos(rad(deg))];
   var dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
   var isNum = (v) => typeof v === "number";
-  var kindOf = (path) => ({ drawing: "shape", furniture: "piece", lights: "light", markers: "marker", openings: "opening", rooms: "room" })[path[0]];
-  var ROLES = { M: "xy", L: "xy", T: "xy", H: "x", V: "y", C: "xyxyxy", S: "xyxy", Q: "xyxy", A: "-----xy" };
-  function movePath(d, dx, dy) {
+  var kindOf = (path) => isExtra(path) ? "extra" : path[0] === "rooms" && path.length === 3 ? "part" : path[0] === "sun" ? { spill: "spill", blockers: "blocker" }[path[1]] : { drawing: "shape", furniture: "piece", lights: "light", markers: "marker", openings: "opening", rooms: "room" }[path[0]];
+  function intoFrame(piece, [dx, dy]) {
+    const m2 = parseTransform(pieceTurn(piece));
+    return m2 ? applyTransform([...invertTransform(m2).slice(0, 4), 0, 0], [dx, dy]) : [dx, dy];
+  }
+  var ROLES = { M: "xy", L: "xy", T: "xy", H: "x", V: "y", C: "xyxyxy", S: "xyxy", Q: "xyxy", A: "XY---xy" };
+  function mapPath(d, at, by) {
     let cmd = null, k = 0, start = true;
     return String(d).replace(/[a-zA-Z]|-?(?:\d+\.?\d*|\.\d+)(?:e-?\d+)?/g, (tok) => {
       if (/^[a-zA-Z]$/.test(tok)) {
@@ -8408,8 +8441,82 @@ ${end.comment}` : end.comment;
       const role = roles[k % roles.length];
       const abs = cmd === C || start && k < 2;
       if (++k >= 2) start = false;
-      return abs && role !== "-" ? String(tidy(+tok + (role === "x" ? dx : dy))) : tok;
+      if (role === "-") return tok;
+      const axis = role.toLowerCase() === "x" ? 0 : 1;
+      if (abs && role === role.toLowerCase()) return String(tidy(at[axis](+tok)));
+      return by ? String(tidy(by[axis](+tok))) : tok;
     });
+  }
+  var movePath = (d, dx, dy) => mapPath(d, [(x) => x + dx, (y) => y + dy], null);
+  var TAKES = { M: 2, L: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, T: 2, A: 7 };
+  function pathSegments(d) {
+    const re = /[a-zA-Z]|-?(?:\d+\.?\d*|\.\d+)(?:e-?\d+)?/g, toks = [], segs = [];
+    for (let m2; m2 = re.exec(String(d)); ) toks.push({ s: m2[0], i: m2.index });
+    let cmd = null, x = 0, y = 0, start = [0, 0], sub = 0;
+    for (let t = 0; t < toks.length; ) {
+      if (/[a-zA-Z]/.test(toks[t].s)) {
+        cmd = toks[t++].s;
+        if (cmd.toUpperCase() === "Z") {
+          segs.push({ C: "Z", rel: false, idx: [], from: [x, y], end: start, controls: [], sub });
+          [x, y] = start;
+        }
+        continue;
+      }
+      const C = cmd?.toUpperCase(), n2 = TAKES[C];
+      if (!n2 || t + n2 > toks.length) break;
+      const idx = Array.from({ length: n2 }, (_, j) => t + j);
+      if (idx.some((j) => /[a-zA-Z]/.test(toks[j].s))) break;
+      const v = idx.map((j) => +toks[j].s), rel = cmd !== C, [ox, oy] = rel ? [x, y] : [0, 0];
+      const end = C === "H" ? [ox + v[0], y] : C === "V" ? [x, oy + v[0]] : [ox + v[n2 - 2], oy + v[n2 - 1]];
+      const controls = "CSQ".includes(C) ? Array.from({ length: n2 / 2 - 1 }, (_, j) => [ox + v[2 * j], oy + v[2 * j + 1]]) : [];
+      if (C === "M") {
+        sub = segs.length;
+        start = end;
+      }
+      segs.push({ C, rel, idx, from: [x, y], end, controls, sub });
+      [x, y] = end;
+      if (C === "M") cmd = rel ? "l" : "L";
+      t += n2;
+    }
+    return { toks, segs };
+  }
+  function movePathPoint(d, id, p) {
+    const { toks, segs } = pathSegments(d), vals = toks.map((t) => t.s), set2 = (j, v) => {
+      vals[j] = String(tidy(v));
+    };
+    let m2;
+    if (m2 = id.match(/^c:(\d+):(\d+)$/)) {
+      const seg = segs[+m2[1]], k = +m2[2];
+      if (!seg?.controls[k]) return d;
+      const [ox, oy] = seg.rel ? seg.from : [0, 0];
+      set2(seg.idx[2 * k], p[0] - ox);
+      set2(seg.idx[2 * k + 1], p[1] - oy);
+    } else if (m2 = id.match(/^pt:(\d+)$/)) {
+      const i = +m2[1], seg = segs[i];
+      if (!seg || seg.C === "Z") return d;
+      const [ox, oy] = seg.rel ? seg.from : [0, 0], n2 = seg.idx.length;
+      const delta = [seg.C === "V" ? 0 : p[0] - seg.end[0], seg.C === "H" ? 0 : p[1] - seg.end[1]];
+      if (seg.C === "H") set2(seg.idx[0], p[0] - ox);
+      else if (seg.C === "V") set2(seg.idx[0], p[1] - oy);
+      else {
+        set2(seg.idx[n2 - 2], p[0] - ox);
+        set2(seg.idx[n2 - 1], p[1] - oy);
+      }
+      const next = [segs[i + 1]];
+      if (seg.C === "M") segs.forEach((z, j) => {
+        if (z.C === "Z" && z.sub === i) next.push(segs[j + 1]);
+      });
+      for (const s of next) {
+        if (!s?.rel || s.C === "Z") continue;
+        const roles = { H: "x", V: "y", A: "-----xy" }[s.C] || "xy".repeat(s.idx.length / 2);
+        s.idx.forEach((j, r) => {
+          if (roles[r] !== "-") set2(j, +toks[j].s - delta[roles[r] === "x" ? 0 : 1]);
+        });
+      }
+    } else return d;
+    let out = String(d);
+    for (let j = toks.length - 1; j >= 0; j--) if (vals[j] !== toks[j].s) out = out.slice(0, toks[j].i) + vals[j] + out.slice(toks[j].i + toks[j].s.length);
+    return out;
   }
   function moveTransform(t, dx, dy) {
     const f = (v) => String(+v.toFixed(4) || 0);
@@ -8434,10 +8541,37 @@ ${end.comment}` : end.comment;
     if (s.text !== void 0 && s.at) return { ...s, at: at(s.at) };
     return s;
   }
-  function moveItem(path, item, dx, dy) {
+  function scaleShape(s, from, to) {
+    if (!s || typeof s !== "object" || s.svg !== void 0) return s;
+    const [sx, sy] = [to[2] / from[2], to[3] / from[3]];
+    const X = (x) => to[0] + (x - from[0]) * sx, Y = (y) => to[1] + (y - from[1]) * sy;
+    const at = ([x, y, ...rest]) => [tidy(X(x)), tidy(Y(y)), ...rest];
+    const out = { ...s };
+    if (s.rect) out.rect = [...at(s.rect).slice(0, 2), tidy(s.rect[2] * sx), tidy(s.rect[3] * sy)];
+    else if (s.circle) out.circle = [...at(s.circle).slice(0, 2), tidy(s.circle[2] * Math.min(sx, sy))];
+    else if (s.ellipse) out.ellipse = [...at(s.ellipse).slice(0, 2), tidy(s.ellipse[2] * sx), tidy(s.ellipse[3] * sy)];
+    else if (s.poly) out.poly = s.poly.map(at);
+    else if (s.path !== void 0) out.path = mapPath(s.path, [X, Y], [(x) => x * sx, (y) => y * sy]);
+    else if (s.text !== void 0 && s.at) out.at = at(s.at);
+    if (s.repeat?.step) out.repeat = { ...s.repeat, step: [tidy(s.repeat.step[0] * sx), tidy(s.repeat.step[1] * sy)] };
+    if (typeof s.transform === "string") {
+      const f = (v) => String(+v.toFixed(4) || 0);
+      out.transform = s.transform.replace(/(rotate|translate)\s*\(([^)]*)\)/g, (all, fn, args) => {
+        const v = args.split(/[\s,]+/).filter(Boolean).map(Number);
+        if (v.some(Number.isNaN)) return all;
+        if (fn === "translate") return `translate(${f((v[0] || 0) * sx)} ${f((v[1] || 0) * sy)})`;
+        return v.length < 3 ? all : `rotate(${f(v[0])} ${f(X(v[1]))} ${f(Y(v[2]))})`;
+      });
+    }
+    return out;
+  }
+  var pieceBox = (shape) => shape?.rect ? shape.rect.slice(0, 4) : shape?.circle ? [shape.circle[0] - shape.circle[2], shape.circle[1] - shape.circle[2], 2 * shape.circle[2], 2 * shape.circle[2]] : null;
+  function moveItem(path, item, dx, dy, { piece } = {}) {
     switch (kindOf(path)) {
       case "shape":
         return moveShape(item, dx, dy);
+      case "extra":
+        return moveShape(item, ...intoFrame(piece, [dx, dy]));
       case "piece":
         return { ...item, shape: moveShape(item.shape, dx, dy), ...Array.isArray(item.extra) ? { extra: item.extra.map((s) => moveShape(s, dx, dy)) } : {} };
       case "light":
@@ -8448,6 +8582,12 @@ ${end.comment}` : end.comment;
         };
       case "marker":
         return { ...item, x: tidy(item.x + dx), y: tidy(item.y + dy) };
+      case "spill":
+        return { ...item, cx: tidy(item.cx + dx), cy: tidy(item.cy + dy) };
+      case "part":
+        return moveItem(["rooms", "r"], [item], dx, dy)[0];
+      case "blocker":
+        return { ...item, ...moveShape(item.rect ? { rect: item.rect } : { poly: item.poly }, dx, dy) };
       case "opening":
         return isHorizontal(item) ? { ...item, x: tidy(item.x + dx) } : { ...item, y: tidy(item.y + dy) };
       case "room":
@@ -8457,7 +8597,7 @@ ${end.comment}` : end.comment;
     }
   }
   var axesOf = (path, item) => kindOf(path) === "opening" ? isHorizontal(item) ? [1, 0] : [0, 1] : [1, 1];
-  function anchors(path, item, k = 1) {
+  function anchors(path, item, k = 1, { piece } = {}) {
     const fromGeometry = (g) => [
       ...g.polys.flat(),
       ...g.lines.flat(),
@@ -8466,6 +8606,8 @@ ${end.comment}` : end.comment;
     const circle = ([cx, cy, r]) => fromGeometry({ polys: [], lines: [], circles: [[cx, cy, r, r]] });
     if (!item) return [];
     switch (kindOf(path)) {
+      case "extra":
+        return anchors(["drawing", "extra", 0], drawnExtra(piece, item), k);
       case "shape": {
         if (item.text !== void 0 && item.at) return [applyTransform(parseTransform(item.transform), item.at.slice(0, 2))];
         return fromGeometry(shapeGeometry(item, k));
@@ -8478,6 +8620,12 @@ ${end.comment}` : end.comment;
         return (Array.isArray(item.shape) ? item.shape : []).flatMap((s) => fromGeometry(shapeGeometry(s, k))).concat(item.pool ? [[item.pool.x, item.pool.y]] : []);
       case "marker":
         return [[item.x, item.y]];
+      case "part":
+        return partPoly(item) || [];
+      case "spill":
+        return fromGeometry({ polys: [], lines: [], circles: [[item.cx, item.cy, item.rx, item.ry]] });
+      case "blocker":
+        return item.rect ? box(...item.rect) : item.poly || [];
       case "opening": {
         const [x, y, w, h] = shutterRect(item);
         return box(x, y, w, h);
@@ -8510,6 +8658,13 @@ ${end.comment}` : end.comment;
       }
       return out;
     }
+    if (typeof s.path === "string" && !s.repeat) {
+      const { segs } = pathSegments(s.path);
+      return segs.flatMap((seg, i) => seg.C === "Z" ? [] : [
+        { id: `pt:${i}`, at: seg.end },
+        ...seg.controls.map((c, j) => ({ id: `c:${i}:${j}`, at: c, ctrl: true }))
+      ]);
+    }
     if (s.circle) return [{ id: "r", at: [s.circle[0] + s.circle[2], s.circle[1]] }];
     if (s.ellipse) return [{ id: "rx", at: [s.ellipse[0] + s.ellipse[2], s.ellipse[1]] }, { id: "ry", at: [s.ellipse[0], s.ellipse[1] + s.ellipse[3]] }];
     if (Array.isArray(s.poly)) {
@@ -8521,11 +8676,18 @@ ${end.comment}` : end.comment;
     }
     return [];
   }
-  function partOf(path, item, id) {
+  function partOf(path, item, id, piece) {
     const [head, rest] = id.includes("/") ? [id.slice(0, id.indexOf("/")), id.slice(id.indexOf("/") + 1)] : [null, id];
     switch (kindOf(path)) {
       case "shape":
         return { s: item, put: (s) => s, id };
+      // As it's drawn (turned with the piece), and back with its own transform.
+      case "extra":
+        return { s: drawnExtra(piece, item), put: (s) => {
+          const out = { ...item, ...s, transform: item.transform };
+          if (item.transform === void 0) delete out.transform;
+          return out;
+        }, id };
       case "piece":
         return { s: item.shape, put: (s) => ({ ...item, shape: s }), id, turnable: !!item.shape?.rect };
       case "light": {
@@ -8533,6 +8695,12 @@ ${end.comment}` : end.comment;
         if (!/^s\d+$/.test(head || "") || !item.shape?.[i]) return null;
         return { s: item.shape[i], put: (s) => ({ ...item, shape: item.shape.map((x, j) => j === i ? s : x) }), id: rest };
       }
+      case "part":
+        return { s: Array.isArray(item[0]) ? { poly: item } : { rect: item }, put: (s) => s.rect || s.poly, id };
+      case "spill":
+        return { s: { ellipse: [item.cx, item.cy, item.rx, item.ry] }, put: ({ ellipse: [cx, cy, rx, ry] }) => ({ ...item, cx, cy, rx, ry }), id };
+      case "blocker":
+        return { s: item.rect ? { rect: item.rect } : { poly: item.poly }, put: (s) => ({ ...item, ...s }), id };
       case "room": {
         if (head === "p" && Array.isArray(item[0]?.[0])) return { s: { poly: item[0] }, put: (s) => [s.poly], id: rest };
         const j = +head?.slice(1);
@@ -8543,12 +8711,14 @@ ${end.comment}` : end.comment;
         return null;
     }
   }
-  function handles(path, item, { reach } = {}) {
+  function handles(path, item, { reach, piece } = {}) {
     if (!item || typeof item !== "object") return [];
     const prefixed = (pre, list) => list.map((h) => ({ ...h, id: `${pre}/${h.id}` }));
     switch (kindOf(path)) {
       case "shape":
         return shapeHandles(item);
+      case "extra":
+        return shapeHandles(drawnExtra(piece, item));
       case "piece":
         return shapeHandles(item.shape, { turnable: !!item.shape?.rect, reach });
       case "light":
@@ -8556,6 +8726,12 @@ ${end.comment}` : end.comment;
           ...item.pool ? [{ id: "pool", at: [item.pool.x, item.pool.y] }, { id: "pool-r", at: [item.pool.x + item.pool.r, item.pool.y] }] : [],
           ...Array.isArray(item.shape) ? item.shape.flatMap((s, i) => prefixed(`s${i}`, shapeHandles(s))) : []
         ];
+      case "part":
+        return shapeHandles(Array.isArray(item[0]) ? { poly: item } : { rect: item });
+      case "spill":
+        return shapeHandles({ ellipse: [item.cx, item.cy, item.rx, item.ry] });
+      case "blocker":
+        return shapeHandles(item.rect ? { rect: item.rect } : { poly: item.poly });
       case "opening": {
         const [x, y, w, h] = shutterRect(item);
         return isHorizontal(item) ? [{ id: "end:0", at: [x, y + h / 2] }, { id: "end:1", at: [x + w, y + h / 2] }] : [{ id: "end:0", at: [x + w / 2, y] }, { id: "end:1", at: [x + w / 2, y + h] }];
@@ -8566,19 +8742,19 @@ ${end.comment}` : end.comment;
         return [];
     }
   }
-  function snapsHandle(path, item, id) {
-    const part = partOf(path, item, id);
+  function snapsHandle(path, item, id, { piece } = {}) {
+    const part = partOf(path, item, id, piece);
     return !(part && (part.id === "turn" || part.s?.rect && part.s.turn));
   }
-  function startHandle(path, item, id) {
-    const part = partOf(path, item, id), m2 = part?.id.match(/^mid:(\d+)$/);
+  function startHandle(path, item, id, { piece } = {}) {
+    const part = partOf(path, item, id, piece), m2 = part?.id.match(/^mid:(\d+)$/);
     if (!m2) return { item, id };
     const i = +m2[1], p = part.s.poly, q = p[(i + 1) % p.length];
     const poly = [...p.slice(0, i + 1), [tidy((p[i][0] + q[0]) / 2), tidy((p[i][1] + q[1]) / 2)], ...p.slice(i + 1)];
     return { item: part.put({ ...part.s, poly }), id: id.replace(/mid:\d+$/, `v:${i + 1}`) };
   }
-  function removeCorner(path, item, id) {
-    const part = partOf(path, item, id), m2 = part?.id.match(/^v:(\d+)$/);
+  function removeCorner(path, item, id, { piece } = {}) {
+    const part = partOf(path, item, id, piece), m2 = part?.id.match(/^v:(\d+)$/);
     if (!m2 || part.s.poly.length <= 3) return null;
     return part.put({ ...part.s, poly: part.s.poly.filter((_, i) => i !== +m2[1]) });
   }
@@ -8610,6 +8786,10 @@ ${end.comment}` : end.comment;
       const r = Math.max(tidy(dist(p, s.circle)), 1);
       return { s: { ...s, circle: [s.circle[0], s.circle[1], r] }, ruler: { radius: r } };
     }
+    if (/^(pt|c):/.test(id) && typeof s.path === "string") {
+      const path = movePathPoint(s.path, id, p), seg = pathSegments(path).segs[+id.split(":")[1]];
+      return { s: { ...s, path }, ruler: seg && id.startsWith("pt") ? { length: dist(seg.from, seg.end) } : null };
+    }
     if ((id === "rx" || id === "ry") && s.ellipse) {
       const e = [...s.ellipse], k = id === "rx" ? 0 : 1;
       e[2 + k] = Math.max(tidy(Math.abs(p[k] - e[k])), 1);
@@ -8622,7 +8802,7 @@ ${end.comment}` : end.comment;
     }
     return { s, ruler: null };
   }
-  function dragHandle(path, item, id, p, { turnStep = 15 } = {}) {
+  function dragHandle(path, item, id, p, { turnStep = 15, piece, insides = true } = {}) {
     const kind = kindOf(path);
     if (kind === "light" && item.pool && (id === "pool" || id === "pool-r")) {
       if (id === "pool") return { item: { ...item, pool: { ...item.pool, x: tidy(p[0]), y: tidy(p[1]) } }, ruler: null };
@@ -8632,15 +8812,20 @@ ${end.comment}` : end.comment;
     if (kind === "opening" && /^end:[01]$/.test(id)) {
       const h = isHorizontal(item), [a, l] = h ? ["x", "w"] : ["y", "h"], v = p[h ? 0 : 1];
       const other = id === "end:0" ? item[a] + item[l] : item[a];
-      const from = Math.min(v, other), len = Math.max(Math.abs(v - other), 1);
-      return { item: { ...item, [a]: tidy(from), [l]: tidy(len) }, ruler: { length: tidy(len) } };
+      const from2 = Math.min(v, other), len = Math.max(Math.abs(v - other), 1);
+      return { item: { ...item, [a]: tidy(from2), [l]: tidy(len) }, ruler: { length: tidy(len) } };
     }
-    const part = partOf(path, item, id);
+    const part = partOf(path, item, id, piece);
     if (!part) return { item, ruler: null };
     const m2 = !part.turnable && parseTransform(part.s.transform);
     if (m2) p = applyTransform(invertTransform(m2), p);
     const { s, ruler } = dragShape(part.s, part.id, p, { turnStep });
-    return { item: s === part.s ? item : part.put(s), ruler };
+    if (s === part.s) return { item, ruler };
+    const next = part.put(s), from = pieceBox(part.s), to = pieceBox(s);
+    if (kind === "piece" && insides && Array.isArray(item.extra) && /^(rect:|r$)/.test(part.id) && from && to) {
+      next.extra = item.extra.map((x) => scaleShape(x, from, to));
+    }
+    return { item: next, ruler };
   }
   function rulerText(ruler, unitsPerMetre) {
     if (!ruler) return "";
@@ -8662,6 +8847,17 @@ ${end.comment}` : end.comment;
         xs.push(x);
         ys.push(y);
       }
+    }
+    const sorted = (a) => [...new Set(a)].sort((p, q) => p - q);
+    return { xs: sorted(xs), ys: sorted(ys) };
+  }
+  function insideTargets(piece, except = [], k = 1) {
+    const { rect, circle, poly } = piece?.shape || {}, xs = [], ys = [];
+    const own = rect ? [...box(...rect.slice(0, 4)), [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2]] : circle ? anchors(["furniture", "p"], { shape: { circle } }) : poly || [];
+    const extras = (Array.isArray(piece?.extra) ? piece.extra : []).flatMap((s, i) => except.includes(i) ? [] : anchors(["furniture", "p", "extra", i], s, k));
+    for (const [x, y] of [...own, ...extras]) if (isNum(x) && isNum(y)) {
+      xs.push(x);
+      ys.push(y);
     }
     const sorted = (a) => [...new Set(a)].sort((p, q) => p - q);
     return { xs: sorted(xs), ys: sorted(ys) };
@@ -8997,7 +9193,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         rx: n("Its radius across"),
         ry: n("Its radius down"),
         clip: { type: "room", check: true, help: "The room it stays in" },
-        from: { type: "list", of: { type: "number", check: true, help: "An opening's position in the list" }, help: "The openings whose shutters dim it" },
+        from: { type: "list", of: { type: "opening", check: true, help: "An opening's position in the list" }, help: "The openings whose shutters dim it" },
         k: { type: "number", help: "How much of the daylight gets through (0\u20131)" }
       } } },
       outdoor: { ...SHAPES("Shapes in the sun whenever it comes in (a terrace)") }
@@ -9215,6 +9411,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     const what = kind === "text" ? `text: ${s.text}` : kind;
     return [what, s.class, s.repeat && `\xD7${s.repeat.count}`].filter(Boolean).join(" \xB7 ");
   }
+  var rectLabel = (q) => Array.isArray(q) && q.length === 4 ? `rect ${q[2]} \xD7 ${q[3]} at ${q[0]}, ${q[1]}` : "rect ?";
   function itemGroups(data) {
     const d = data && typeof data === "object" ? data : {};
     const groups = [];
@@ -9222,7 +9419,13 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       title: "Rooms",
       path: ["rooms"],
       add: "room",
-      items: Object.keys(d.rooms || {}).map((name) => ({ path: ["rooms", name], label: name }))
+      items: Object.entries(d.rooms || {}).map(([name, region]) => ({
+        path: ["rooms", name],
+        label: name,
+        // A room of rectangles: each of them (one polygon is the room itself).
+        children: Array.isArray(region) && !Array.isArray(region[0]?.[0]) ? region.map((q, i) => ({ path: ["rooms", name, i], label: rectLabel(q) })) : [],
+        childList: ["rooms", name]
+      }))
     });
     for (const slot of SLOTS) {
       const list = Array.isArray(d.drawing?.[slot]) ? d.drawing[slot] : [];
@@ -9252,7 +9455,9 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       items: Object.entries(d.furniture || {}).map(([name, p]) => ({
         path: ["furniture", name],
         label: name,
-        title: p?.height ? `${p.height} m` : "no height: casts no shadows"
+        title: p?.height ? `${p.height} m` : "no height: casts no shadows",
+        children: (Array.isArray(p?.extra) ? p.extra : []).map((s, i) => ({ path: ["furniture", name, "extra", i], label: shapeLabel(s) })),
+        childList: ["furniture", name, "extra"]
       }))
     });
     groups.push({
@@ -9267,10 +9472,28 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       add: "marker",
       items: (d.markers || []).map((m2, i) => ({ path: ["markers", i], label: m2.entity || `marker ${i + 1}` }))
     });
+    groups.push({
+      title: "Daylight spills",
+      path: ["sun", "spill"],
+      add: "spill",
+      items: (Array.isArray(d.sun?.spill) ? d.sun.spill : []).map((s, i) => ({
+        path: ["sun", "spill", i],
+        label: s?.clip ? `into ${s.clip}` : `spill ${i + 1}`,
+        title: `from openings ${(s?.from || []).join(", ") || "none"}, ${s?.k ?? "?"} through`
+      }))
+    });
+    groups.push({
+      title: "Sun blockers",
+      path: ["sun", "blockers"],
+      add: "blocker",
+      items: (Array.isArray(d.sun?.blockers) ? d.sun.blockers : []).map((b, i) => ({ path: ["sun", "blockers", i], label: `${b?.rect ? "rect" : "poly"}, ${b?.height ?? "?"} m` }))
+    });
     return groups;
   }
   function renderList(box2, data, selected, ctx, also = []) {
-    const open = box2._open ?? (box2._open = /* @__PURE__ */ new Set(["Furniture", "Lights", "Markers", "Openings", "Rooms"]));
+    const open = box2._open ?? (box2._open = /* @__PURE__ */ new Set(["Furniture", "Lights", "Markers", "Openings", "Rooms", "Daylight spills"]));
+    const unfolded = box2._unfolded ?? (box2._unfolded = /* @__PURE__ */ new Set());
+    const isOn = (path) => samePath(path, selected) || also.some((p) => samePath(path, p));
     box2.textContent = "";
     const home = el("li", { className: `item home${selected ? "" : " on"}`, textContent: "The home" });
     home.onclick = () => ctx.select(null);
@@ -9287,8 +9510,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       details.append(el("summary", {}, el("span", { textContent: g.title }), el("small", { textContent: g.items.length }), add));
       const ul = el("ul", { className: "items" });
       g.items.forEach((it, i) => {
-        const on = samePath(it.path, selected) || also.some((p) => samePath(it.path, p));
-        const li = el("li", { className: `item${on ? " on" : ""}`, textContent: it.label, title: it.title || "" });
+        const on = isOn(it.path);
+        const li = el("li", { className: `item${on ? " on" : ""}${ctx.inside != null && it.path[0] === "furniture" && it.path[1] === ctx.inside ? " in" : ""}`, textContent: it.label, title: it.title || "" });
         li.dataset.path = pathKey(it.path);
         li.onclick = (e) => e.shiftKey && ctx.toggle ? ctx.toggle(it.path) : ctx.select(it.path);
         if (g.reorder) {
@@ -9314,11 +9537,52 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
           };
         }
         ul.append(li);
+        if (it.children?.length) ul.append(...insides(it, li));
       });
       details.append(ul);
       box2.append(details);
     }
     box2.querySelector(".item.on")?.scrollIntoView({ block: "nearest" });
+    function insides(it, li) {
+      const key = pathKey(it.path), within = selected?.length > it.path.length && samePath(selected.slice(0, it.path.length), it.path);
+      const shown = unfolded.has(key) || within || it.path[0] === "furniture" && it.path[1] === ctx.inside;
+      const what = it.path[0] === "rooms" ? "rectangles" : "insides";
+      const fold = el("span", { className: "fold", textContent: shown ? "\u25BE" : "\u25B8", title: shown ? `Hide its ${what}` : `Show its ${what} (${it.children.length})` });
+      fold.onclick = (e) => {
+        e.stopPropagation();
+        if (!unfolded.delete(key)) unfolded.add(key);
+        renderList(box2, data, selected, ctx, also);
+      };
+      li.prepend(fold);
+      if (!shown) return [];
+      const list = it.childList;
+      return it.children.map((c, i) => {
+        const cli = el("li", { className: `item extra${isOn(c.path) ? " on" : ""}`, textContent: c.label });
+        cli.dataset.path = pathKey(c.path);
+        cli.onclick = (e) => e.shiftKey && ctx.toggle ? ctx.toggle(c.path) : ctx.select(c.path);
+        cli.draggable = true;
+        cli.ondragstart = (e) => {
+          e.dataTransfer.setData("text/x-lightwell-extra", JSON.stringify([key, i]));
+          e.dataTransfer.effectAllowed = "move";
+        };
+        cli.ondragover = (e) => {
+          if (e.dataTransfer.types.includes("text/x-lightwell-extra")) {
+            e.preventDefault();
+            e.stopPropagation();
+            cli.classList.add("drop");
+          }
+        };
+        cli.ondragleave = () => cli.classList.remove("drop");
+        cli.ondrop = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          cli.classList.remove("drop");
+          const [from, j] = JSON.parse(e.dataTransfer.getData("text/x-lightwell-extra") || "[]");
+          if (from === key && j !== i) ctx.move(list, j, i);
+        };
+        return cli;
+      });
+    }
   }
   function choices(field, ctx) {
     const d = ctx.data || {};
@@ -9404,6 +9668,14 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       i.onchange = () => commit(i.value === "" ? void 0 : i.value);
       return [i, ...datalist(i, choices(field, ctx).map((v) => ({ value: v })))];
     }
+    if (t === "list" && field.of?.type === "opening") {
+      const openings = Array.isArray(ctx.data?.openings) ? ctx.data.openings : [], v = Array.isArray(value) ? value : [];
+      return [el("span", { className: "checks" }, openings.map((o, k) => {
+        const c = el("input", { type: "checkbox", checked: v.includes(k) });
+        c.onchange = () => commit(openings.map((_, j) => j).filter((j) => j === k ? c.checked : v.includes(j)));
+        return el("label", { title: o?.shutter || "" }, c, `${k}: ${o?.wall} wall${o?.room ? `, ${o.room}` : ""}`);
+      }))];
+    }
     if (t === "list" && field.of?.type === "furniture") {
       const names = choices(field.of, ctx), v = Array.isArray(value) ? value : [];
       return [el("span", { className: "checks" }, names.map((name) => {
@@ -9426,9 +9698,68 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     };
     return [a];
   }
+  function insidesField(label, value, path, ctx) {
+    const add = el("button", { type: "button", className: "clear", textContent: "+", title: "Add a shape on it" });
+    add.onclick = () => ctx.add({ path, add: "extra" });
+    const enter = el("button", { type: "button", className: "clear", textContent: "Edit", title: "Edit its insides on the plan (double-click it, or Enter)" });
+    enter.onclick = () => ctx.enter(path[1]);
+    const links = (value || []).map((s, i) => {
+      const a = el("button", { type: "button", className: "link", textContent: shapeLabel(s), title: "Select it" });
+      a.onclick = () => ctx.select([...path, i]);
+      return a;
+    });
+    return el(
+      "fieldset",
+      {},
+      el("legend", {}, label, add, enter),
+      links.length ? el("div", { className: "links" }, links) : el("p", { className: "note", textContent: "Nothing on it yet" })
+    );
+  }
+  function regionForm(value, path, ctx) {
+    const RECT2 = { type: "numbers", labels: ["x", "y", "w", "h"], unit: "u", help: "A rectangle [x, y, w, h]" };
+    const POLY = { type: "points", unit: "u", help: "A polygon [[x, y], ...]" };
+    if (path.length === 3) return [row(Array.isArray(value?.[0]) ? "poly" : "rect", Array.isArray(value?.[0]) ? POLY : RECT2, value, path, ctx)];
+    if (Array.isArray(value?.[0]?.[0])) {
+      return [
+        el("p", { className: "help", textContent: "A polygon room: drag its corners on the plan (the middle of a side adds one)." }),
+        row("poly", POLY, value[0], [...path, 0], ctx)
+      ];
+    }
+    const add = el("button", { type: "button", className: "clear", textContent: "+", title: "Add a rectangle to it (next to its last one)" });
+    add.onclick = () => ctx.add({ path, add: "rect" });
+    const links = (Array.isArray(value) ? value : []).map((q, i) => {
+      const a = el("button", { type: "button", className: "link", textContent: rectLabel(q), title: "Select it (or double-click it on the plan)" });
+      a.onclick = () => ctx.select([...path, i]);
+      return a;
+    });
+    return [
+      el("p", { className: "help", textContent: "Light stays inside its room: one or more rectangles (they may overlap)." }),
+      el(
+        "fieldset",
+        {},
+        el("legend", {}, el("span", { className: "key", textContent: "rectangles" }), add),
+        links.length ? el("div", { className: "links" }, links) : el("p", { className: "note", textContent: "None" })
+      )
+    ];
+  }
+  function itemLinks(label, value, path, ctx) {
+    const group = itemGroups(ctx.data).find((g) => samePath(g.path, path));
+    const add = el("button", { type: "button", className: "clear", textContent: "+", title: `Add to ${group.title.toLowerCase()}` });
+    add.onclick = () => ctx.add(group);
+    const links = group.items.map((it) => {
+      const a = el("button", { type: "button", className: "link", textContent: it.label, title: it.title || "Select it" });
+      a.onclick = () => ctx.select(it.path);
+      return a;
+    });
+    return el("fieldset", {}, el("legend", {}, label, add), links.length ? el("div", { className: "links" }, links) : el("p", { className: "note", textContent: "None" }));
+  }
   function row(key, field, value, path, ctx) {
     const label = el("span", { className: "key", textContent: key, title: field.help + (field.required ? " (required)" : "") });
     if (field.required) label.classList.add("required");
+    if (path.length === 3 && path[0] === "furniture" && key === "extra" && typeof value !== "string") return insidesField(label, value, path, ctx);
+    if (path.length === 2 && path[0] === "sun" && (key === "spill" || key === "blockers") && (value === void 0 || Array.isArray(value))) {
+      return itemLinks(label, value, path, ctx);
+    }
     if (field.type === "object") {
       if (value === void 0) {
         const add = el("button", { type: "button", className: "add-field", textContent: `+ ${key}`, title: field.help });
@@ -9497,9 +9828,18 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       }
     } else {
       const value = selected.reduce((o, k) => o?.[k], d), field = fieldAt(selected);
+      const extra = selected.length === 4 && selected[0] === "furniture" && selected[2] === "extra";
       const group = itemGroups(d).find((g) => samePath(g.path, selected.slice(0, -1)));
       const title = el("h2", { textContent: group ? `${group.title}: ` : "" });
-      if (selected[0] === "furniture" || selected[0] === "rooms") {
+      if (extra) {
+        const back = el("button", { type: "button", className: "link", textContent: selected[1], title: `Back to ${selected[1]} (Esc)` });
+        back.onclick = () => ctx.select(selected.slice(0, 2));
+        title.append(back, ` \u203A ${shapeLabel(value)}`);
+      } else if (selected.length === 3 && selected[0] === "rooms") {
+        const back = el("button", { type: "button", className: "link", textContent: selected[1], title: `Back to ${selected[1]}` });
+        back.onclick = () => ctx.select(selected.slice(0, 2));
+        title.append(back, Array.isArray(value?.[0]) ? " \u203A polygon" : ` \u203A rectangle ${selected[2] + 1}`);
+      } else if (selected.length === 2 && (selected[0] === "furniture" || selected[0] === "rooms")) {
         const name = el("input", { type: "text", value: selected.at(-1), className: "name", spellcheck: false, title: "Rename (its references follow)" });
         name.onchange = () => {
           if (name.value && name.value !== selected.at(-1)) ctx.rename(selected, name.value.trim());
@@ -9513,6 +9853,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       box2.append(el("div", { className: "title" }, title, dup, del));
       if (field?.help) box2.append(el("p", { className: "help", textContent: field.help }));
       if (value === void 0) box2.append(el("p", { textContent: "Not in the home any more." }));
+      else if (selected[0] === "rooms") box2.append(...regionForm(value, selected, ctx));
       else if (field?.type === "shape") box2.append(...shapeForm(value, selected, ctx));
       else if (field?.type === "object") box2.append(...fields(field, value, selected, ctx));
       else if (field) box2.append(row(String(selected.at(-1)), field, value, selected, ctx));
@@ -9529,7 +9870,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
   var TURN_STEP = 15;
   var GRID = 0.05;
   var HINTS = {
-    select: "Click to select (again, or Tab: what's under it; Shift+click: more), drag on empty space for a box \xB7 drag to move, the handles to resize, turn or reshape (double-click a corner removes it) \xB7 Shift: along an axis, Alt: no snapping \xB7 arrows nudge (Shift: \xD710) \xB7 Ctrl+D duplicates \xB7 with a lamp selected, Ctrl+click a piece to add it to its shadows or take it out \xB7 Alt+click taps the card \xB7 Esc clears",
+    select: "Click to select (again, or Tab: what's under it; Shift+click: more), drag on empty space for a box \xB7 drag to move, the handles to resize, turn or reshape (double-click a corner removes it; Alt: a piece's insides stay) \xB7 Shift: along an axis, Alt: no snapping \xB7 arrows nudge (Shift: \xD710) \xB7 Ctrl+D duplicates \xB7 double-click a piece (or Enter) to edit its insides \xB7 with a lamp selected, Ctrl+click a piece to add it to its shadows or take it out \xB7 Alt+click taps the card \xB7 Esc clears",
     wall: "Drag a wall's box, or along its middle for a wall of the usual thickness (25 cm outside, 15 cm inside a room) \xB7 Esc: back to selecting",
     room: "Drag a rectangle, or click its corners for a polygon (click the first again, double-click or Enter to finish; Backspace takes the last back) \xB7 Esc: back to selecting",
     opening: "Drag along an outer wall, from one end of the window or door to the other: its side and thickness come from the wall \xB7 Esc: back to selecting",
@@ -9538,6 +9879,12 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     marker: "Click where the marker goes \xB7 Esc: back to selecting",
     label: "Click where the label goes (its middle) \xB7 Esc: back to selecting",
     scale: "Drag along something whose length you know (a wall, a door), then type its length to set the scale; or just measure \xB7 Esc: back to selecting"
+  };
+  var INSIDE_HINTS = {
+    select: "Inside {name}: click its shapes to select them (again, or Tab: what's under it; Shift+click: more), drag on its empty space for a box \xB7 drag to move, the handles to resize \xB7 Shift: along an axis, Alt: no snapping \xB7 arrows nudge \xB7 Ctrl+D duplicates \xB7 Esc or a click outside it leaves",
+    piece: "Inside {name}: drag a rectangle (a cushion, a device), a circle from its middle, or a line (choose above); a click places a small one \xB7 Esc: back to selecting",
+    label: "Inside {name}: click where the label goes \xB7 Esc: back to selecting",
+    scale: HINTS.scale
   };
   var TOOL_KEYS = { v: "select", w: "wall", r: "room", o: "opening", f: "piece", l: "light", m: "marker", t: "label", s: "scale" };
   var STYLE2 = `
@@ -9585,6 +9932,9 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
   .overlay .draft * { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 5 3; fill: rgba(30, 136, 229, 0.15); }
   .overlay .draft circle.point { fill: var(--accent); stroke: none; }
   .overlay .shadows * { stroke: #ef6c00; stroke-width: 1.5; stroke-dasharray: 3 3; }
+  .overlay .inside .dim { fill: rgba(246, 246, 244, 0.6); fill-rule: evenodd; stroke: none; }
+  .preview.dark .overlay .inside .dim { fill: rgba(17, 17, 17, 0.6); }
+  .overlay .inside .piece { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 6 4; }
   .overlay.drawing { cursor: crosshair !important; }
   .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 10px; font-size: 13px; }
   .tools button { padding: 3px 8px; }
@@ -9614,6 +9964,11 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
   .item.home { padding-left: 10px; font-weight: 600; }
   .item:hover { background: #f2f6fb; } .item.on { background: #e3f0fc; box-shadow: inset 3px 0 var(--accent); }
   .item.drop { box-shadow: inset 0 2px var(--accent); }
+  .item.extra { padding-left: 40px; color: #555; } .item.in { font-weight: 600; }
+  .item .fold { display: inline-block; width: 14px; margin-left: -14px; color: #888; }
+  .props button.link { border: 0; background: none; padding: 0 2px; color: var(--accent); font: inherit; }
+  .props button.link:hover { text-decoration: underline; background: none; }
+  .props .links { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
   /* The properties */
   .props { padding: 10px 12px 16px; font-size: 13px; }
   .props .title { display: flex; align-items: center; gap: 8px; }
@@ -9701,7 +10056,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         <button data-tool="scale" title="Measure, or set the scale from a known length (S)">Scale</button>
         <span class="options"></span>
       </div>
-      <div class="stage"><svg class="overlay"><g class="grid"></g><g class="hover"></g><g class="shadows"></g><g class="sel"></g><g class="guides"></g><g class="handles"></g><g class="draft"></g><rect class="box" width="0" height="0"/></svg><div class="ruler"></div></div>
+      <div class="stage"><svg class="overlay"><g class="inside"></g><g class="grid"></g><g class="hover"></g><g class="shadows"></g><g class="sel"></g><g class="guides"></g><g class="handles"></g><g class="draft"></g><rect class="box" width="0" height="0"/></svg><div class="ruler"></div></div>
       <p class="hint"></p></div>
     </div>
     <div class="side right">
@@ -9760,7 +10115,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
   function messagePath(message) {
     const where = message.slice(0, message.indexOf(": "));
     const path = where.split(/\.|(?=\[)/).filter(Boolean).map((k) => /^\[\d+\]$/.test(k) ? +k.slice(1, -1) : k);
-    const depth = path[0] === "drawing" ? 3 : ["furniture", "rooms", "openings", "lights", "markers"].includes(path[0]) ? 2 : 0;
+    if (isExtra(path.slice(0, 4))) return path.slice(0, 4);
+    const depth = path[0] === "drawing" || path[0] === "sun" && ["spill", "blockers"].includes(path[1]) ? 3 : ["furniture", "rooms", "openings", "lights", "markers"].includes(path[0]) ? 2 : 0;
     return depth && path.length >= depth ? path.slice(0, depth) : null;
   }
   var LightwellEditor = class extends HTMLElement {
@@ -9800,6 +10156,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         start: $("dialog.start"),
         ha: $("dialog.ha"),
         haButton: $("header .ha"),
+        inside: $(".overlay .inside"),
         buttons: Object.fromEntries([...root.querySelectorAll("[data-act]")].map((b) => [b.dataset.act, b]))
       };
       const draft = storage2.get();
@@ -9808,10 +10165,11 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       this._dark = false;
       this._sel = null;
       this._sels = [];
+      this._inside = null;
       this._showGrid = false;
       this._preview = null;
       this._pictures = {};
-      this._opts = { wall: "auto", floor: true, kind: "window", glass: true, piece: "rect" };
+      this._opts = { wall: "auto", floor: true, kind: "window", glass: true, piece: "rect", extra: "rect" };
       this._shown = { states: this.states, north: void 0 };
       this._card = document.createElement("lightwell-card");
       this._el.stage.prepend(this._card);
@@ -9892,6 +10250,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         rename: (path, name) => this._rename(path, name),
         move: (path, from, to) => this._move(path, from, to),
         template: (path) => this._template(path),
+        enter: (name) => this._enter(name),
         shapeTemplate: (kind, old) => this._shapeTemplate(kind, old)
       };
       this.setTool("select");
@@ -9990,6 +10349,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         this._home = home;
         this._controls.setPlan(home);
       } else this._renderCard();
+      if (this._inside !== null && !data?.furniture?.[this._inside]) this._inside = null;
       this._sels = this._sels.filter((p) => itemAt(data, p) !== void 0);
       if (this._sel && itemAt(data, this._sel) === void 0) this._sel = this._sels.at(-1) || null;
       this._el.footer.textContent = "";
@@ -10044,7 +10404,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       const home = this._preview?.home || this._home, data = this._preview?.data || this._data;
       this._el.sel.innerHTML = home ? this._sels.map((p) => outlineSvg(home, p)).join("") : "";
       const px = this._px(), f = (v) => +v.toFixed(2), s = HANDLE * px;
-      this._el.handles.innerHTML = this._handles(data).map((h) => h.turn || h.mid || h.id.startsWith("pool") ? `<circle class="${h.turn ? "turn" : h.mid ? "mid" : ""}" cx="${f(h.at[0])}" cy="${f(h.at[1])}" r="${f(s / (h.mid ? 2.6 : 2))}"/>` : `<rect x="${f(h.at[0] - s / 2)}" y="${f(h.at[1] - s / 2)}" width="${f(s)}" height="${f(s)}"/>`).join("");
+      this._el.handles.innerHTML = this._handles(data).map((h) => h.turn || h.mid || h.ctrl || h.id.startsWith("pool") ? `<circle class="${h.turn ? "turn" : h.mid || h.ctrl ? "mid" : ""}" cx="${f(h.at[0])}" cy="${f(h.at[1])}" r="${f(s / (h.mid || h.ctrl ? 2.6 : 2))}"/>` : `<rect x="${f(h.at[0] - s / 2)}" y="${f(h.at[1] - s / 2)}" width="${f(s)}" height="${f(s)}"/>`).join("");
+      this._renderInside(home);
       const pool = this._sels.length === 1 && this._sel[0] === "lights" && itemAt(data, this._sel)?.pool;
       this._el.shadows.innerHTML = home && pool ? (pool.shadows || []).map((n2) => outlineSvg(home, ["furniture", n2])).join("") : "";
       this._renderGrid();
@@ -10052,7 +10413,71 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     // The handles of the selected item, if it's the only one and can be changed.
     _handles(data = this._data) {
       if (this._tool !== "select" || this._sels.length !== 1 || !this.model.home || !data) return [];
-      return handles(this._sel, itemAt(data, this._sel), { reach: 3 * HANDLE * this._px() });
+      return handles(this._sel, itemAt(data, this._sel), this._withPiece(this._sel, data, { reach: 3 * HANDLE * this._px() }));
+    }
+    // Inside a piece: the rest of the plan dimmed, the piece outlined; the guides and the drawing in its frame.
+    _renderInside(home) {
+      const piece = home?.furniture?.[this._inside], v = home?.view;
+      const turn2 = pieceTurn(piece);
+      for (const g of [this._el.guides, this._el.draft]) turn2 ? g.setAttribute("transform", turn2) : g.removeAttribute("transform");
+      if (!piece) {
+        this._el.inside.innerHTML = "";
+        return;
+      }
+      const o = pieceOutline(piece), f = (v2) => +v2.toFixed(1);
+      const d = o.poly ? `M${o.poly.map((q) => q.map(f).join(",")).join(" L")} Z` : `M${f(o.circle[0] - o.circle[2])},${o.circle[1]} a${o.circle[2]},${o.circle[2]} 0 1,0 ${f(2 * o.circle[2])},0 a${o.circle[2]},${o.circle[2]} 0 1,0 ${f(-2 * o.circle[2])},0 Z`;
+      const [x0, y0, x1, y1] = [v.x - v.w, v.y - v.h, v.x + 2 * v.w, v.y + 2 * v.h];
+      this._el.inside.innerHTML = `<path class="dim" d="M${x0},${y0} H${x1} V${y1} H${x0} Z ${d}"/><path class="piece" d="${d}"/>`;
+    }
+    // The options the manipulate functions take for the item at `path` (plus `rest`): an extra shape's piece.
+    _withPiece(path, data = this.model.data, rest = {}) {
+      return isExtra(path) ? { ...rest, piece: itemAt(data, path.slice(0, 2)) } : rest;
+    }
+    // The piece whose insides are being edited, in `data`.
+    _piece(data = this._data) {
+      return this._inside === null ? void 0 : data?.furniture?.[this._inside];
+    }
+    // A point in the drawing in the frame of the piece being edited, and back (the same unless it's turned).
+    _toFrame(p, data) {
+      const m2 = parseTransform(pieceTurn(this._piece(data)));
+      return m2 ? applyTransform(invertTransform(m2), p) : p;
+    }
+    _fromFrame(p, data) {
+      return applyTransform(parseTransform(pieceTurn(this._piece(data))), p);
+    }
+    // What's under the pointer: inside a piece, its shapes, front to back (`inside` true); otherwise every item.
+    _hitsAt(at) {
+      const piece = this._home?.furniture?.[this._inside];
+      if (piece && onPiece(piece, at.p, at.tol)) return { hits: hitInside(this._home, this._inside, at.p, at.tol), inside: true };
+      return { hits: hitTest(this._home, at.p, at.tol), inside: false };
+    }
+    // Edits the insides of the piece `name`, selecting `paths` (its shapes).
+    _enter(name, paths = []) {
+      if (!this.model.data?.furniture?.[name]) return;
+      this._inside = name;
+      this._hits = null;
+      this._poly = null;
+      this._el.draft.innerHTML = "";
+      if (!INSIDE_HINTS[this._tool]) this._tool = "select";
+      this._selectAll(paths);
+      this._renderTools();
+    }
+    // Out of the piece, with nothing selected (before selecting what's outside it).
+    _out() {
+      this._inside = null;
+      this._hits = null;
+      this._sels = [];
+      this._sel = null;
+      this._renderTools();
+      this._renderOverlay();
+    }
+    // Back out of the piece, selecting it.
+    _leave() {
+      const name = this._inside;
+      this._inside = null;
+      this._hits = null;
+      this._selectAll(name === null ? [] : [["furniture", name]]);
+      this._renderTools();
     }
     // The grid things snap to (GRID), with a stronger line every metre; the minor lines only when they're far enough
     // apart to see.
@@ -10073,7 +10498,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       g.innerHTML = lines(step, "minor") + lines(metre, "major");
     }
     _renderPanels() {
-      renderList(this._el.list, this.model.data, this._sel, this._ctx, this._sels);
+      renderList(this._el.list, this.model.data, this._sel, { ...this._ctx, inside: this._inside }, this._sels);
       renderProperties(this._el.props, this.model.data, this._sel, {
         ...this._ctx,
         data: this.model.data,
@@ -10090,14 +10515,21 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     }
     // Selects the item at `path` (null: the home itself) in the list, on the plan and in the text.
     select(path) {
+      if (!path) this._inside = null;
       this._selectAll(path ? [path] : []);
       if (this._sel && !this._el.text.closest("[hidden]")) this._showInText(this._sel);
     }
     // Selects several items; the last is the one whose properties show.
+    // Selecting a piece's shapes enters it (only its shapes stay selected); selecting anything else leaves it.
     _selectAll(paths) {
-      const seen = /* @__PURE__ */ new Set();
+      const seen = /* @__PURE__ */ new Set(), was = this._inside;
       this._sels = paths.filter((p) => itemAt(this.model.data, p) !== void 0 && !seen.has(pathKey(p)) && seen.add(pathKey(p)));
+      const extra = this._sels.findLast(isExtra);
+      if (extra) this._inside = extra[1];
+      else if (this._sels.length) this._inside = null;
+      if (this._inside !== null) this._sels = this._sels.filter((p) => isExtra(p) && p[1] === this._inside);
       this._sel = this._sels.at(-1) || null;
+      if (was !== this._inside) this._renderTools();
       this._renderPanels();
     }
     // Adds an item to the selection, or takes it out.
@@ -10155,7 +10587,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         if (this._poly) this._drawDraft(this._snap(e, at, this._poly.points.at(-1)), null, e);
         return;
       }
-      const handle = this._handleAt(at), hit = !handle && hitTest(this._home, at.p, at.tol)[0];
+      const handle = this._handleAt(at), hit = !handle && this._hitsAt(at).hits[0];
       this._el.hover.innerHTML = hit && !this._sels.some((p) => samePath2(p, hit)) ? outlineSvg(this._home, hit) : "";
       this._el.overlay.style.cursor = handle ? "crosshair" : hit && this.model.home ? "move" : "default";
     }
@@ -10190,7 +10622,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         return;
       }
       if (press.handle) return;
-      const hits = hitTest(this._home, press.at.p, press.at.tol);
+      const { hits, inside } = this._hitsAt(press.at);
+      if (this._inside !== null && !inside) this._out();
       if ((e.ctrlKey || e.metaKey) && this._toggleShadow(hits)) return;
       if (press.shift) {
         if (hits[0]) this._toggle(hits[0]);
@@ -10199,12 +10632,13 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       const again = this._hits && hits.length && hits.map(pathKey).join() === this._hits.map(pathKey).join();
       this._hits = hits;
       if (again) return this._cycle();
-      this.select(hits[0] || null);
+      if (inside) this._selectAll(hits.slice(0, 1));
+      else this.select(hits[0] || null);
     }
     // With a lamp with a pool selected: the piece among `hits` added to its shadows, or taken out. False when it isn't.
     _toggleShadow(hits) {
       const path = this._sels.length === 1 && this._sel[0] === "lights" ? this._sel : null;
-      const light = path && itemAt(this.model.data, path), piece = hits.find((h) => h[0] === "furniture");
+      const light = path && itemAt(this.model.data, path), piece = hits.find((h) => h[0] === "furniture" && h.length === 2);
       if (!light?.pool || !piece) return false;
       if (!this.model.data.furniture[piece[1]]?.height) {
         this._message(`${piece[1]} has no height, so it casts no shadows: give it one first`);
@@ -10215,12 +10649,25 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       this._edit(() => this.model.set([...path, "pool", "shadows"], next));
       return true;
     }
-    // A double click on a polygon's corner removes it; while drawing a polygon, it finishes it.
+    // A double click on a polygon's corner removes it; on a piece of furniture, it enters it (to edit its insides,
+    // selecting the one under the pointer); while drawing a polygon, it finishes it.
     _dblclick(e) {
       if (this._tool !== "select") return this._poly && this._finishPoly();
       const at = this._at(e), handle = at && this._handleAt(at);
-      if (!handle?.id.match(/(^|\/)v:\d+$/)) return;
-      const item = removeCorner(this._sel, itemAt(this.model.data, this._sel), handle.id);
+      if (at && !handle?.id.match(/(^|\/)v:\d+$/)) {
+        if (this._hitsAt(at).inside) return;
+        const hits = hitTest(this._home, at.p, at.tol);
+        const room = this._sel?.[0] === "rooms" && hits.some((h) => h[0] === "rooms" && h[1] === this._sel[1]) && this.model.data.rooms[this._sel[1]];
+        if (Array.isArray(room) && !Array.isArray(room[0]?.[0])) {
+          const i = room.findLastIndex((q) => inPoly(partPoly(q) || [], at.p));
+          if (i >= 0) return this.select(["rooms", this._sel[1], i]);
+        }
+        const piece = hits.find((h) => h[0] === "furniture");
+        if (piece) this._enter(piece[1], hitInside(this._home, piece[1], at.p, at.tol).slice(0, 1));
+        return;
+      }
+      if (!handle) return;
+      const item = removeCorner(this._sel, itemAt(this.model.data, this._sel), handle.id, this._withPiece(this._sel));
       if (item) this._edit(() => this.model.set(this._sel, item));
       else this._message("A polygon keeps at least three corners");
     }
@@ -10228,39 +10675,48 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     // the selection (the item first selected, if it wasn't); with Shift or on empty space, selects with a box.
     _startDrag(press) {
       const { at } = press;
-      const hits = press.handle ? [] : hitTest(this._home, at.p, at.tol);
+      let hits = [];
+      if (!press.handle) {
+        const found = this._hitsAt(at);
+        if (this._inside !== null && !found.inside) this._out();
+        hits = found.hits;
+      }
       if (press.shift || !press.handle && !hits.length) return { kind: "box", from: at.p, add: press.shift };
       if (!this.model.home) {
         this._message("Fix the mistakes listed here first: the plan shows the last version without them.");
         return { kind: "none" };
       }
       const data = this.model.data, view = this._home.view.w / 1145;
+      const frame = this._inside !== null, piece = this._piece(data);
+      const targets = (except) => frame ? insideTargets(piece, except.filter(isExtra).map((p) => p[3]), view) : snapTargets(this._items(data, except), except, view);
       if (press.handle) {
-        const { item, id } = startHandle(this._sel, itemAt(data, this._sel), press.handle.id);
-        return {
-          kind: "handle",
-          path: this._sel,
-          item,
-          id,
-          from: press.handle.at,
-          targets: snapTargets(this._items(data), [this._sel], view)
-        };
+        const { item, id } = startHandle(this._sel, itemAt(data, this._sel), press.handle.id, this._withPiece(this._sel, data));
+        return { kind: "handle", path: this._sel, item, id, from: press.handle.at, frame, targets: targets([this._sel]) };
       }
-      if (!hits.some((h) => this._sels.some((p) => samePath2(p, h)))) this.select(hits[0]);
+      if (!hits.some((h) => this._sels.some((p) => samePath2(p, h)))) frame ? this._selectAll(hits.slice(0, 1)) : this.select(hits[0]);
       const paths = this._sels, items = paths.map((p) => itemAt(data, p));
       return {
         kind: "move",
         paths,
         items,
         from: at.p,
-        pts: paths.flatMap((p, i) => anchors(p, items[i], view)),
+        frame,
+        pts: paths.flatMap((p, i) => anchors(p, items[i], view, frame ? {} : this._withPiece(p, data))),
         axes: paths.length === 1 ? axesOf(paths[0], items[0]) : [1, 1],
-        targets: snapTargets(this._items(data), paths, view)
+        targets: targets(paths)
       };
     }
-    // Every item of the home: [[path, item]].
-    _items(data) {
-      return itemGroups(data).flatMap((g) => g.items.map((it) => [it.path, itemAt(data, it.path)]));
+    // Every item of the home: [[path, item]]; inside a piece, its shapes. A room without its rectangles in `except`.
+    _items(data, except = []) {
+      if (this._inside !== null) {
+        const list = this._piece(data)?.extra;
+        return Array.isArray(list) ? list.map((s, i) => [["furniture", this._inside, "extra", i], s]) : [];
+      }
+      const parts = except.filter((p) => p[0] === "rooms" && p.length === 3);
+      return itemGroups(data).flatMap((g) => g.items.map((it) => {
+        const item = itemAt(data, it.path), out = parts.filter((p) => p[1] === it.path[1] && it.path[0] === "rooms").map((p) => p[2]);
+        return [it.path, out.length ? item.filter((_, i) => !out.includes(i)) : item];
+      }));
     }
     // The pointer moved while pressed: starts the drag once it's far enough, then previews it.
     _dragTo(e) {
@@ -10284,14 +10740,21 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         this._el.box.setAttribute("height", y1 - y0);
         ruler = { size: [x1 - x0, y1 - y0] };
       } else if (drag.kind === "move") {
-        const moved = snapMove(drag.pts, at.p[0] - drag.from[0], at.p[1] - drag.from[1], { ...snap, axes: drag.axes });
+        const [to, from] = drag.frame ? [this._toFrame(at.p), this._toFrame(drag.from)] : [at.p, drag.from];
+        const moved = snapMove(drag.pts, to[0] - from[0], to[1] - from[1], { ...snap, axes: drag.axes });
         guides = moved.guides;
-        drag.changes = drag.paths.map((p, i) => [p, moveItem(p, drag.items[i], moved.dx, moved.dy)]);
+        const [o, d] = drag.frame ? [this._fromFrame([0, 0]), this._fromFrame([moved.dx, moved.dy])] : [[0, 0], [moved.dx, moved.dy]];
+        drag.changes = drag.paths.map((p, i) => [p, moveItem(p, drag.items[i], d[0] - o[0], d[1] - o[1], this._withPiece(p, this._data))]);
         ruler = { move: [moved.dx, moved.dy] };
       } else if (drag.kind === "handle") {
         let p = at.p;
-        if (!e.altKey && snapsHandle(drag.path, drag.item, drag.id)) ({ p, guides } = snapPoint(p, { ...snap, from: drag.from }));
-        const done = dragHandle(drag.path, drag.item, drag.id, p, { turnStep: e.altKey ? 0 : TURN_STEP });
+        const piece = this._withPiece(drag.path, this._data);
+        if (!e.altKey && snapsHandle(drag.path, drag.item, drag.id, piece)) {
+          const local = drag.frame ? snapPoint(this._toFrame(p), { ...snap, from: this._toFrame(drag.from) }) : snapPoint(p, { ...snap, from: drag.from });
+          ({ guides } = local);
+          p = drag.frame ? this._fromFrame(local.p) : local.p;
+        }
+        const done = dragHandle(drag.path, drag.item, drag.id, p, { turnStep: e.altKey ? 0 : TURN_STEP, insides: !e.altKey, ...piece });
         drag.changes = [[drag.path, done.item]];
         ruler = done.ruler;
       }
@@ -10302,9 +10765,11 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       if (drag.changes) this._showPreview(drag.changes);
     }
     // Lines across the view where a snap lined things up.
+    // Inside a turned piece they're in its frame (the guides are drawn turned with it), so they reach further.
     _showGuides({ x, y } = {}) {
-      const v = this._home.view;
-      this._el.guides.innerHTML = (x !== void 0 ? `<line x1="${x}" y1="${v.y}" x2="${x}" y2="${v.y + v.h}"/>` : "") + (y !== void 0 ? `<line x1="${v.x}" y1="${y}" x2="${v.x + v.w}" y2="${y}"/>` : "");
+      const v = this._home.view, far = this._inside === null ? 0 : Math.max(v.w, v.h);
+      const [x0, y0, x1, y1] = [v.x - far, v.y - far, v.x + v.w + far, v.y + v.h + far];
+      this._el.guides.innerHTML = (x !== void 0 ? `<line x1="${x}" y1="${y0}" x2="${x}" y2="${y1}"/>` : "") + (y !== void 0 ? `<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}"/>` : "");
     }
     // The card and the overlay as they'd be with `changes` ([[path, value]]), drawn at most once a frame. A version
     // that doesn't pass the check isn't shown.
@@ -10331,7 +10796,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       if (drag.kind === "box" && drag.rect) {
         const [x0, y0, x1, y1] = drag.rect, view = this._home.view.w / 1145;
         const inside = this._items(this._data).filter(([path, item]) => {
-          const pts = anchors(path, item, view);
+          const pts = anchors(path, item, view, this._withPiece(path, this._data));
           return pts.length && pts.every(([x, y]) => x >= x0 && x <= x1 && y >= y0 && y <= y1);
         }).map(([path]) => path);
         this._selectAll(drag.add ? [...this._sels, ...inside] : inside);
@@ -10372,17 +10837,29 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       return { ...states, [fx.entity]: { ...s, state: "on", attributes: { ...s.attributes, effect: fx.name } } };
     }
     // The tool in use: 'select', or one that draws (wall, room, opening, piece, light, marker, label, scale).
+    // Inside a piece of furniture, only those that draw its insides (piece, label) and the scale.
     setTool(tool) {
-      if (!HINTS[tool]) return;
+      if (!HINTS[tool] || this._inside !== null && !INSIDE_HINTS[tool]) return;
       this._tool = tool;
       this._poly = null;
       this._cancelDrag();
       this._el.draft.innerHTML = "";
-      for (const b of this._root.querySelectorAll("[data-tool]")) b.setAttribute("aria-pressed", b.dataset.tool === tool);
-      this._el.overlay.classList.toggle("drawing", tool !== "select");
-      this._el.hint.textContent = HINTS[tool];
-      this._renderOptions();
+      this._renderTools();
       this._renderOverlay();
+    }
+    // The tools' buttons, options and hint, for the tool in use and whether a piece is being edited.
+    _renderTools() {
+      const inside = this._inside !== null, tool = this._tool;
+      for (const b of this._root.querySelectorAll("[data-tool]")) {
+        b.setAttribute("aria-pressed", b.dataset.tool === tool);
+        b.disabled = inside && !INSIDE_HINTS[b.dataset.tool];
+      }
+      const piece = this._root.querySelector('[data-tool="piece"]');
+      piece.textContent = inside ? "Shapes" : "Furniture";
+      piece.title = inside ? `Shapes on ${this._inside} (F)` : "Furniture (F)";
+      this._el.overlay.classList.toggle("drawing", tool !== "select");
+      this._el.hint.textContent = inside ? INSIDE_HINTS[tool].replace("{name}", this._inside) : HINTS[tool];
+      this._renderOptions();
     }
     // The tool's options, next to the tools.
     _renderOptions() {
@@ -10393,7 +10870,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         wall: select("wall", { auto: "Outer or inner, by where", outer: "Outer wall", inner: "Inner wall" }),
         room: check("floor", "with its floor"),
         opening: select("kind", { window: "Window", door: "Door" }) + check("glass", "with its glass"),
-        piece: select("piece", { rect: "Rectangle", circle: "Circle", poly: "Polygon" })
+        piece: this._inside !== null ? select("extra", { rect: "Rectangle", circle: "Circle", line: "Line" }) : select("piece", { rect: "Rectangle", circle: "Circle", poly: "Polygon" })
       }[this._tool] || "";
       for (const input2 of box2.querySelectorAll("[data-opt]")) {
         input2.onchange = () => {
@@ -10405,14 +10882,16 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     }
     // A pointer position snapped for drawing: to the other items and the grid (Shift: along an axis from `from`; Alt:
     // not at all), with the guides shown.
+    // Inside a piece of furniture, in its frame: snapped to its outline and its shapes.
     _snap(e, at, from) {
+      const inside = this._inside !== null, q = inside ? this._toFrame(at.p) : at.p;
       if (e.altKey || !this._data) {
         this._showGuides();
-        return at.p;
+        return q;
       }
-      const key = this.model.text;
-      if (this._targets?.key !== key) this._targets = { key, ...snapTargets(this._items(this._data), [], this._home.view.w / 1145) };
-      const { p, guides } = snapPoint(at.p, { ...this._targets, tol: at.tol, grid: this._grid(), axis: e.shiftKey && !!from, from });
+      const key = `${this._inside}:${this.model.text}`, k = this._home.view.w / 1145;
+      if (this._targets?.key !== key) this._targets = { key, ...inside ? insideTargets(this._piece(), [], k) : snapTargets(this._items(this._data), [], k) };
+      const { p, guides } = snapPoint(q, { ...this._targets, tol: at.tol, grid: this._grid(), axis: e.shiftKey && !!from, from });
       this._showGuides(guides);
       return p;
     }
@@ -10424,10 +10903,10 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         const pts = [...this._poly.points, p];
         svg = `<polyline points="${pts.map((q) => q.map(f).join(",")).join(" ")}"/>` + this._poly.points.map((q) => `<circle class="point" cx="${f(q[0])}" cy="${f(q[1])}" r="${f(3 * this._px())}"/>`).join("");
         ruler = { length: Math.hypot(p[0] - pts.at(-2)[0], p[1] - pts.at(-2)[1]) };
-      } else if (a && (tool === "scale" || tool === "opening")) {
+      } else if (a && (tool === "scale" || tool === "opening" || tool === "piece" && this._inside !== null && this._opts.extra === "line")) {
         svg = `<line x1="${f(a[0])}" y1="${f(a[1])}" x2="${f(p[0])}" y2="${f(p[1])}"/>`;
         ruler = { length: Math.hypot(p[0] - a[0], p[1] - a[1]) };
-      } else if (a && (tool === "light" || tool === "piece" && this._opts.piece === "circle")) {
+      } else if (a && (tool === "light" || tool === "piece" && (this._inside !== null ? this._opts.extra : this._opts.piece) === "circle")) {
         const r = Math.hypot(p[0] - a[0], p[1] - a[1]);
         svg = `<circle cx="${f(a[0])}" cy="${f(a[1])}" r="${f(r)}"/>`;
         ruler = { radius: r };
@@ -10472,6 +10951,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         const [x0, y0, x1, y1] = boundsOf([a, b]);
         return [x0, y0, x1 - x0, y1 - y0].map(r);
       };
+      if (this._inside !== null && tool !== "scale") return this._drawInside(a, b, moved);
       if ((tool === "room" || tool === "piece" && this._opts.piece === "poly") && (!moved || this._poly)) return this._addCorner(moved ? b : a);
       if (tool === "wall") {
         if (!moved) return;
@@ -10511,6 +10991,29 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         this._message(`The scale is ${scale} units a metre now. Lengths in metres (heights, the ruler, shadows) follow it.`, "info");
       }
     }
+    // A shape drawn inside the piece being edited (from `a` to `b`, in its frame), with the usual class for it: a
+    // rectangle (furn2), a circle (dev), a line, a label (lbl).
+    _drawInside(a, b, moved) {
+      const data = this.model.data, m2 = data.units_per_metre || 100, r = (v) => tidy(v), name = this._inside;
+      const list = data.furniture[name].extra;
+      if (list !== void 0 && !Array.isArray(list)) return this._message(`${name}'s extra is raw SVG: edit it in the YAML`);
+      const [x0, y0, x1, y1] = boundsOf([a, b]);
+      let value;
+      if (this._tool === "label") {
+        if (moved) return;
+        const text2 = prompt("The label:", "Label")?.trim();
+        if (!text2) return;
+        value = { text: text2, at: [r(a[0]), r(a[1])], class: "lbl" };
+      } else if (this._opts.extra === "circle") {
+        value = { circle: [r(a[0]), r(a[1]), r(moved ? Math.hypot(b[0] - a[0], b[1] - a[1]) : 0.1 * m2)], class: "dev" };
+      } else if (this._opts.extra === "line") {
+        if (!moved) return;
+        value = { path: `M${r(a[0])},${r(a[1])} L${r(b[0])},${r(b[1])}`, class: "line" };
+      } else {
+        value = { rect: moved ? [x0, y0, x1 - x0, y1 - y0].map(r) : [r(a[0] - 0.2 * m2), r(a[1] - 0.1 * m2), r(0.4 * m2), r(0.2 * m2)], class: "furn2" };
+      }
+      this._create([{ insert: ["furniture", name, "extra"], value }], ["furniture", name, "extra", (list || []).length]);
+    }
     // Adds ops as one edit and selects `path`, staying in the tool.
     _create(ops, path) {
       this._edit(() => this.model.batch(ops));
@@ -10548,7 +11051,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     _moveBy(dx, dy) {
       if (!this._sels.length) return;
       if (!this.model.home) return this._message("Fix the mistakes listed here first: the plan shows the last version without them.");
-      this._edit(() => this.model.batch(this._sels.map((p) => ({ set: p, value: moveItem(p, itemAt(this.model.data, p), dx, dy) }))));
+      this._edit(() => this.model.batch(this._sels.map((p) => ({ set: p, value: moveItem(p, itemAt(this.model.data, p), dx, dy, this._withPiece(p)) }))));
     }
     // Copies of the selected items, a little down and to the right, selected: pieces and rooms under a new name, the
     // others at the end of their list.
@@ -10557,8 +11060,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       if (!this.model.home) return this._message("Fix the mistakes listed here first: the plan shows the last version without them.");
       const data = this.model.data, off = 4 * this._grid(), ops = [], made = [], ends2 = {};
       for (const path of this._sels) {
-        const value = moveItem(path, structuredClone(itemAt(data, path)), off, off);
-        if (path[0] === "furniture" || path[0] === "rooms") {
+        const value = moveItem(path, structuredClone(itemAt(data, path)), off, off, this._withPiece(path, data));
+        if (path.length === 2 && (path[0] === "furniture" || path[0] === "rooms")) {
           const base = String(path[1]).replace(/\d+$/, "");
           let k = 2;
           while (data[path[0]][`${base}${k}`] !== void 0 || made.some((p) => p[0] === path[0] && p[1] === `${base}${k}`)) k++;
@@ -10608,6 +11111,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       const { cx, cy, m: m2, v } = this._frame(), r = round2, room = this._roomAt(cx, cy);
       const kind = group.add, list = this.model.get(group.path);
       let path, value;
+      if (kind === "extra") return this._addInside(group.path[1]);
+      if (kind === "rect") return this._addRect(group.path);
       if (kind === "room" || kind === "piece") {
         const name = this._newName(group.path, kind === "room" ? "room" : "piece");
         if (!name) return;
@@ -10619,9 +11124,31 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         else if (kind === "opening") value = { wall: "top", at: r(v.y), depth: r(0.25 * m2), x: r(cx - 0.6 * m2), w: r(1.2 * m2), lo: 0.9, hi: 2.2, ...room ? { room } : {} };
         else if (kind === "light") value = { entities: ["light.new_light"], shape: [{ circle: [r(cx), r(cy), r(0.4 * m2)] }], ...room ? { clip: room } : {} };
         else if (kind === "marker") value = { entity: "light.new_light", x: r(cx), y: r(cy), icon: "mdi:lightbulb", tap: "toggle" };
+        else if (kind === "spill") value = { cx: r(cx), cy: r(cy), rx: r(2 * m2), ry: r(2 * m2), ...room ? { clip: room } : {}, from: [], k: 0.5 };
+        else if (kind === "blocker") value = { rect: [r(cx - m2 / 2), r(cy - m2 / 2), r(m2), r(m2)], height: 3 };
       }
       this._edit(() => kind === "room" || kind === "piece" ? this.model.set(path, value) : this.model.insert(group.path, value));
       this.select(path);
+    }
+    // A rectangle added to the room at `path`, next to its last one (to its right, as tall), selected.
+    _addRect(path) {
+      const region = this.model.get(path), { cx, cy, m: m2 } = this._frame(), r = round2;
+      if (!Array.isArray(region) || Array.isArray(region[0]?.[0])) return this._message("A polygon room is one shape: drag its corners instead");
+      const last = region.at(-1);
+      const value = last?.length === 4 ? [r(last[0] + last[2]), last[1], r(m2), last[3]] : [r(cx - m2), r(cy - m2), r(2 * m2), r(2 * m2)];
+      this._edit(() => this.model.insert(path, value));
+      this.select([...path, region.length]);
+    }
+    // A shape added in the middle of the piece `name` (in its frame), selected: inside it.
+    _addInside(name) {
+      const piece = this.model.data?.furniture?.[name], { m: m2 } = this._frame(), r = round2;
+      if (!piece) return;
+      if (piece.extra !== void 0 && !Array.isArray(piece.extra)) return this._message(`${name}'s extra is raw SVG: edit it in the YAML`);
+      const { rect, circle, poly } = piece.shape || {};
+      const c = rect ? [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2] : circle ? circle.slice(0, 2) : (poly || [[0, 0]]).reduce((a, q, _, all) => [a[0] + q[0] / all.length, a[1] + q[1] / all.length], [0, 0]);
+      const value = { rect: [r(c[0] - 0.2 * m2), r(c[1] - 0.1 * m2), r(0.4 * m2), r(0.2 * m2)], class: "furn2" };
+      this._edit(() => this.model.insert(["furniture", name, "extra"], value));
+      this.select(["furniture", name, "extra", (piece.extra || []).length]);
     }
     // A shape of `kind` where `old` was (or in the middle of the view), with the slot's usual class.
     _shapeTemplate(kind, old, slot) {
@@ -10664,14 +11191,21 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       walk(this.model.data, []);
       return out;
     }
-    // Deletes items, as one edit; a piece of furniture leaves the lights' shadows too.
+    // Deletes items, as one edit; a piece of furniture leaves the lights' shadows too. A room keeps one rectangle.
     _remove(paths) {
-      const refs = paths.flatMap((p) => p[0] === "furniture" ? this._references("furniture", p[1]) : []);
+      const parts = paths.filter((p) => p[0] === "rooms" && p.length === 3);
+      for (const name of new Set(parts.map((p) => p[1]))) {
+        if (parts.filter((p) => p[1] === name).length >= (this.model.get(["rooms", name]) || []).length) {
+          return this._message(`${name} needs a rectangle at least: delete the room itself instead`);
+        }
+      }
+      const refs = paths.flatMap((p) => p[0] === "furniture" && p.length === 2 ? this._references("furniture", p[1]) : []);
       const all = [...paths, ...refs].sort(byPathDescending).filter((p, i, a) => !i || !samePath2(p, a[i - 1]));
       this._edit(() => this.model.edit((doc) => {
         for (const p of all) if (!doc.deleteIn(p) && paths.includes(p)) throw new Error(`Nothing at ${p.join(".")}`);
       }));
-      this.select(null);
+      if (this._inside !== null && paths.every(isExtra)) this._selectAll([]);
+      else this.select(null);
     }
     // Renames a room or a piece of furniture; the fields naming it follow.
     _rename(path, name) {
@@ -10810,6 +11344,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       }
       this.model.open(text2);
       this._file = { name, handle, saved: this.model.text };
+      this._inside = null;
+      this._renderTools();
       this._data = null;
       this._home = null;
       this._sel = null;
@@ -10867,7 +11403,11 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
           this._el.draft.innerHTML = "";
           this._el.ruler.textContent = "";
         } else if (this._tool !== "select") this.setTool("select");
+        else if (this._inside !== null) this._leave();
         else this.select(null);
+      } else if (e.key === "Enter" && this._tool === "select" && this._sels.length === 1 && this._sel[0] === "furniture" && this._sel.length === 2) {
+        e.preventDefault();
+        this._enter(this._sel[1]);
       } else if (!e.altKey && !e.shiftKey && TOOL_KEYS[e.key.toLowerCase()] && e.key.length === 1) this.setTool(TOOL_KEYS[e.key.toLowerCase()]);
       else if ((e.key === "Delete" || e.key === "Backspace") && this._sels.length) {
         e.preventDefault();

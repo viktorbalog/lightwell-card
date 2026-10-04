@@ -1,7 +1,8 @@
 // The editor's panels: the list of a home's items and the property form of the selected one, generated from the
 // schema (src/schema.js). They only read the home and call back: `ctx.commit(path, value)` (undefined removes it),
 // `ctx.select(path)`, `ctx.toggle(path)` (Shift+click: in or out of the selection), `ctx.add(group)`,
-// `ctx.remove(path)`, `ctx.duplicate()` (the selection), `ctx.rename(path, name)`, `ctx.move(path, from, to)`.
+// `ctx.remove(path)`, `ctx.duplicate()` (the selection), `ctx.rename(path, name)`, `ctx.move(path, from, to)`,
+// `ctx.enter(name)` (edit a piece's insides; `ctx.inside`: the piece being edited).
 import YAML from 'yaml';
 import {SCHEMA, SHAPE_KINDS, fieldAt} from '../schema.js';
 import {SLOTS} from '../home.js';
@@ -22,12 +23,19 @@ export function shapeLabel(s) {
   return [what, s.class, s.repeat && `×${s.repeat.count}`].filter(Boolean).join(' · ');
 }
 
-// The groups of the list, in the order they're drawn: [{title, path, add, reorder, items: [{path, label, title}]}].
+// A room's rectangle in a few words: "rect 300 × 200 at 10, 20".
+const rectLabel = q => (Array.isArray(q) && q.length === 4 ? `rect ${q[2]} × ${q[3]} at ${q[0]}, ${q[1]}` : 'rect ?');
+
+// The groups of the list, in the order they're drawn: [{title, path, add, reorder, items: [{path, label, title,
+// children}]}]. A piece's children are its extra shapes, in the order they're drawn: [{path, label}].
 export function itemGroups(data) {
   const d = data && typeof data === 'object' ? data : {};
   const groups = [];
   groups.push({title: 'Rooms', path: ['rooms'], add: 'room',
-    items: Object.keys(d.rooms || {}).map(name => ({path: ['rooms', name], label: name}))});
+    items: Object.entries(d.rooms || {}).map(([name, region]) => ({path: ['rooms', name], label: name,
+      // A room of rectangles: each of them (one polygon is the room itself).
+      children: Array.isArray(region) && !Array.isArray(region[0]?.[0]) ? region.map((q, i) => ({path: ['rooms', name, i], label: rectLabel(q)})) : [],
+      childList: ['rooms', name]}))});
   for (const slot of SLOTS) {
     const list = Array.isArray(d.drawing?.[slot]) ? d.drawing[slot] : [];
     groups.push({title: SLOT_NAMES[slot], path: ['drawing', slot], add: 'shape', reorder: true,
@@ -38,18 +46,28 @@ export function itemGroups(data) {
       title: o.shutter}))});
   groups.push({title: 'Furniture', path: ['furniture'], add: 'piece', reorder: true,
     items: Object.entries(d.furniture || {}).map(([name, p]) => ({path: ['furniture', name], label: name,
-      title: p?.height ? `${p.height} m` : 'no height: casts no shadows'}))});
+      title: p?.height ? `${p.height} m` : 'no height: casts no shadows',
+      children: (Array.isArray(p?.extra) ? p.extra : []).map((s, i) => ({path: ['furniture', name, 'extra', i], label: shapeLabel(s)})),
+      childList: ['furniture', name, 'extra']}))});
   groups.push({title: 'Lights', path: ['lights'], add: 'light',
     items: (d.lights || []).map((g, i) => ({path: ['lights', i], label: g.entities?.[0] || `light ${i + 1}`}))});
   groups.push({title: 'Markers', path: ['markers'], add: 'marker',
     items: (d.markers || []).map((m, i) => ({path: ['markers', i], label: m.entity || `marker ${i + 1}`}))});
+  groups.push({title: 'Daylight spills', path: ['sun', 'spill'], add: 'spill',
+    items: (Array.isArray(d.sun?.spill) ? d.sun.spill : []).map((s, i) => ({path: ['sun', 'spill', i], label: s?.clip ? `into ${s.clip}` : `spill ${i + 1}`,
+      title: `from openings ${(s?.from || []).join(', ') || 'none'}, ${s?.k ?? '?'} through`}))});
+  groups.push({title: 'Sun blockers', path: ['sun', 'blockers'], add: 'blocker',
+    items: (Array.isArray(d.sun?.blockers) ? d.sun.blockers : []).map((b, i) => ({path: ['sun', 'blockers', i], label: `${b?.rect ? 'rect' : 'poly'}, ${b?.height ?? '?'} m`}))});
   return groups;
 }
 
 // The list panel in `box`: every item, the selected ones marked (`selected`, and `also` when there are several);
-// groups fold, items can be dragged within groups whose order matters.
+// groups fold, items can be dragged within groups whose order matters. A piece unfolds to show its insides (by
+// itself while one of them is selected), which can be dragged into another order.
 export function renderList(box, data, selected, ctx, also = []) {
-  const open = box._open ??= new Set(['Furniture', 'Lights', 'Markers', 'Openings', 'Rooms']);
+  const open = box._open ??= new Set(['Furniture', 'Lights', 'Markers', 'Openings', 'Rooms', 'Daylight spills']);
+  const unfolded = box._unfolded ??= new Set();
+  const isOn = path => samePath(path, selected) || also.some(p => samePath(path, p));
   box.textContent = '';
   const home = el('li', {className: `item home${selected ? '' : ' on'}`, textContent: 'The home'});
   home.onclick = () => ctx.select(null);
@@ -63,8 +81,8 @@ export function renderList(box, data, selected, ctx, also = []) {
     details.append(el('summary', {}, el('span', {textContent: g.title}), el('small', {textContent: g.items.length}), add));
     const ul = el('ul', {className: 'items'});
     g.items.forEach((it, i) => {
-      const on = samePath(it.path, selected) || also.some(p => samePath(it.path, p));
-      const li = el('li', {className: `item${on ? ' on' : ''}`, textContent: it.label, title: it.title || ''});
+      const on = isOn(it.path);
+      const li = el('li', {className: `item${on ? ' on' : ''}${ctx.inside != null && it.path[0] === 'furniture' && it.path[1] === ctx.inside ? ' in' : ''}`, textContent: it.label, title: it.title || ''});
       li.dataset.path = pathKey(it.path);
       li.onclick = e => (e.shiftKey && ctx.toggle ? ctx.toggle(it.path) : ctx.select(it.path));
       if (g.reorder) {
@@ -81,11 +99,47 @@ export function renderList(box, data, selected, ctx, also = []) {
         };
       }
       ul.append(li);
+      if (it.children?.length) ul.append(...insides(it, li));
     });
     details.append(ul);
     box.append(details);
   }
   box.querySelector('.item.on')?.scrollIntoView({block: 'nearest'});
+
+  // A piece's insides or a room's rectangles, under its line `li` (with the fold that shows them): selecting one of a
+  // piece's enters it. They unfold by themselves while one of them is selected.
+  function insides(it, li) {
+    const key = pathKey(it.path), within = selected?.length > it.path.length && samePath(selected.slice(0, it.path.length), it.path);
+    const shown = unfolded.has(key) || within || (it.path[0] === 'furniture' && it.path[1] === ctx.inside);
+    const what = it.path[0] === 'rooms' ? 'rectangles' : 'insides';
+    const fold = el('span', {className: 'fold', textContent: shown ? '▾' : '▸', title: shown ? `Hide its ${what}` : `Show its ${what} (${it.children.length})`});
+    fold.onclick = e => {
+      e.stopPropagation();
+      if (!unfolded.delete(key)) unfolded.add(key);
+      renderList(box, data, selected, ctx, also);
+    };
+    li.prepend(fold);
+    if (!shown) return [];
+    const list = it.childList;
+    return it.children.map((c, i) => {
+      const cli = el('li', {className: `item extra${isOn(c.path) ? ' on' : ''}`, textContent: c.label});
+      cli.dataset.path = pathKey(c.path);
+      cli.onclick = e => (e.shiftKey && ctx.toggle ? ctx.toggle(c.path) : ctx.select(c.path));
+      cli.draggable = true;
+      cli.ondragstart = e => { e.dataTransfer.setData('text/x-lightwell-extra', JSON.stringify([key, i])); e.dataTransfer.effectAllowed = 'move'; };
+      cli.ondragover = e => { if (e.dataTransfer.types.includes('text/x-lightwell-extra')) { e.preventDefault(); e.stopPropagation(); cli.classList.add('drop'); } };
+      cli.ondragleave = () => cli.classList.remove('drop');
+      cli.ondrop = e => {
+        e.preventDefault();
+        e.stopPropagation();
+        cli.classList.remove('drop');
+        const [from, j] = JSON.parse(e.dataTransfer.getData('text/x-lightwell-extra') || '[]');
+        // Only within the same piece.
+        if (from === key && j !== i) ctx.move(list, j, i);
+      };
+      return cli;
+    });
+  }
 }
 
 // The options a field's input offers, from the home and the states.
@@ -160,6 +214,15 @@ function input(field, value, path, ctx) {
     i.onchange = () => commit(i.value === '' ? undefined : i.value);
     return [i, ...datalist(i, choices(field, ctx).map(v => ({value: v})))];
   }
+  if (t === 'list' && field.of?.type === 'opening') {
+    // The openings by their position in the list, as the list names them.
+    const openings = Array.isArray(ctx.data?.openings) ? ctx.data.openings : [], v = Array.isArray(value) ? value : [];
+    return [el('span', {className: 'checks'}, openings.map((o, k) => {
+      const c = el('input', {type: 'checkbox', checked: v.includes(k)});
+      c.onchange = () => commit(openings.map((_, j) => j).filter(j => (j === k ? c.checked : v.includes(j))));
+      return el('label', {title: o?.shutter || ''}, c, `${k}: ${o?.wall} wall${o?.room ? `, ${o.room}` : ''}`);
+    }))];
+  }
   if (t === 'list' && field.of?.type === 'furniture') {
     const names = choices(field.of, ctx), v = Array.isArray(value) ? value : [];
     return [el('span', {className: 'checks'}, names.map(name => {
@@ -184,10 +247,63 @@ function input(field, value, path, ctx) {
   return [a];
 }
 
+// A piece's insides (its extra shapes) as links that select them, with a + to add one and a button to enter it.
+function insidesField(label, value, path, ctx) {
+  const add = el('button', {type: 'button', className: 'clear', textContent: '+', title: 'Add a shape on it'});
+  add.onclick = () => ctx.add({path, add: 'extra'});
+  const enter = el('button', {type: 'button', className: 'clear', textContent: 'Edit', title: 'Edit its insides on the plan (double-click it, or Enter)'});
+  enter.onclick = () => ctx.enter(path[1]);
+  const links = (value || []).map((s, i) => {
+    const a = el('button', {type: 'button', className: 'link', textContent: shapeLabel(s), title: 'Select it'});
+    a.onclick = () => ctx.select([...path, i]);
+    return a;
+  });
+  return el('fieldset', {}, el('legend', {}, label, add, enter),
+    links.length ? el('div', {className: 'links'}, links) : el('p', {className: 'note', textContent: 'Nothing on it yet'}));
+}
+
+// A room's form: its rectangles as links, with a + to add one (or its polygon, as YAML); one rectangle's x, y, w and h.
+function regionForm(value, path, ctx) {
+  const RECT = {type: 'numbers', labels: ['x', 'y', 'w', 'h'], unit: 'u', help: 'A rectangle [x, y, w, h]'};
+  const POLY = {type: 'points', unit: 'u', help: 'A polygon [[x, y], ...]'};
+  if (path.length === 3) return [row(Array.isArray(value?.[0]) ? 'poly' : 'rect', Array.isArray(value?.[0]) ? POLY : RECT, value, path, ctx)];
+  if (Array.isArray(value?.[0]?.[0])) {
+    return [el('p', {className: 'help', textContent: 'A polygon room: drag its corners on the plan (the middle of a side adds one).'}),
+      row('poly', POLY, value[0], [...path, 0], ctx)];
+  }
+  const add = el('button', {type: 'button', className: 'clear', textContent: '+', title: 'Add a rectangle to it (next to its last one)'});
+  add.onclick = () => ctx.add({path, add: 'rect'});
+  const links = (Array.isArray(value) ? value : []).map((q, i) => {
+    const a = el('button', {type: 'button', className: 'link', textContent: rectLabel(q), title: 'Select it (or double-click it on the plan)'});
+    a.onclick = () => ctx.select([...path, i]);
+    return a;
+  });
+  return [el('p', {className: 'help', textContent: 'Light stays inside its room: one or more rectangles (they may overlap).'}),
+    el('fieldset', {}, el('legend', {}, el('span', {className: 'key', textContent: 'rectangles'}), add),
+      links.length ? el('div', {className: 'links'}, links) : el('p', {className: 'note', textContent: 'None'}))];
+}
+
+// The sun's spills or blockers as links that select them (on the plan, with their own form), with a + to add one.
+function itemLinks(label, value, path, ctx) {
+  const group = itemGroups(ctx.data).find(g => samePath(g.path, path));
+  const add = el('button', {type: 'button', className: 'clear', textContent: '+', title: `Add to ${group.title.toLowerCase()}`});
+  add.onclick = () => ctx.add(group);
+  const links = group.items.map(it => {
+    const a = el('button', {type: 'button', className: 'link', textContent: it.label, title: it.title || 'Select it'});
+    a.onclick = () => ctx.select(it.path);
+    return a;
+  });
+  return el('fieldset', {}, el('legend', {}, label, add), links.length ? el('div', {className: 'links'}, links) : el('p', {className: 'note', textContent: 'None'}));
+}
+
 // A row (or a fieldset, for an object) for the field `key` at `path`.
 function row(key, field, value, path, ctx) {
   const label = el('span', {className: 'key', textContent: key, title: field.help + (field.required ? ' (required)' : '')});
   if (field.required) label.classList.add('required');
+  if (path.length === 3 && path[0] === 'furniture' && key === 'extra' && typeof value !== 'string') return insidesField(label, value, path, ctx);
+  if (path.length === 2 && path[0] === 'sun' && (key === 'spill' || key === 'blockers') && (value === undefined || Array.isArray(value))) {
+    return itemLinks(label, value, path, ctx);
+  }
   if (field.type === 'object') {
     if (value === undefined) {
       const add = el('button', {type: 'button', className: 'add-field', textContent: `+ ${key}`, title: field.help});
@@ -258,9 +374,19 @@ export function renderProperties(box, data, selected, ctx) {
     }
   } else {
     const value = selected.reduce((o, k) => o?.[k], d), field = fieldAt(selected);
+    const extra = selected.length === 4 && selected[0] === 'furniture' && selected[2] === 'extra';
     const group = itemGroups(d).find(g => samePath(g.path, selected.slice(0, -1)));
     const title = el('h2', {textContent: group ? `${group.title}: ` : ''});
-    if (selected[0] === 'furniture' || selected[0] === 'rooms') {
+    if (extra) {
+      // On a piece: its name goes back to it.
+      const back = el('button', {type: 'button', className: 'link', textContent: selected[1], title: `Back to ${selected[1]} (Esc)`});
+      back.onclick = () => ctx.select(selected.slice(0, 2));
+      title.append(back, ` › ${shapeLabel(value)}`);
+    } else if (selected.length === 3 && selected[0] === 'rooms') {
+      const back = el('button', {type: 'button', className: 'link', textContent: selected[1], title: `Back to ${selected[1]}`});
+      back.onclick = () => ctx.select(selected.slice(0, 2));
+      title.append(back, Array.isArray(value?.[0]) ? ' › polygon' : ` › rectangle ${selected[2] + 1}`);
+    } else if (selected.length === 2 && (selected[0] === 'furniture' || selected[0] === 'rooms')) {
       const name = el('input', {type: 'text', value: selected.at(-1), className: 'name', spellcheck: false, title: 'Rename (its references follow)'});
       name.onchange = () => { if (name.value && name.value !== selected.at(-1)) ctx.rename(selected, name.value.trim()); };
       title.append(name);
@@ -272,6 +398,7 @@ export function renderProperties(box, data, selected, ctx) {
     box.append(el('div', {className: 'title'}, title, dup, del));
     if (field?.help) box.append(el('p', {className: 'help', textContent: field.help}));
     if (value === undefined) box.append(el('p', {textContent: 'Not in the home any more.'}));
+    else if (selected[0] === 'rooms') box.append(...regionForm(value, selected, ctx));
     else if (field?.type === 'shape') box.append(...shapeForm(value, selected, ctx));
     else if (field?.type === 'object') box.append(...fields(field, value, selected, ctx));
     else if (field) box.append(row(String(selected.at(-1)), field, value, selected, ctx));

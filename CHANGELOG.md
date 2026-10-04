@@ -5,6 +5,26 @@ versions [Semantic Versioning](https://semver.org/). Changes not released yet ar
 
 ## Unreleased
 
+### Added
+
+- **The editor:** a piece of furniture's insides (its `extra`: cushions, devices on it, lines) are edited on the plan.
+  Double-click a piece (or Enter) to enter it: the rest of the plan dims, its shapes are selected, moved, resized and
+  drawn (a rectangle, a circle, a line, a label) in the piece's own frame, turned with it, snapping to its edges and
+  centre and to each other. Esc or a click outside leaves. In the list a piece unfolds to show them (drag to change
+  their order); the piece's form lists them as links.
+- **The editor:** the sun's daylight spills and blockers are items of their own: listed, selected and moved on the
+  plan with their handles, with a form each (a spill's openings picked by name).
+- **The editor:** a room's rectangles are items of their own: the room's form lists them with a + to add one (next to
+  its last), the list unfolds a room to show them, and a double-click in a selected room selects the one under the
+  pointer. Each has its x, y, w and h, and is moved, resized, duplicated and deleted alone (a room keeps one).
+- **The editor:** a path's points (and its curves' control points) have handles of their own, so a line is reshaped
+  point by point instead of only moved whole. The path stays written as it was (absolute or relative, H and V lines
+  along their axis), and the points after the one moved stay where they are.
+
+### Changed
+
+- **The editor:** resizing a piece scales its insides with it (Alt leaves them where they are).
+
 ## 0.2.0 (2026-10-04)
 
 The editor for homes. The card itself is the same as in 0.1.0.
