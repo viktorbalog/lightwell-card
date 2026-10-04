@@ -1228,14 +1228,14 @@ ${errors.join("\n")}`);
     return true;
   }
   function anchorNames(root) {
-    const anchors = /* @__PURE__ */ new Set();
+    const anchors2 = /* @__PURE__ */ new Set();
     visit(root, {
       Value(_key, node) {
         if (node.anchor)
-          anchors.add(node.anchor);
+          anchors2.add(node.anchor);
       }
     });
-    return anchors;
+    return anchors2;
   }
   function findNewAnchor(prefix, exclude) {
     for (let i = 1; true; ++i) {
@@ -1416,11 +1416,11 @@ ${errors.join("\n")}`);
           found = node;
       }
       if (found && ctx) {
-        const { anchors, doc: doc2, maxAliasCount } = ctx;
-        let data = anchors.get(found);
+        const { anchors: anchors2, doc: doc2, maxAliasCount } = ctx;
+        let data = anchors2.get(found);
         if (!data) {
           toJS(found, null, ctx);
-          data = anchors.get(found);
+          data = anchors2.get(found);
         }
         if (data?.res === void 0) {
           const msg = "This should not happen: Alias anchor was not resolved?";
@@ -1429,7 +1429,7 @@ ${errors.join("\n")}`);
         if (maxAliasCount >= 0) {
           data.count += 1;
           if (data.aliasCount === 0)
-            data.aliasCount = getAliasCount(doc2, found, anchors);
+            data.aliasCount = getAliasCount(doc2, found, anchors2);
           if (data.count * data.aliasCount > maxAliasCount) {
             const msg = "Excessive alias count indicates a resource exhaustion attack";
             throw new ReferenceError(msg);
@@ -1462,22 +1462,22 @@ ${errors.join("\n")}`);
       return src;
     }
   };
-  function getAliasCount(doc, node, anchors) {
+  function getAliasCount(doc, node, anchors2) {
     if (isAlias(node)) {
       const source = node.resolve(doc);
-      const anchor = anchors && source && anchors.get(source);
+      const anchor = anchors2 && source && anchors2.get(source);
       return anchor ? anchor.count * anchor.aliasCount : 0;
     } else if (isCollection(node)) {
       let count = 0;
       for (const item of node.items) {
-        const c = getAliasCount(doc, item, anchors);
+        const c = getAliasCount(doc, item, anchors2);
         if (c > count)
           count = c;
       }
       return count;
     } else if (isPair(node)) {
-      const kc = getAliasCount(doc, node.key, anchors);
-      const vc = getAliasCount(doc, node.value, anchors);
+      const kc = getAliasCount(doc, node.key, anchors2);
+      const vc = getAliasCount(doc, node.value, anchors2);
       return Math.max(kc, vc);
     }
     return 1;
@@ -2182,13 +2182,13 @@ ${indent}`);
     }
     return tagObj;
   }
-  function stringifyProps(node, tagObj, { anchors, doc }) {
+  function stringifyProps(node, tagObj, { anchors: anchors2, doc }) {
     if (!doc.directives)
       return "";
     const props = [];
     const anchor = (isScalar(node) || isCollection(node)) && node.anchor;
     if (anchor && anchorIsValid(anchor)) {
-      anchors.add(anchor);
+      anchors2.add(anchor);
       props.push(`&${anchor}`);
     }
     const tag = node.tag ?? (tagObj.default ? null : tagObj.tag);
@@ -7502,6 +7502,25 @@ ${end.comment}` : end.comment;
     else style2(node);
     return node;
   }
+  function setIn(doc, path, value) {
+    const node = doc.getIn(path, true);
+    if (node === void 0) {
+      const parent = path.length > 1 ? doc.getIn(path.slice(0, -1), true) : doc.contents;
+      doc.setIn(path, create(doc, value, isCollection3(parent) && parent.flow));
+    } else {
+      const fresh = merge2(doc, node, value, false);
+      if (fresh !== node) doc.setIn(path, fresh);
+    }
+  }
+  function insertIn(doc, path, value, index) {
+    let seq2 = doc.getIn(path, true);
+    if (seq2 === void 0) {
+      doc.setIn(path, doc.createNode([]));
+      seq2 = doc.getIn(path, true);
+    }
+    if (!browser_default.isSeq(seq2)) throw new Error(`${path.join(".")} isn't a list`);
+    seq2.items.splice(index ?? seq2.items.length, 0, create(doc, value, seq2.flow));
+  }
   function renameIn(doc, path, key) {
     const map2 = path.length > 1 ? doc.getIn(path.slice(0, -1), true) : doc.contents;
     const pair = browser_default.isMap(map2) && map2.items.find((p) => String(p.key?.value ?? p.key) === String(path.at(-1)));
@@ -7584,27 +7603,20 @@ ${end.comment}` : end.comment;
     }
     // Sets the value at `path`, creating the maps on the way; numbers and lists already there are changed in place.
     set(path, value) {
-      return this.edit((doc) => {
-        const node = doc.getIn(path, true);
-        if (node === void 0) {
-          const parent = path.length > 1 ? doc.getIn(path.slice(0, -1), true) : doc.contents;
-          doc.setIn(path, create(doc, value, isCollection3(parent) && parent.flow));
-        } else {
-          const fresh = merge2(doc, node, value, false);
-          if (fresh !== node) doc.setIn(path, fresh);
-        }
-      });
+      return this.edit((doc) => setIn(doc, path, value));
     }
     // Inserts `value` into the list at `path`, before `index` (at the end when it's left out); creates the list.
     insert(path, value, index) {
+      return this.edit((doc) => insertIn(doc, path, value, index));
+    }
+    // Several changes as one step: [{set: path, value}, {insert: path, value, index}, {remove: path}], in order.
+    batch(ops) {
       return this.edit((doc) => {
-        let seq2 = doc.getIn(path, true);
-        if (seq2 === void 0) {
-          doc.setIn(path, doc.createNode([]));
-          seq2 = doc.getIn(path, true);
+        for (const op of ops) {
+          if (op.set) setIn(doc, op.set, op.value);
+          else if (op.insert) insertIn(doc, op.insert, op.value, op.index);
+          else if (op.remove && !doc.deleteIn(op.remove)) throw new Error(`Nothing at ${op.remove.join(".")}`);
         }
-        if (!browser_default.isSeq(seq2)) throw new Error(`${path.join(".")} isn't a list`);
-        seq2.items.splice(index ?? seq2.items.length, 0, create(doc, value, seq2.flow));
       });
     }
     // Removes the value at `path` (a key from its map, an item from its list).
@@ -7646,15 +7658,15 @@ ${end.comment}` : end.comment;
 
   // src/editor/controls.js
   function sunPos(date, lat, lon) {
-    const rad = Math.PI / 180, n2 = date.getTime() / 864e5 + 24405875e-1 - 2451545;
-    const L = (280.46 + 0.9856474 * n2) % 360, g = (357.528 + 0.9856003 * n2) % 360 * rad;
-    const lambda = (L + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * rad, eps = (23.439 - 4e-7 * n2) * rad;
+    const rad2 = Math.PI / 180, n2 = date.getTime() / 864e5 + 24405875e-1 - 2451545;
+    const L = (280.46 + 0.9856474 * n2) % 360, g = (357.528 + 0.9856003 * n2) % 360 * rad2;
+    const lambda = (L + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * rad2, eps = (23.439 - 4e-7 * n2) * rad2;
     const ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
     const dec = Math.asin(Math.sin(eps) * Math.sin(lambda));
-    const ha = ((18.697374558 + 24.06570982441908 * n2) % 24 * 15 + lon) * rad - ra, la = lat * rad;
+    const ha = ((18.697374558 + 24.06570982441908 * n2) % 24 * 15 + lon) * rad2 - ra, la = lat * rad2;
     const el2 = Math.asin(Math.sin(la) * Math.sin(dec) + Math.cos(la) * Math.cos(dec) * Math.cos(ha));
     const az = Math.atan2(-Math.sin(ha), Math.tan(dec) * Math.cos(la) - Math.sin(la) * Math.cos(ha));
-    return { elevation: el2 / rad, azimuth: (az / rad + 360) % 360 };
+    return { elevation: el2 / rad2, azimuth: (az / rad2 + 360) % 360 };
   }
   function dayTimes(date, { latitude, longitude }) {
     const [y, m2, d] = date.split("-").map(Number);
@@ -8042,6 +8054,39 @@ ${end.comment}` : end.comment;
     }
     return { lines, closed };
   }
+  function parseTransform(t) {
+    if (typeof t !== "string" || !t.trim()) return null;
+    const mul = ([a, b, c, d, e, f], [A, B, C, D, E, F]) => [a * A + c * B, b * A + d * B, a * C + c * D, b * C + d * D, a * E + c * F + e, b * E + d * F + f];
+    let m2 = [1, 0, 0, 1, 0, 0], rest = t;
+    const re = /^\s*,?\s*(matrix|translate|scale|rotate|skewX|skewY)\s*\(([^)]*)\)/;
+    while (rest.trim()) {
+      const found = rest.match(re);
+      if (!found) return null;
+      rest = rest.slice(found[0].length);
+      const v = found[2].split(/[\s,]+/).filter(Boolean).map(Number), rad2 = (v[0] || 0) * Math.PI / 180;
+      if (v.some(Number.isNaN)) return null;
+      const [cos, sin] = [Math.cos(rad2), Math.sin(rad2)];
+      const step = {
+        matrix: () => v.length === 6 && v,
+        translate: () => [1, 0, 0, 1, v[0] || 0, v[1] || 0],
+        scale: () => [v[0] ?? 1, 0, 0, v[1] ?? v[0] ?? 1, 0, 0],
+        rotate: () => {
+          const [cx = 0, cy = 0] = v.slice(1);
+          return mul(mul([1, 0, 0, 1, cx, cy], [cos, sin, -sin, cos, 0, 0]), [1, 0, 0, 1, -cx, -cy]);
+        },
+        skewX: () => [1, 0, Math.tan(rad2), 1, 0, 0],
+        skewY: () => [1, Math.tan(rad2), 0, 1, 0, 0]
+      }[found[1]]();
+      if (!step) return null;
+      m2 = mul(m2, step);
+    }
+    return m2;
+  }
+  var applyTransform = (m2, [x, y]) => m2 ? [m2[0] * x + m2[2] * y + m2[4], m2[1] * x + m2[3] * y + m2[5]] : [x, y];
+  function invertTransform([a, b, c, d, e, f]) {
+    const det = a * d - b * c;
+    return [d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det];
+  }
   function shapeGeometry(s, k = 1) {
     const g = { polys: [], lines: [], circles: [], width: +s?.stroke_width || 0 };
     if (!s || typeof s !== "object" || s.svg !== void 0) return g;
@@ -8061,7 +8106,11 @@ ${end.comment}` : end.comment;
         g.polys.push(box(x0, y - size * 0.8, w, size));
       }
     }
-    return g;
+    const m2 = parseTransform(s.transform);
+    if (!m2) return g;
+    const ellipse = ([cx, cy, rx, ry]) => Array.from({ length: 24 }, (_, j) => [cx + rx * Math.cos(j * Math.PI / 12), cy + ry * Math.sin(j * Math.PI / 12)]);
+    const map2 = (list) => list.map((q) => applyTransform(m2, q));
+    return { polys: [...g.polys, ...g.circles.map(ellipse)].map(map2), lines: g.lines.map(map2), circles: [], width: g.width };
   }
   var inGeometry = (g, p, tol) => g.polys.some((poly) => inPoly(poly, p) || nearPoly(poly, p, tol)) || g.lines.some((l) => nearPoly(l, p, tol + g.width / 2, false)) || g.circles.some(([cx, cy, rx, ry]) => ((p[0] - cx) / (rx + tol)) ** 2 + ((p[1] - cy) / (ry + tol)) ** 2 <= 1);
   function pieceOutline({ shape: { rect, turn: turn2 = 0, circle, poly } }) {
@@ -8142,6 +8191,325 @@ ${end.comment}` : end.comment;
       default:
         return "";
     }
+  }
+
+  // src/editor/manipulate.js
+  var tidy = (v) => Math.round(v * 10) / 10 || 0;
+  var rad = (deg) => deg * Math.PI / 180;
+  var turnBy = ([x, y], deg) => [x * Math.cos(rad(deg)) - y * Math.sin(rad(deg)), x * Math.sin(rad(deg)) + y * Math.cos(rad(deg))];
+  var dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  var isNum = (v) => typeof v === "number";
+  var kindOf = (path) => ({ drawing: "shape", furniture: "piece", lights: "light", markers: "marker", openings: "opening", rooms: "room" })[path[0]];
+  var ROLES = { M: "xy", L: "xy", T: "xy", H: "x", V: "y", C: "xyxyxy", S: "xyxy", Q: "xyxy", A: "-----xy" };
+  function movePath(d, dx, dy) {
+    let cmd = null, k = 0, start = true;
+    return String(d).replace(/[a-zA-Z]|-?(?:\d+\.?\d*|\.\d+)(?:e-?\d+)?/g, (tok) => {
+      if (/^[a-zA-Z]$/.test(tok)) {
+        cmd = tok;
+        k = 0;
+        return tok;
+      }
+      const C = cmd?.toUpperCase(), roles = ROLES[C];
+      if (!roles) return tok;
+      const role = roles[k % roles.length];
+      const abs = cmd === C || start && k < 2;
+      if (++k >= 2) start = false;
+      return abs && role !== "-" ? String(tidy(+tok + (role === "x" ? dx : dy))) : tok;
+    });
+  }
+  function moveTransform(t, dx, dy) {
+    const f = (v) => String(+v.toFixed(4) || 0);
+    return String(t).replace(/(matrix|translate|scale|rotate|skewX|skewY)\s*\(([^)]*)\)/g, (all, fn, args) => {
+      const v = args.split(/[\s,]+/).filter(Boolean).map(Number);
+      if (fn === "translate" || v.some(Number.isNaN)) return all;
+      if (fn === "rotate") return `rotate(${f(v[0])} ${f((v[1] || 0) + dx)} ${f((v[2] || 0) + dy)})`;
+      const [a, b, c, d, e, g] = parseTransform(all) || [];
+      if (a === void 0) return all;
+      return `matrix(${[a, b, c, d, e + dx - (a * dx + c * dy), g + dy - (b * dx + d * dy)].map(f).join(" ")})`;
+    });
+  }
+  function moveShape(s, dx, dy) {
+    if (!s || typeof s !== "object") return s;
+    if (s.transform !== void 0 && s.svg === void 0) return { ...moveShape({ ...s, transform: void 0 }, dx, dy), transform: moveTransform(s.transform, dx, dy) };
+    const at = ([x, y, ...rest]) => [tidy(x + dx), tidy(y + dy), ...rest];
+    if (s.rect) return { ...s, rect: at(s.rect) };
+    if (s.circle) return { ...s, circle: at(s.circle) };
+    if (s.ellipse) return { ...s, ellipse: at(s.ellipse) };
+    if (s.poly) return { ...s, poly: s.poly.map(at) };
+    if (s.path !== void 0) return { ...s, path: movePath(s.path, dx, dy) };
+    if (s.text !== void 0 && s.at) return { ...s, at: at(s.at) };
+    return s;
+  }
+  function moveItem(path, item, dx, dy) {
+    switch (kindOf(path)) {
+      case "shape":
+        return moveShape(item, dx, dy);
+      case "piece":
+        return { ...item, shape: moveShape(item.shape, dx, dy), ...Array.isArray(item.extra) ? { extra: item.extra.map((s) => moveShape(s, dx, dy)) } : {} };
+      case "light":
+        return {
+          ...item,
+          ...Array.isArray(item.shape) ? { shape: item.shape.map((s) => moveShape(s, dx, dy)) } : {},
+          ...item.pool ? { pool: { ...item.pool, x: tidy(item.pool.x + dx), y: tidy(item.pool.y + dy) } } : {}
+        };
+      case "marker":
+        return { ...item, x: tidy(item.x + dx), y: tidy(item.y + dy) };
+      case "opening":
+        return isHorizontal(item) ? { ...item, x: tidy(item.x + dx) } : { ...item, y: tidy(item.y + dy) };
+      case "room":
+        return item.map((q) => Array.isArray(q[0]) ? q.map(([x, y]) => [tidy(x + dx), tidy(y + dy)]) : moveShape({ rect: q }, dx, dy).rect);
+      default:
+        return item;
+    }
+  }
+  var axesOf = (path, item) => kindOf(path) === "opening" ? isHorizontal(item) ? [1, 0] : [0, 1] : [1, 1];
+  function anchors(path, item, k = 1) {
+    const fromGeometry = (g) => [
+      ...g.polys.flat(),
+      ...g.lines.flat(),
+      ...g.circles.flatMap(([cx, cy, rx, ry]) => [[cx, cy], [cx - rx, cy], [cx + rx, cy], [cx, cy - ry], [cx, cy + ry]])
+    ];
+    const circle = ([cx, cy, r]) => fromGeometry({ polys: [], lines: [], circles: [[cx, cy, r, r]] });
+    if (!item) return [];
+    switch (kindOf(path)) {
+      case "shape": {
+        if (item.text !== void 0 && item.at) return [applyTransform(parseTransform(item.transform), item.at.slice(0, 2))];
+        return fromGeometry(shapeGeometry(item, k));
+      }
+      case "piece": {
+        const o = pieceOutline(item);
+        return o.poly || circle(o.circle);
+      }
+      case "light":
+        return (Array.isArray(item.shape) ? item.shape : []).flatMap((s) => fromGeometry(shapeGeometry(s, k))).concat(item.pool ? [[item.pool.x, item.pool.y]] : []);
+      case "marker":
+        return [[item.x, item.y]];
+      case "opening": {
+        const [x, y, w, h] = shutterRect(item);
+        return box(x, y, w, h);
+      }
+      case "room":
+        return regionPolys(item).flat();
+      default:
+        return [];
+    }
+  }
+  var boundsOf = (pts) => pts.reduce(
+    ([a, b, c, d], [x, y]) => [Math.min(a, x), Math.min(b, y), Math.max(c, x), Math.max(d, y)],
+    [Infinity, Infinity, -Infinity, -Infinity]
+  );
+  function shapeHandles(s, { turnable, reach = 20 } = {}) {
+    if (!s || typeof s !== "object") return [];
+    const m2 = !turnable && parseTransform(s.transform);
+    if (m2) return shapeHandles({ ...s, transform: void 0 }).map((h) => ({ ...h, at: applyTransform(m2, h.at) }));
+    if (s.rect) {
+      const [x, y, w, h] = s.rect, t = s.turn || 0, c = [x + w / 2, y + h / 2];
+      const at = (ax, ay) => {
+        const [u, v] = turnBy([ax * w / 2, ay * h / 2], t);
+        return [c[0] + u, c[1] + v];
+      };
+      const out = [];
+      for (const ay of [-1, 0, 1]) for (const ax of [-1, 0, 1]) if (ax || ay) out.push({ id: `rect:${ax},${ay}`, at: at(ax, ay) });
+      if (turnable) {
+        const [u, v] = turnBy([0, -h / 2 - reach], t);
+        out.push({ id: "turn", at: [c[0] + u, c[1] + v], turn: true });
+      }
+      return out;
+    }
+    if (s.circle) return [{ id: "r", at: [s.circle[0] + s.circle[2], s.circle[1]] }];
+    if (s.ellipse) return [{ id: "rx", at: [s.ellipse[0] + s.ellipse[2], s.ellipse[1]] }, { id: "ry", at: [s.ellipse[0], s.ellipse[1] + s.ellipse[3]] }];
+    if (Array.isArray(s.poly)) {
+      const p = s.poly;
+      return [
+        ...p.map((q, i) => ({ id: `v:${i}`, at: q })),
+        ...p.map((q, i) => ({ id: `mid:${i}`, at: [(q[0] + p[(i + 1) % p.length][0]) / 2, (q[1] + p[(i + 1) % p.length][1]) / 2], mid: true }))
+      ];
+    }
+    return [];
+  }
+  function partOf(path, item, id) {
+    const [head, rest] = id.includes("/") ? [id.slice(0, id.indexOf("/")), id.slice(id.indexOf("/") + 1)] : [null, id];
+    switch (kindOf(path)) {
+      case "shape":
+        return { s: item, put: (s) => s, id };
+      case "piece":
+        return { s: item.shape, put: (s) => ({ ...item, shape: s }), id, turnable: !!item.shape?.rect };
+      case "light": {
+        const i = +head?.slice(1);
+        if (!/^s\d+$/.test(head || "") || !item.shape?.[i]) return null;
+        return { s: item.shape[i], put: (s) => ({ ...item, shape: item.shape.map((x, j) => j === i ? s : x) }), id: rest };
+      }
+      case "room": {
+        if (head === "p" && Array.isArray(item[0]?.[0])) return { s: { poly: item[0] }, put: (s) => [s.poly], id: rest };
+        const j = +head?.slice(1);
+        if (!/^q\d+$/.test(head || "") || !item[j]) return null;
+        return { s: { rect: item[j] }, put: (s) => item.map((q, i) => i === j ? s.rect : q), id: rest };
+      }
+      default:
+        return null;
+    }
+  }
+  function handles(path, item, { reach } = {}) {
+    if (!item || typeof item !== "object") return [];
+    const prefixed = (pre, list) => list.map((h) => ({ ...h, id: `${pre}/${h.id}` }));
+    switch (kindOf(path)) {
+      case "shape":
+        return shapeHandles(item);
+      case "piece":
+        return shapeHandles(item.shape, { turnable: !!item.shape?.rect, reach });
+      case "light":
+        return [
+          ...item.pool ? [{ id: "pool", at: [item.pool.x, item.pool.y] }, { id: "pool-r", at: [item.pool.x + item.pool.r, item.pool.y] }] : [],
+          ...Array.isArray(item.shape) ? item.shape.flatMap((s, i) => prefixed(`s${i}`, shapeHandles(s))) : []
+        ];
+      case "opening": {
+        const [x, y, w, h] = shutterRect(item);
+        return isHorizontal(item) ? [{ id: "end:0", at: [x, y + h / 2] }, { id: "end:1", at: [x + w, y + h / 2] }] : [{ id: "end:0", at: [x + w / 2, y] }, { id: "end:1", at: [x + w / 2, y + h] }];
+      }
+      case "room":
+        return Array.isArray(item[0]?.[0]) ? prefixed("p", shapeHandles({ poly: item[0] })) : item.flatMap((q, j) => prefixed(`q${j}`, shapeHandles({ rect: q })));
+      default:
+        return [];
+    }
+  }
+  function snapsHandle(path, item, id) {
+    const part = partOf(path, item, id);
+    return !(part && (part.id === "turn" || part.s?.rect && part.s.turn));
+  }
+  function startHandle(path, item, id) {
+    const part = partOf(path, item, id), m2 = part?.id.match(/^mid:(\d+)$/);
+    if (!m2) return { item, id };
+    const i = +m2[1], p = part.s.poly, q = p[(i + 1) % p.length];
+    const poly = [...p.slice(0, i + 1), [tidy((p[i][0] + q[0]) / 2), tidy((p[i][1] + q[1]) / 2)], ...p.slice(i + 1)];
+    return { item: part.put({ ...part.s, poly }), id: id.replace(/mid:\d+$/, `v:${i + 1}`) };
+  }
+  function removeCorner(path, item, id) {
+    const part = partOf(path, item, id), m2 = part?.id.match(/^v:(\d+)$/);
+    if (!m2 || part.s.poly.length <= 3) return null;
+    return part.put({ ...part.s, poly: part.s.poly.filter((_, i) => i !== +m2[1]) });
+  }
+  function resizeRect([x, y, w, h], turn2, ax, ay, p) {
+    const c = [x + w / 2, y + h / 2], q = turnBy([p[0] - c[0], p[1] - c[1]], -turn2);
+    const span = (a, half, v2) => a ? [Math.min(-a * half, v2), Math.max(-a * half, v2)] : [-half, half];
+    const [x0, x1] = span(ax, w / 2, q[0]), [y0, y1] = span(ay, h / 2, q[1]);
+    const nw = Math.max(x1 - x0, 1), nh = Math.max(y1 - y0, 1);
+    const [u, v] = turnBy([(x0 + x1) / 2, (y0 + y1) / 2], turn2), nc = [c[0] + u, c[1] + v];
+    return [tidy(nc[0] - nw / 2), tidy(nc[1] - nh / 2), tidy(nw), tidy(nh)];
+  }
+  function dragShape(s, id, p, { turnStep }) {
+    let m2;
+    if ((m2 = id.match(/^rect:(-?\d),(-?\d)$/)) && s.rect) {
+      const rect = resizeRect(s.rect, s.turn || 0, +m2[1], +m2[2], p);
+      return { s: { ...s, rect }, ruler: { size: [rect[2], rect[3]] } };
+    }
+    if (id === "turn" && s.rect) {
+      const [x, y, w, h] = s.rect;
+      let turn2 = Math.atan2(p[0] - x - w / 2, -(p[1] - y - h / 2)) * 180 / Math.PI;
+      turn2 = turnStep ? Math.round(turn2 / turnStep) * turnStep : tidy(turn2);
+      if (turn2 <= -180) turn2 += 360;
+      if (turn2 > 180) turn2 -= 360;
+      turn2 || (turn2 = 0);
+      const { turn: _, ...rest } = s;
+      return { s: turn2 || s.turn !== void 0 ? { ...rest, turn: turn2 } : rest, ruler: { angle: turn2 } };
+    }
+    if (id === "r" && s.circle) {
+      const r = Math.max(tidy(dist(p, s.circle)), 1);
+      return { s: { ...s, circle: [s.circle[0], s.circle[1], r] }, ruler: { radius: r } };
+    }
+    if ((id === "rx" || id === "ry") && s.ellipse) {
+      const e = [...s.ellipse], k = id === "rx" ? 0 : 1;
+      e[2 + k] = Math.max(tidy(Math.abs(p[k] - e[k])), 1);
+      return { s: { ...s, ellipse: e }, ruler: { size: [e[2] * 2, e[3] * 2] } };
+    }
+    if ((m2 = id.match(/^v:(\d+)$/)) && Array.isArray(s.poly)) {
+      const i = +m2[1], n2 = s.poly.length, at = [tidy(p[0]), tidy(p[1])];
+      const poly = s.poly.map((q, j) => j === i ? at : q);
+      return { s: { ...s, poly }, ruler: { sides: [dist(poly[(i + n2 - 1) % n2], at), dist(at, poly[(i + 1) % n2])] } };
+    }
+    return { s, ruler: null };
+  }
+  function dragHandle(path, item, id, p, { turnStep = 15 } = {}) {
+    const kind = kindOf(path);
+    if (kind === "light" && item.pool && (id === "pool" || id === "pool-r")) {
+      if (id === "pool") return { item: { ...item, pool: { ...item.pool, x: tidy(p[0]), y: tidy(p[1]) } }, ruler: null };
+      const r = Math.max(tidy(dist(p, [item.pool.x, item.pool.y])), 1);
+      return { item: { ...item, pool: { ...item.pool, r } }, ruler: { radius: r } };
+    }
+    if (kind === "opening" && /^end:[01]$/.test(id)) {
+      const h = isHorizontal(item), [a, l] = h ? ["x", "w"] : ["y", "h"], v = p[h ? 0 : 1];
+      const other = id === "end:0" ? item[a] + item[l] : item[a];
+      const from = Math.min(v, other), len = Math.max(Math.abs(v - other), 1);
+      return { item: { ...item, [a]: tidy(from), [l]: tidy(len) }, ruler: { length: tidy(len) } };
+    }
+    const part = partOf(path, item, id);
+    if (!part) return { item, ruler: null };
+    const m2 = !part.turnable && parseTransform(part.s.transform);
+    if (m2) p = applyTransform(invertTransform(m2), p);
+    const { s, ruler } = dragShape(part.s, part.id, p, { turnStep });
+    return { item: s === part.s ? item : part.put(s), ruler };
+  }
+  function rulerText(ruler, unitsPerMetre) {
+    if (!ruler) return "";
+    const m2 = (v) => (Math.abs(v) / unitsPerMetre).toFixed(2);
+    if (ruler.size) return `${m2(ruler.size[0])} \xD7 ${m2(ruler.size[1])} m`;
+    if (ruler.radius !== void 0) return `r ${m2(ruler.radius)} m`;
+    if (ruler.length !== void 0) return `${m2(ruler.length)} m`;
+    if (ruler.sides) return ruler.sides.map((v) => `${m2(v)} m`).join(" \xB7 ");
+    if (ruler.angle !== void 0) return `${ruler.angle}\xB0`;
+    if (ruler.move) return `${ruler.move[0] < 0 ? "\u2190" : "\u2192"} ${m2(ruler.move[0])} m  ${ruler.move[1] < 0 ? "\u2191" : "\u2193"} ${m2(ruler.move[1])} m`;
+    return "";
+  }
+  function snapTargets(items, except = [], k = 1) {
+    const skip = new Set(except.map((p) => JSON.stringify(p)));
+    const xs = [], ys = [];
+    for (const [path, item] of items) {
+      if (skip.has(JSON.stringify(path))) continue;
+      for (const [x, y] of anchors(path, item, k)) if (isNum(x) && isNum(y)) {
+        xs.push(x);
+        ys.push(y);
+      }
+    }
+    const sorted = (a) => [...new Set(a)].sort((p, q) => p - q);
+    return { xs: sorted(xs), ys: sorted(ys) };
+  }
+  function nearest(sorted, v, tol) {
+    let lo = 0, hi = sorted.length;
+    while (lo < hi) {
+      const mid = lo + hi >> 1;
+      if (sorted[mid] < v) lo = mid + 1;
+      else hi = mid;
+    }
+    const best = [sorted[lo - 1], sorted[lo]].filter(isNum).sort((a, b) => Math.abs(a - v) - Math.abs(b - v))[0];
+    return isNum(best) && Math.abs(best - v) <= tol ? best : void 0;
+  }
+  function snapPoint(p, { xs = [], ys = [], tol = 0, grid = 0, axis = false, from = null } = {}) {
+    const lock = axis && from ? Math.abs(p[0] - from[0]) < Math.abs(p[1] - from[1]) ? 0 : 1 : -1;
+    const one = (v, targets, k) => {
+      if (lock === k) return { v: from[k] };
+      const t = nearest(targets, v, tol);
+      if (t !== void 0) return { v: t, guide: t };
+      return { v: grid ? Math.round(v / grid) * grid : v };
+    };
+    const x = one(p[0], xs, 0), y = one(p[1], ys, 1);
+    return { p: [x.v, y.v], guides: { x: x.guide, y: y.guide } };
+  }
+  function snapMove(pts, dx, dy, { xs = [], ys = [], tol = 0, grid = 0, axis = false, axes = [1, 1] } = {}) {
+    let [mx, my] = axes;
+    if (axis) Math.abs(dx) >= Math.abs(dy) ? my = 0 : mx = 0;
+    const [x0, y0] = boundsOf(pts);
+    const one = (d, targets, k, on) => {
+      if (!on) return { d: 0 };
+      let best;
+      for (const q of pts) {
+        const t = nearest(targets, q[k] + d, tol);
+        if (t !== void 0 && (!best || Math.abs(t - q[k] - d) < Math.abs(best.d - d))) best = { d: t - q[k], guide: t };
+      }
+      if (best) return best;
+      const start = k ? y0 : x0;
+      return { d: grid && isFinite(start) ? Math.round((start + d) / grid) * grid - start : d };
+    };
+    const x = one(dx, xs, 0, mx), y = one(dy, ys, 1, my);
+    return { dx: x.d, dy: y.d, guides: { x: x.guide, y: y.guide } };
   }
 
   // src/schema.js
@@ -8397,14 +8765,14 @@ ${end.comment}` : end.comment;
     });
     return groups;
   }
-  function renderList(box2, data, selected, ctx) {
+  function renderList(box2, data, selected, ctx, also = []) {
     const open = box2._open ?? (box2._open = /* @__PURE__ */ new Set(["Furniture", "Lights", "Markers", "Openings", "Rooms"]));
     box2.textContent = "";
     const home = el("li", { className: `item home${selected ? "" : " on"}`, textContent: "The home" });
     home.onclick = () => ctx.select(null);
     box2.append(el("ul", { className: "items" }, home));
     for (const g of itemGroups(data)) {
-      const has = g.items.some((it) => selected && samePath(it.path, selected.slice(0, it.path.length)));
+      const has = g.items.some((it) => [selected, ...also].some((sel) => sel && samePath(it.path, sel.slice(0, it.path.length))));
       const details = el("details", { open: open.has(g.title) || has });
       details.ontoggle = () => details.open ? open.add(g.title) : open.delete(g.title);
       const add = el("button", { type: "button", className: "add", textContent: "+", title: `Add to ${g.title.toLowerCase()}` });
@@ -8415,9 +8783,10 @@ ${end.comment}` : end.comment;
       details.append(el("summary", {}, el("span", { textContent: g.title }), el("small", { textContent: g.items.length }), add));
       const ul = el("ul", { className: "items" });
       g.items.forEach((it, i) => {
-        const li = el("li", { className: `item${samePath(it.path, selected) ? " on" : ""}`, textContent: it.label, title: it.title || "" });
+        const on = samePath(it.path, selected) || also.some((p) => samePath(it.path, p));
+        const li = el("li", { className: `item${on ? " on" : ""}`, textContent: it.label, title: it.title || "" });
         li.dataset.path = pathKey(it.path);
-        li.onclick = () => ctx.select(it.path);
+        li.onclick = (e) => e.shiftKey && ctx.toggle ? ctx.toggle(it.path) : ctx.select(it.path);
         if (g.reorder) {
           li.draggable = true;
           li.ondragstart = (e) => {
@@ -8631,6 +9000,10 @@ ${end.comment}` : end.comment;
   var DRAFT = "lightwell-editor:draft";
   var TYPING = 250;
   var REACH = 6;
+  var DRAG = 4;
+  var HANDLE = 8;
+  var TURN_STEP = 15;
+  var GRID = 0.05;
   var STYLE2 = `
   :host { display: grid; grid-template-rows: auto 1fr auto; height: 100%; font: 14px system-ui, sans-serif;
     color: #222; background: #f6f6f4; --line: #ddd; --accent: #1e88e5; }
@@ -8663,6 +9036,16 @@ ${end.comment}` : end.comment;
   .overlay .sel * { stroke: var(--accent); stroke-width: 2.5; fill: rgba(30, 136, 229, 0.12); }
   .overlay .sel .pool { fill: none; stroke-dasharray: 6 5; stroke-width: 1.5; }
   .overlay .sel .dot { fill: var(--accent); }
+  .overlay .handles * { fill: #fff; stroke: var(--accent); stroke-width: 1.5; }
+  .overlay .handles .mid { fill: var(--accent); fill-opacity: 0.35; stroke-opacity: 0.6; }
+  .overlay .handles .turn { fill: var(--accent); }
+  .overlay .guides * { stroke: #d81b60; stroke-width: 1; stroke-dasharray: 4 3; }
+  .overlay .box { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 3; fill: rgba(30, 136, 229, 0.08); }
+  .overlay .grid .minor { stroke: rgba(30, 136, 229, 0.12); stroke-width: 0.5; }
+  .overlay .grid .major { stroke: rgba(30, 136, 229, 0.3); stroke-width: 0.75; }
+  .ruler { position: absolute; pointer-events: none; padding: 2px 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.75);
+    color: #fff; font: 12px ui-monospace, Menlo, Consolas, monospace; white-space: pre; }
+  .ruler:empty { display: none; }
   .preview:focus-visible .stage { outline: 2px solid rgba(30, 136, 229, 0.4); outline-offset: 4px; border-radius: 12px; }
   .hint { color: #888; font-size: 12px; margin: 8px 0 0; text-align: center; }
   .text { display: flex; height: 100%; }
@@ -8727,6 +9110,7 @@ ${end.comment}` : end.comment;
     <button data-act="save-json" title="Save as JSON, for the card's home_url">Save as JSON\u2026</button>
     <button data-act="undo" title="Undo (Ctrl+Z)">Undo</button>
     <button data-act="redo" title="Redo (Ctrl+Shift+Z)">Redo</button>
+    <button data-act="grid" aria-pressed="false" title="Show the grid things snap to (Alt while dragging: no snapping)">Grid</button>
     <button data-act="dark" aria-pressed="false" title="Show the card in the dark theme">Dark</button>
   </header>
   <main>
@@ -8736,8 +9120,10 @@ ${end.comment}` : end.comment;
       <div class="pane controls" data-pane="controls" hidden><form></form></div>
     </div>
     <div class="preview" tabindex="0">
-      <div><div class="stage"><svg class="overlay"><g class="hover"></g><g class="sel"></g></svg></div>
-      <p class="hint">Click to select (again, or Tab: what's under it) \xB7 Alt+click taps the card \xB7 Esc clears</p></div>
+      <div><div class="stage"><svg class="overlay"><g class="grid"></g><g class="hover"></g><g class="sel"></g><g class="guides"></g><g class="handles"></g><rect class="box" width="0" height="0"/></svg><div class="ruler"></div></div>
+      <p class="hint">Click to select (again, or Tab: what's under it; Shift+click: more), drag on empty space for a box \xB7
+        drag to move, the handles to resize, turn or reshape (double-click a corner removes it) \xB7 Shift: along an axis,
+        Alt: no snapping \xB7 arrows nudge (Shift: \xD710) \xB7 Ctrl+D duplicates \xB7 Alt+click taps the card \xB7 Esc clears</p></div>
     </div>
     <div class="side right">
       <div class="tabs" role="tablist"><button data-tab="props" aria-selected="true">Properties</button><button data-tab="text">YAML</button></div>
@@ -8764,7 +9150,14 @@ ${end.comment}` : end.comment;
     }
   };
   var samePath2 = (a, b) => a === b || !!a && !!b && a.length === b.length && a.every((k, i) => k === b[i]);
-  var round2 = (v) => Math.round(v * 10) / 10;
+  var round2 = tidy;
+  var byPathDescending = (a, b) => {
+    for (let i = 0; i < Math.min(a.length, b.length); i++) {
+      if (a[i] === b[i]) continue;
+      return typeof a[i] === "number" && typeof b[i] === "number" ? b[i] - a[i] : String(b[i]).localeCompare(String(a[i]));
+    }
+    return b.length - a.length;
+  };
   function messagePath(message) {
     const where = message.slice(0, message.indexOf(": "));
     const path = where.split(/\.|(?=\[)/).filter(Boolean).map((k) => /^\[\d+\]$/.test(k) ? +k.slice(1, -1) : k);
@@ -8796,6 +9189,11 @@ ${end.comment}` : end.comment;
         sel: $(".overlay .sel"),
         list: $(".list"),
         props: $(".props"),
+        handles: $(".overlay .handles"),
+        guides: $(".overlay .guides"),
+        box: $(".overlay .box"),
+        grid: $(".overlay .grid"),
+        ruler: $(".ruler"),
         buttons: Object.fromEntries([...root.querySelectorAll("[data-act]")].map((b) => [b.dataset.act, b]))
       };
       const draft = storage.get();
@@ -8803,6 +9201,9 @@ ${end.comment}` : end.comment;
       this._file = { name: draft?.name ?? "home.yaml", handle: null, saved: draft?.saved ?? this.model.text };
       this._dark = false;
       this._sel = null;
+      this._sels = [];
+      this._showGrid = false;
+      this._preview = null;
       this._shown = { states: this.states, north: void 0 };
       this._card = document.createElement("lightwell-card");
       this._el.stage.prepend(this._card);
@@ -8835,9 +9236,13 @@ ${end.comment}` : end.comment;
           document.execCommand("insertText", false, "  ");
         }
       });
-      this._el.overlay.addEventListener("click", (e) => this._click(e));
-      this._el.overlay.addEventListener("pointermove", (e) => this._pointer(e));
-      this._el.overlay.addEventListener("pointerleave", () => {
+      const overlay = this._el.overlay;
+      overlay.addEventListener("pointerdown", (e) => this._down(e));
+      overlay.addEventListener("pointermove", (e) => this._press ? this._dragTo(e) : this._pointer(e));
+      overlay.addEventListener("pointerup", (e) => this._up(e));
+      overlay.addEventListener("pointercancel", () => this._cancelDrag());
+      overlay.addEventListener("dblclick", (e) => this._dblclick(e));
+      overlay.addEventListener("pointerleave", () => {
         this._el.hover.innerHTML = "";
       });
       this._el.footer.addEventListener("click", (e) => {
@@ -8864,8 +9269,9 @@ ${end.comment}` : end.comment;
       this._ctx = {
         commit: (path, value) => this._edit(() => value === void 0 ? this.model.get(path) !== void 0 && this.model.remove(path) : this.model.set(path, value)),
         select: (path) => this.select(path),
+        toggle: (path) => this._toggle(path),
         add: (group) => this._add(group),
-        remove: (path) => this._remove(path),
+        remove: (path) => this._remove([path]),
         rename: (path, name) => this._rename(path, name),
         move: (path, from, to) => this._move(path, from, to),
         template: (path) => this._template(path),
@@ -8886,7 +9292,8 @@ ${end.comment}` : end.comment;
         this._home = home;
         this._controls.setPlan(home);
       } else this._renderCard();
-      if (this._sel && itemAt(data, this._sel) === void 0) this._sel = null;
+      this._sels = this._sels.filter((p) => itemAt(data, p) !== void 0);
+      if (this._sel && itemAt(data, this._sel) === void 0) this._sel = this._sels.at(-1) || null;
       this._el.footer.textContent = "";
       for (const e of errors) {
         const p = this._message(e), path = messagePath(e);
@@ -8910,9 +9317,10 @@ ${end.comment}` : end.comment;
       }
     }
     _renderCard() {
-      if (!this._data) return;
+      const data = this._preview?.data || this._data;
+      if (!data) return;
       try {
-        this._card.setConfig({ home: this._data, north: this._shown.north });
+        this._card.setConfig({ home: data, north: this._shown.north });
         this._card.hass = { states: this._shown.states, themes: { darkMode: this._dark }, callService: this._controls.callService };
       } catch (e) {
         this._message(e.message);
@@ -8928,19 +9336,64 @@ ${end.comment}` : end.comment;
       o.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${view.h}`);
       this._renderOverlay();
     }
+    // The selection's outlines, and the handles of a single selected item (while the home has no mistakes); the grid.
     _renderOverlay() {
-      this._el.sel.innerHTML = this._home && this._sel ? outlineSvg(this._home, this._sel) : "";
+      const home = this._preview?.home || this._home, data = this._preview?.data || this._data;
+      this._el.sel.innerHTML = home ? this._sels.map((p) => outlineSvg(home, p)).join("") : "";
+      const px = this._px(), f = (v) => +v.toFixed(2), s = HANDLE * px;
+      this._el.handles.innerHTML = this._handles(data).map((h) => h.turn || h.mid || h.id.startsWith("pool") ? `<circle class="${h.turn ? "turn" : h.mid ? "mid" : ""}" cx="${f(h.at[0])}" cy="${f(h.at[1])}" r="${f(s / (h.mid ? 2.6 : 2))}"/>` : `<rect x="${f(h.at[0] - s / 2)}" y="${f(h.at[1] - s / 2)}" width="${f(s)}" height="${f(s)}"/>`).join("");
+      this._renderGrid();
+    }
+    // The handles of the selected item, if it's the only one and can be changed.
+    _handles(data = this._data) {
+      if (this._sels.length !== 1 || !this.model.home || !data) return [];
+      return handles(this._sel, itemAt(data, this._sel), { reach: 3 * HANDLE * this._px() });
+    }
+    // The grid things snap to (GRID), with a stronger line every metre; the minor lines only when they're far enough
+    // apart to see.
+    _renderGrid() {
+      const g = this._el.grid, v = this._home?.view;
+      if (!this._showGrid || !v) {
+        g.innerHTML = "";
+        return;
+      }
+      const step = this._grid(), metre = step / GRID, px = this._px();
+      const lines = (d, cls) => {
+        if (d / px < 6) return "";
+        const out = [];
+        for (let x = Math.ceil(v.x / d) * d; x <= v.x + v.w; x += d) out.push(`M${+x.toFixed(2)},${v.y}V${v.y + v.h}`);
+        for (let y = Math.ceil(v.y / d) * d; y <= v.y + v.h; y += d) out.push(`M${v.x},${+y.toFixed(2)}H${v.x + v.w}`);
+        return `<path class="${cls}" d="${out.join("")}"/>`;
+      };
+      g.innerHTML = lines(step, "minor") + lines(metre, "major");
     }
     _renderPanels() {
-      renderList(this._el.list, this.model.data, this._sel, this._ctx);
+      renderList(this._el.list, this.model.data, this._sel, this._ctx, this._sels);
       renderProperties(this._el.props, this.model.data, this._sel, { ...this._ctx, data: this.model.data, states: this._shown.states });
+      if (this._sels.length > 1) {
+        this._el.props.prepend(Object.assign(document.createElement("p"), {
+          className: "help",
+          textContent: `${this._sels.length} items selected: they move together, and Delete deletes them all. The last one's properties:`
+        }));
+      }
       this._renderOverlay();
     }
     // Selects the item at `path` (null: the home itself) in the list, on the plan and in the text.
     select(path) {
-      this._sel = path && itemAt(this.model.data, path) !== void 0 ? path : null;
-      this._renderPanels();
+      this._selectAll(path ? [path] : []);
       if (this._sel && !this._el.text.closest("[hidden]")) this._showInText(this._sel);
+    }
+    // Selects several items; the last is the one whose properties show.
+    _selectAll(paths) {
+      const seen = /* @__PURE__ */ new Set();
+      this._sels = paths.filter((p) => itemAt(this.model.data, p) !== void 0 && !seen.has(pathKey(p)) && seen.add(pathKey(p)));
+      this._sel = this._sels.at(-1) || null;
+      this._renderPanels();
+    }
+    // Adds an item to the selection, or takes it out.
+    _toggle(path) {
+      const has = this._sels.some((p) => samePath2(p, path));
+      this._selectAll(has ? this._sels.filter((p) => !samePath2(p, path)) : [...this._sels, path]);
     }
     // Scrolls the YAML to the item and selects its text.
     _showInText(path) {
@@ -8966,27 +9419,239 @@ ${end.comment}` : end.comment;
       const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m2.inverse());
       return { p: [p.x, p.y], tol: REACH / m2.a };
     }
+    // A pixel in the drawing's units.
+    _px() {
+      const m2 = this._el.overlay.getScreenCTM();
+      return m2?.a ? 1 / m2.a : 1;
+    }
+    // The grid's step in the drawing's units.
+    _grid() {
+      return (this._data?.units_per_metre || 100) * GRID;
+    }
+    // The handle under the pointer, if any: the nearest within reach.
+    _handleAt(at) {
+      let best = null;
+      for (const h of this._handles()) {
+        const d = Math.hypot(h.at[0] - at.p[0], h.at[1] - at.p[1]);
+        if (d <= at.tol + HANDLE * this._px() / 2 && (!best || d < best.d)) best = { ...h, d };
+      }
+      return best;
+    }
     _pointer(e) {
       const at = this._at(e);
-      const hit = at && hitTest(this._home, at.p, at.tol)[0];
-      this._el.hover.innerHTML = hit && !samePath2(hit, this._sel) ? outlineSvg(this._home, hit) : "";
+      if (!at) return;
+      const handle = this._handleAt(at), hit = !handle && hitTest(this._home, at.p, at.tol)[0];
+      this._el.hover.innerHTML = hit && !this._sels.some((p) => samePath2(p, hit)) ? outlineSvg(this._home, hit) : "";
+      this._el.overlay.style.cursor = handle ? "crosshair" : hit && this.model.home ? "move" : "default";
     }
-    // A click selects what's under it; clicking again where everything is the same goes on to the next thing under it.
-    // Alt+click taps the card underneath instead (lights toggle, the weather changes).
-    _click(e) {
+    // A press on the plan: a click when the pointer doesn't move (_click), otherwise a drag (_startDrag).
+    _down(e) {
+      if (e.button !== 0 || !this._home) return;
+      const at = this._at(e);
+      if (!at) return;
+      this._el.preview.focus({ preventScroll: true });
+      try {
+        this._el.overlay.setPointerCapture(e.pointerId);
+      } catch {
+      }
+      this._press = { x: e.clientX, y: e.clientY, at, handle: this._handleAt(at), shift: e.shiftKey, drag: null };
+    }
+    _up(e) {
+      const press = this._press;
+      this._press = null;
+      if (!press) return;
+      if (press.drag) this._endDrag(press.drag);
+      else this._click(e, press);
+    }
+    // A click selects what's under it; clicking again where everything is the same goes on to the next thing under it;
+    // Shift+click adds it to the selection (or takes it out). Alt+click taps the card underneath instead (lights toggle,
+    // the weather changes). A click on a handle does nothing.
+    _click(e, press) {
       if (e.altKey) {
         const marker = this._card.shadowRoot?.elementsFromPoint(e.clientX, e.clientY).find((x) => x.classList?.contains("m"));
         marker?.click();
         return;
       }
-      const at = this._at(e);
-      if (!at) return;
-      const hits = hitTest(this._home, at.p, at.tol);
+      if (press.handle) return;
+      const hits = hitTest(this._home, press.at.p, press.at.tol);
+      if (press.shift) {
+        if (hits[0]) this._toggle(hits[0]);
+        return;
+      }
       const again = this._hits && hits.length && hits.map(pathKey).join() === this._hits.map(pathKey).join();
       this._hits = hits;
-      this._el.preview.focus({ preventScroll: true });
       if (again) return this._cycle();
       this.select(hits[0] || null);
+    }
+    // A double click on a polygon's corner removes it.
+    _dblclick(e) {
+      const at = this._at(e), handle = at && this._handleAt(at);
+      if (!handle?.id.match(/(^|\/)v:\d+$/)) return;
+      const item = removeCorner(this._sel, itemAt(this.model.data, this._sel), handle.id);
+      if (item) this._edit(() => this.model.set(this._sel, item));
+      else this._message("A polygon keeps at least three corners");
+    }
+    // What a drag does, decided when the pointer has moved far enough: a handle changes its item; on an item, moves
+    // the selection (the item first selected, if it wasn't); with Shift or on empty space, selects with a box.
+    _startDrag(press) {
+      const { at } = press;
+      const hits = press.handle ? [] : hitTest(this._home, at.p, at.tol);
+      if (press.shift || !press.handle && !hits.length) return { kind: "box", from: at.p, add: press.shift };
+      if (!this.model.home) {
+        this._message("Fix the mistakes listed here first: the plan shows the last version without them.");
+        return { kind: "none" };
+      }
+      const data = this.model.data, view = this._home.view.w / 1145;
+      if (press.handle) {
+        const { item, id } = startHandle(this._sel, itemAt(data, this._sel), press.handle.id);
+        return {
+          kind: "handle",
+          path: this._sel,
+          item,
+          id,
+          from: press.handle.at,
+          targets: snapTargets(this._items(data), [this._sel], view)
+        };
+      }
+      if (!hits.some((h) => this._sels.some((p) => samePath2(p, h)))) this.select(hits[0]);
+      const paths = this._sels, items = paths.map((p) => itemAt(data, p));
+      return {
+        kind: "move",
+        paths,
+        items,
+        from: at.p,
+        pts: paths.flatMap((p, i) => anchors(p, items[i], view)),
+        axes: paths.length === 1 ? axesOf(paths[0], items[0]) : [1, 1],
+        targets: snapTargets(this._items(data), paths, view)
+      };
+    }
+    // Every item of the home: [[path, item]].
+    _items(data) {
+      return itemGroups(data).flatMap((g) => g.items.map((it) => [it.path, itemAt(data, it.path)]));
+    }
+    // The pointer moved while pressed: starts the drag once it's far enough, then previews it.
+    _dragTo(e) {
+      const press = this._press;
+      if (!press.drag) {
+        if (Math.hypot(e.clientX - press.x, e.clientY - press.y) < DRAG) return;
+        press.drag = this._startDrag(press);
+      }
+      const drag = press.drag, at = this._at(e);
+      if (!at || drag.kind === "none") return;
+      const snap = { ...drag.targets, tol: at.tol, grid: e.altKey ? 0 : this._grid(), axis: e.shiftKey };
+      if (e.altKey) Object.assign(snap, { xs: [], ys: [] });
+      let guides = {}, ruler = null;
+      if (drag.kind === "box") {
+        const [x0, y0, x1, y1] = boundsOf([drag.from, at.p]);
+        Object.assign(drag, { rect: [x0, y0, x1, y1] });
+        this._el.box.setAttribute("x", x0);
+        this._el.box.setAttribute("y", y0);
+        this._el.box.setAttribute("width", x1 - x0);
+        this._el.box.setAttribute("height", y1 - y0);
+        ruler = { size: [x1 - x0, y1 - y0] };
+      } else if (drag.kind === "move") {
+        const moved = snapMove(drag.pts, at.p[0] - drag.from[0], at.p[1] - drag.from[1], { ...snap, axes: drag.axes });
+        guides = moved.guides;
+        drag.changes = drag.paths.map((p, i) => [p, moveItem(p, drag.items[i], moved.dx, moved.dy)]);
+        ruler = { move: [moved.dx, moved.dy] };
+      } else if (drag.kind === "handle") {
+        let p = at.p;
+        if (!e.altKey && snapsHandle(drag.path, drag.item, drag.id)) ({ p, guides } = snapPoint(p, { ...snap, from: drag.from }));
+        const done = dragHandle(drag.path, drag.item, drag.id, p, { turnStep: e.altKey ? 0 : TURN_STEP });
+        drag.changes = [[drag.path, done.item]];
+        ruler = done.ruler;
+      }
+      this._showGuides(guides);
+      const s = this._el.stage.getBoundingClientRect();
+      Object.assign(this._el.ruler.style, { left: `${e.clientX - s.left + 16}px`, top: `${e.clientY - s.top + 16}px` });
+      this._el.ruler.textContent = rulerText(ruler, this._data.units_per_metre);
+      if (drag.changes) this._showPreview(drag.changes);
+    }
+    // Lines across the view where a snap lined things up.
+    _showGuides({ x, y } = {}) {
+      const v = this._home.view;
+      this._el.guides.innerHTML = (x !== void 0 ? `<line x1="${x}" y1="${v.y}" x2="${x}" y2="${v.y + v.h}"/>` : "") + (y !== void 0 ? `<line x1="${v.x}" y1="${y}" x2="${v.x + v.w}" y2="${y}"/>` : "");
+    }
+    // The card and the overlay as they'd be with `changes` ([[path, value]]), drawn at most once a frame. A version
+    // that doesn't pass the check isn't shown.
+    _showPreview(changes) {
+      this._pending = changes;
+      this._frameRequest || (this._frameRequest = requestAnimationFrame(() => {
+        this._frameRequest = 0;
+        if (!this._pending) return;
+        const data = structuredClone(this._data);
+        for (const [path, value] of this._pending) path.slice(0, -1).reduce((o, k) => o[k], data)[path.at(-1)] = value;
+        this._pending = null;
+        try {
+          this._preview = { data, home: defineHome(data) };
+        } catch {
+          return;
+        }
+        this._renderCard();
+      }));
+    }
+    // The drag is over: the changes become one edit, a box selects what's inside it.
+    _endDrag(drag) {
+      const changes = drag.changes;
+      this._clearDrag();
+      if (drag.kind === "box" && drag.rect) {
+        const [x0, y0, x1, y1] = drag.rect, view = this._home.view.w / 1145;
+        const inside = this._items(this._data).filter(([path, item]) => {
+          const pts = anchors(path, item, view);
+          return pts.length && pts.every(([x, y]) => x >= x0 && x <= x1 && y >= y0 && y <= y1);
+        }).map(([path]) => path);
+        this._selectAll(drag.add ? [...this._sels, ...inside] : inside);
+      } else if (changes) {
+        this._edit(() => this.model.batch(changes.map(([path, value]) => ({ set: path, value }))));
+        this._renderCard();
+      }
+    }
+    // Escape, or the browser took the pointer: the drag is dropped, nothing changes.
+    _cancelDrag() {
+      if (!this._press) return;
+      this._press = null;
+      this._clearDrag();
+      this._renderCard();
+    }
+    _clearDrag() {
+      cancelAnimationFrame(this._frameRequest);
+      this._frameRequest = 0;
+      this._pending = null;
+      this._preview = null;
+      this._showGuides();
+      this._el.ruler.textContent = "";
+      this._el.box.setAttribute("width", 0);
+      this._el.box.setAttribute("height", 0);
+    }
+    // Moves the selection by (dx, dy), as one edit.
+    _moveBy(dx, dy) {
+      if (!this._sels.length) return;
+      if (!this.model.home) return this._message("Fix the mistakes listed here first: the plan shows the last version without them.");
+      this._edit(() => this.model.batch(this._sels.map((p) => ({ set: p, value: moveItem(p, itemAt(this.model.data, p), dx, dy) }))));
+    }
+    // Copies of the selected items, a little down and to the right, selected: pieces and rooms under a new name, the
+    // others at the end of their list.
+    _duplicate() {
+      if (!this._sels.length) return;
+      if (!this.model.home) return this._message("Fix the mistakes listed here first: the plan shows the last version without them.");
+      const data = this.model.data, off = 4 * this._grid(), ops = [], made = [], ends2 = {};
+      for (const path of this._sels) {
+        const value = moveItem(path, structuredClone(itemAt(data, path)), off, off);
+        if (path[0] === "furniture" || path[0] === "rooms") {
+          const base = String(path[1]).replace(/\d+$/, "");
+          let k = 2;
+          while (data[path[0]][`${base}${k}`] !== void 0 || made.some((p) => p[0] === path[0] && p[1] === `${base}${k}`)) k++;
+          ops.push({ set: [path[0], `${base}${k}`], value });
+          made.push([path[0], `${base}${k}`]);
+        } else {
+          const list = path.slice(0, -1), key = pathKey(list);
+          ends2[key] ?? (ends2[key] = itemAt(data, list).length);
+          ops.push({ insert: list, value });
+          made.push([...list, ends2[key]++]);
+        }
+      }
+      this._edit(() => this.model.batch(ops));
+      this._selectAll(made);
     }
     // The next item under the last click.
     _cycle(step = 1) {
@@ -9078,12 +9743,12 @@ ${end.comment}` : end.comment;
       walk(this.model.data, []);
       return out;
     }
-    // Deletes an item; a piece of furniture leaves the lights' shadows too.
-    _remove(path) {
-      const refs = path[0] === "furniture" ? this._references("furniture", path[1]) : [];
+    // Deletes items, as one edit; a piece of furniture leaves the lights' shadows too.
+    _remove(paths) {
+      const refs = paths.flatMap((p) => p[0] === "furniture" ? this._references("furniture", p[1]) : []);
+      const all = [...paths, ...refs].sort(byPathDescending).filter((p, i, a) => !i || !samePath2(p, a[i - 1]));
       this._edit(() => this.model.edit((doc) => {
-        for (const p of refs.reverse()) doc.deleteIn(p);
-        if (!doc.deleteIn(path)) throw new Error(`Nothing at ${path.join(".")}`);
+        for (const p of all) if (!doc.deleteIn(p) && paths.includes(p)) throw new Error(`Nothing at ${p.join(".")}`);
       }));
       this.select(null);
     }
@@ -9114,6 +9779,7 @@ ${end.comment}` : end.comment;
       b.redo.disabled = !this.model.canRedo;
       b["save-json"].disabled = !this.model.data;
       b.dark.setAttribute("aria-pressed", this._dark);
+      b.grid.setAttribute("aria-pressed", this._showGrid);
       this._el.name.textContent = this._file.name;
       this._el.name.title = this._file.handle ? "Saves back to this file" : hasFileAccess() ? "Save asks where to save it" : "Saving downloads it";
       this._el.name.classList.toggle("unsaved", this.model.text !== this._file.saved);
@@ -9127,6 +9793,10 @@ ${end.comment}` : end.comment;
         if (act === "undo" || act === "redo") {
           this._textChanged();
           if (this.model[act]()) this._changed({ text: true });
+        } else if (act === "grid") {
+          this._showGrid = !this._showGrid;
+          this._renderGrid();
+          this._updateButtons();
         } else if (act === "dark") {
           this._dark = !this._dark;
           this._el.preview.classList.toggle("dark", this._dark);
@@ -9164,6 +9834,7 @@ ${end.comment}` : end.comment;
       this._data = null;
       this._home = null;
       this._sel = null;
+      this._sels = [];
       this._changed({ text: true });
     }
     // Saves the home: back to its file (where the browser can; otherwise it asks where, or downloads it), or with `as`
@@ -9193,14 +9864,22 @@ ${end.comment}` : end.comment;
         } else if ((key === "z" || key === "y") && !typing) {
           e.preventDefault();
           this._act(key === "y" || e.shiftKey ? "redo" : "undo");
+        } else if (key === "d" && !typing && this._sels.length) {
+          e.preventDefault();
+          this._duplicate();
         }
         return;
       }
       if (typing || !this._root.contains(target) && target !== this) return;
-      if (e.key === "Escape") this.select(null);
-      else if ((e.key === "Delete" || e.key === "Backspace") && this._sel) {
+      const arrow = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+      if (e.key === "Escape") this._press ? this._cancelDrag() : this.select(null);
+      else if ((e.key === "Delete" || e.key === "Backspace") && this._sels.length) {
         e.preventDefault();
-        this._remove(this._sel);
+        this._remove(this._sels);
+      } else if (arrow && this._sels.length && !e.altKey) {
+        e.preventDefault();
+        const step = this._grid() * (e.shiftKey ? 10 : 1);
+        this._moveBy(arrow[0] * step, arrow[1] * step);
       } else if (e.key === "Tab" && target === this._el.preview && this._hits?.length > 1) {
         e.preventDefault();
         this._cycle(e.shiftKey ? -1 : 1);

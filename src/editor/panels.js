@@ -1,6 +1,6 @@
 // The editor's panels: the list of a home's items and the property form of the selected one, generated from the
 // schema (src/schema.js). They only read the home and call back: `ctx.commit(path, value)` (undefined removes it),
-// `ctx.select(path)`, `ctx.add(group)`, `ctx.remove(path)`, `ctx.rename(path, name)`, `ctx.move(path, from, to)`.
+// `ctx.select(path)`, `ctx.toggle(path)` (Shift+click: in or out of the selection), `ctx.add(group)`, `ctx.remove(path)`, `ctx.rename(path, name)`, `ctx.move(path, from, to)`.
 import YAML from 'yaml';
 import {SCHEMA, SHAPE_KINDS, fieldAt} from '../schema.js';
 import {SLOTS} from '../home.js';
@@ -50,16 +50,16 @@ export function itemGroups(data) {
   return groups;
 }
 
-// The list panel in `box`: every item, the selected one marked; groups fold, items can be dragged within groups
-// whose order matters.
-export function renderList(box, data, selected, ctx) {
+// The list panel in `box`: every item, the selected ones marked (`selected`, and `also` when there are several);
+// groups fold, items can be dragged within groups whose order matters.
+export function renderList(box, data, selected, ctx, also = []) {
   const open = box._open ??= new Set(['Furniture', 'Lights', 'Markers', 'Openings', 'Rooms']);
   box.textContent = '';
   const home = el('li', {className: `item home${selected ? '' : ' on'}`, textContent: 'The home'});
   home.onclick = () => ctx.select(null);
   box.append(el('ul', {className: 'items'}, home));
   for (const g of itemGroups(data)) {
-    const has = g.items.some(it => selected && samePath(it.path, selected.slice(0, it.path.length)));
+    const has = g.items.some(it => [selected, ...also].some(sel => sel && samePath(it.path, sel.slice(0, it.path.length))));
     const details = el('details', {open: open.has(g.title) || has});
     details.ontoggle = () => (details.open ? open.add(g.title) : open.delete(g.title));
     const add = el('button', {type: 'button', className: 'add', textContent: '+', title: `Add to ${g.title.toLowerCase()}`});
@@ -67,9 +67,10 @@ export function renderList(box, data, selected, ctx) {
     details.append(el('summary', {}, el('span', {textContent: g.title}), el('small', {textContent: g.items.length}), add));
     const ul = el('ul', {className: 'items'});
     g.items.forEach((it, i) => {
-      const li = el('li', {className: `item${samePath(it.path, selected) ? ' on' : ''}`, textContent: it.label, title: it.title || ''});
+      const on = samePath(it.path, selected) || also.some(p => samePath(it.path, p));
+      const li = el('li', {className: `item${on ? ' on' : ''}`, textContent: it.label, title: it.title || ''});
       li.dataset.path = pathKey(it.path);
-      li.onclick = () => ctx.select(it.path);
+      li.onclick = e => (e.shiftKey && ctx.toggle ? ctx.toggle(it.path) : ctx.select(it.path));
       if (g.reorder) {
         li.draggable = true;
         li.ondragstart = e => { e.dataTransfer.setData('text/x-lightwell-item', String(i)); e.dataTransfer.effectAllowed = 'move'; };

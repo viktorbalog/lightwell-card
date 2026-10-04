@@ -73,6 +73,28 @@ function create(doc, value, flow) {
   return node;
 }
 
+// Sets the value at `path` in `doc`, creating the maps on the way; numbers and lists already there are changed in place.
+function setIn(doc, path, value) {
+  const node = doc.getIn(path, true);
+  if (node === undefined) {
+    const parent = path.length > 1 ? doc.getIn(path.slice(0, -1), true) : doc.contents;
+    doc.setIn(path, create(doc, value, isCollection(parent) && parent.flow));
+  } else {
+    const fresh = merge(doc, node, value, false);
+    if (fresh !== node) doc.setIn(path, fresh);
+  }
+}
+// Inserts `value` into the list at `path` in `doc`, before `index` (at the end when it's left out); creates the list.
+function insertIn(doc, path, value, index) {
+  let seq = doc.getIn(path, true);
+  if (seq === undefined) {
+    doc.setIn(path, doc.createNode([]));
+    seq = doc.getIn(path, true);
+  }
+  if (!YAML.isSeq(seq)) throw new Error(`${path.join('.')} isn't a list`);
+  seq.items.splice(index ?? seq.items.length, 0, create(doc, value, seq.flow));
+}
+
 // Renames the key at `path` in its map (inside an `edit`), where it is, with its comments.
 export function renameIn(doc, path, key) {
   const map = path.length > 1 ? doc.getIn(path.slice(0, -1), true) : doc.contents;
@@ -155,28 +177,22 @@ export class HomeModel {
 
   // Sets the value at `path`, creating the maps on the way; numbers and lists already there are changed in place.
   set(path, value) {
-    return this.edit(doc => {
-      const node = doc.getIn(path, true);
-      if (node === undefined) {
-        const parent = path.length > 1 ? doc.getIn(path.slice(0, -1), true) : doc.contents;
-        doc.setIn(path, create(doc, value, isCollection(parent) && parent.flow));
-      } else {
-        const fresh = merge(doc, node, value, false);
-        if (fresh !== node) doc.setIn(path, fresh);
-      }
-    });
+    return this.edit(doc => setIn(doc, path, value));
   }
 
   // Inserts `value` into the list at `path`, before `index` (at the end when it's left out); creates the list.
   insert(path, value, index) {
+    return this.edit(doc => insertIn(doc, path, value, index));
+  }
+
+  // Several changes as one step: [{set: path, value}, {insert: path, value, index}, {remove: path}], in order.
+  batch(ops) {
     return this.edit(doc => {
-      let seq = doc.getIn(path, true);
-      if (seq === undefined) {
-        doc.setIn(path, doc.createNode([]));
-        seq = doc.getIn(path, true);
+      for (const op of ops) {
+        if (op.set) setIn(doc, op.set, op.value);
+        else if (op.insert) insertIn(doc, op.insert, op.value, op.index);
+        else if (op.remove && !doc.deleteIn(op.remove)) throw new Error(`Nothing at ${op.remove.join('.')}`);
       }
-      if (!YAML.isSeq(seq)) throw new Error(`${path.join('.')} isn't a list`);
-      seq.items.splice(index ?? seq.items.length, 0, create(doc, value, seq.flow));
     });
   }
 

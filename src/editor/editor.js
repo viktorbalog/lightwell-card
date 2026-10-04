@@ -2,6 +2,8 @@
 // on it; on the left the list of the home's items, and the simulator's controls (controls.js); on the right the
 // selected item's properties (panels.js, from the schema) and the home's YAML. Every change re-derives the home and
 // redraws the card, or lists the check's messages at the bottom while it doesn't pass (a message selects its item).
+// Items are moved, resized and turned on the plan (manipulate.js): the card follows the pointer, and the model gets
+// one edit when it's let go.
 // The file is opened and saved as YAML (comments kept, model.js) or JSON (for the card's home_url), and the work in
 // progress is kept in the browser's storage.
 //
@@ -11,8 +13,11 @@ import {HomeModel, renameIn, yamlOf} from './model.js';
 import {simulatorControls} from './controls.js';
 import {droppedFile, formatOf, hasFileAccess, pickFile, renamed, saveFileAs, writeFile} from './files.js';
 import {hitTest, itemAt, lightCentre, outlineSvg} from './hit.js';
-import {pathKey, renderList, renderProperties} from './panels.js';
+import {anchors, axesOf, boundsOf, dragHandle, handles, moveItem, removeCorner, rulerText, snapMove, snapPoint, snapTargets,
+  snapsHandle, startHandle, tidy} from './manipulate.js';
+import {itemGroups, pathKey, renderList, renderProperties} from './panels.js';
 import {fieldAt} from '../schema.js';
+import {defineHome} from '../home.js';
 
 // The work in progress, in the browser's storage: {text, name, saved} (saved: the text as last opened or saved).
 const DRAFT = 'lightwell-editor:draft';
@@ -20,6 +25,12 @@ const DRAFT = 'lightwell-editor:draft';
 const TYPING = 250;
 // How near the pointer counts as on an item (px).
 const REACH = 6;
+// How far the pointer moves before a press is a drag (px); a handle's size (px); a turn's steps (°).
+const DRAG = 4;
+const HANDLE = 8;
+const TURN_STEP = 15;
+// The grid, as a share of a metre (5 cm).
+const GRID = 0.05;
 
 const STYLE = `
   :host { display: grid; grid-template-rows: auto 1fr auto; height: 100%; font: 14px system-ui, sans-serif;
@@ -53,6 +64,16 @@ const STYLE = `
   .overlay .sel * { stroke: var(--accent); stroke-width: 2.5; fill: rgba(30, 136, 229, 0.12); }
   .overlay .sel .pool { fill: none; stroke-dasharray: 6 5; stroke-width: 1.5; }
   .overlay .sel .dot { fill: var(--accent); }
+  .overlay .handles * { fill: #fff; stroke: var(--accent); stroke-width: 1.5; }
+  .overlay .handles .mid { fill: var(--accent); fill-opacity: 0.35; stroke-opacity: 0.6; }
+  .overlay .handles .turn { fill: var(--accent); }
+  .overlay .guides * { stroke: #d81b60; stroke-width: 1; stroke-dasharray: 4 3; }
+  .overlay .box { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 3; fill: rgba(30, 136, 229, 0.08); }
+  .overlay .grid .minor { stroke: rgba(30, 136, 229, 0.12); stroke-width: 0.5; }
+  .overlay .grid .major { stroke: rgba(30, 136, 229, 0.3); stroke-width: 0.75; }
+  .ruler { position: absolute; pointer-events: none; padding: 2px 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.75);
+    color: #fff; font: 12px ui-monospace, Menlo, Consolas, monospace; white-space: pre; }
+  .ruler:empty { display: none; }
   .preview:focus-visible .stage { outline: 2px solid rgba(30, 136, 229, 0.4); outline-offset: 4px; border-radius: 12px; }
   .hint { color: #888; font-size: 12px; margin: 8px 0 0; text-align: center; }
   .text { display: flex; height: 100%; }
@@ -118,6 +139,7 @@ const HTML = `
     <button data-act="save-json" title="Save as JSON, for the card's home_url">Save as JSON…</button>
     <button data-act="undo" title="Undo (Ctrl+Z)">Undo</button>
     <button data-act="redo" title="Redo (Ctrl+Shift+Z)">Redo</button>
+    <button data-act="grid" aria-pressed="false" title="Show the grid things snap to (Alt while dragging: no snapping)">Grid</button>
     <button data-act="dark" aria-pressed="false" title="Show the card in the dark theme">Dark</button>
   </header>
   <main>
@@ -127,8 +149,10 @@ const HTML = `
       <div class="pane controls" data-pane="controls" hidden><form></form></div>
     </div>
     <div class="preview" tabindex="0">
-      <div><div class="stage"><svg class="overlay"><g class="hover"></g><g class="sel"></g></svg></div>
-      <p class="hint">Click to select (again, or Tab: what's under it) · Alt+click taps the card · Esc clears</p></div>
+      <div><div class="stage"><svg class="overlay"><g class="grid"></g><g class="hover"></g><g class="sel"></g><g class="guides"></g><g class="handles"></g><rect class="box" width="0" height="0"/></svg><div class="ruler"></div></div>
+      <p class="hint">Click to select (again, or Tab: what's under it; Shift+click: more), drag on empty space for a box ·
+        drag to move, the handles to resize, turn or reshape (double-click a corner removes it) · Shift: along an axis,
+        Alt: no snapping · arrows nudge (Shift: ×10) · Ctrl+D duplicates · Alt+click taps the card · Esc clears</p></div>
     </div>
     <div class="side right">
       <div class="tabs" role="tablist"><button data-tab="props" aria-selected="true">Properties</button><button data-tab="text">YAML</button></div>
@@ -145,7 +169,15 @@ const storage = {
   set(v) { try { localStorage.setItem(DRAFT, JSON.stringify(v)); } catch { /* storage full or blocked */ } },
 };
 const samePath = (a, b) => (a === b) || (!!a && !!b && a.length === b.length && a.every((k, i) => k === b[i]));
-const round = v => Math.round(v * 10) / 10;
+const round = tidy;
+// Paths in an order that deletes safely: within a list, the last first (and what's inside an item before it).
+const byPathDescending = (a, b) => {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    if (a[i] === b[i]) continue;
+    return typeof a[i] === 'number' && typeof b[i] === 'number' ? b[i] - a[i] : String(b[i]).localeCompare(String(a[i]));
+  }
+  return b.length - a.length;
+};
 // The item a check's message is about: "furniture.sofa.height: …" → ['furniture', 'sofa'].
 export function messagePath(message) {
   const where = message.slice(0, message.indexOf(': '));
@@ -170,6 +202,7 @@ export class LightwellEditor extends HTMLElement {
     const $ = s => root.querySelector(s);
     this._el = {name: $('.name'), text: $('textarea'), footer: $('footer'), preview: $('.preview'), stage: $('.stage'),
       overlay: $('.overlay'), hover: $('.overlay .hover'), sel: $('.overlay .sel'), list: $('.list'), props: $('.props'),
+      handles: $('.overlay .handles'), guides: $('.overlay .guides'), box: $('.overlay .box'), grid: $('.overlay .grid'), ruler: $('.ruler'),
       buttons: Object.fromEntries([...root.querySelectorAll('[data-act]')].map(b => [b.dataset.act, b]))};
 
     const draft = storage.get();
@@ -177,6 +210,9 @@ export class LightwellEditor extends HTMLElement {
     this._file = {name: draft?.name ?? 'home.yaml', handle: null, saved: draft?.saved ?? this.model.text};
     this._dark = false;
     this._sel = null;
+    this._sels = [];
+    this._showGrid = false;
+    this._preview = null;
     this._shown = {states: this.states, north: undefined};
 
     this._card = document.createElement('lightwell-card');
@@ -204,9 +240,13 @@ export class LightwellEditor extends HTMLElement {
         document.execCommand('insertText', false, '  ');
       }
     });
-    this._el.overlay.addEventListener('click', e => this._click(e));
-    this._el.overlay.addEventListener('pointermove', e => this._pointer(e));
-    this._el.overlay.addEventListener('pointerleave', () => { this._el.hover.innerHTML = ''; });
+    const overlay = this._el.overlay;
+    overlay.addEventListener('pointerdown', e => this._down(e));
+    overlay.addEventListener('pointermove', e => (this._press ? this._dragTo(e) : this._pointer(e)));
+    overlay.addEventListener('pointerup', e => this._up(e));
+    overlay.addEventListener('pointercancel', () => this._cancelDrag());
+    overlay.addEventListener('dblclick', e => this._dblclick(e));
+    overlay.addEventListener('pointerleave', () => { this._el.hover.innerHTML = ''; });
     this._el.footer.addEventListener('click', e => {
       const path = e.target.closest('p')?.dataset.path;
       if (path) this.select(JSON.parse(path));
@@ -229,8 +269,9 @@ export class LightwellEditor extends HTMLElement {
     this._ctx = {
       commit: (path, value) => this._edit(() => (value === undefined ? this.model.get(path) !== undefined && this.model.remove(path) : this.model.set(path, value))),
       select: path => this.select(path),
+      toggle: path => this._toggle(path),
       add: group => this._add(group),
-      remove: path => this._remove(path),
+      remove: path => this._remove([path]),
       rename: (path, name) => this._rename(path, name),
       move: (path, from, to) => this._move(path, from, to),
       template: path => this._template(path),
@@ -253,7 +294,8 @@ export class LightwellEditor extends HTMLElement {
       this._home = home;
       this._controls.setPlan(home);
     } else this._renderCard();
-    if (this._sel && itemAt(data, this._sel) === undefined) this._sel = null;
+    this._sels = this._sels.filter(p => itemAt(data, p) !== undefined);
+    if (this._sel && itemAt(data, this._sel) === undefined) this._sel = this._sels.at(-1) || null;
     this._el.footer.textContent = '';
     for (const e of errors) {
       const p = this._message(e), path = messagePath(e);
@@ -275,9 +317,10 @@ export class LightwellEditor extends HTMLElement {
   }
 
   _renderCard() {
-    if (!this._data) return;
+    const data = this._preview?.data || this._data;
+    if (!data) return;
     try {
-      this._card.setConfig({home: this._data, north: this._shown.north});
+      this._card.setConfig({home: data, north: this._shown.north});
       this._card.hass = {states: this._shown.states, themes: {darkMode: this._dark}, callService: this._controls.callService};
     } catch (e) {
       this._message(e.message);
@@ -295,21 +338,67 @@ export class LightwellEditor extends HTMLElement {
     this._renderOverlay();
   }
 
+  // The selection's outlines, and the handles of a single selected item (while the home has no mistakes); the grid.
   _renderOverlay() {
-    this._el.sel.innerHTML = this._home && this._sel ? outlineSvg(this._home, this._sel) : '';
+    const home = this._preview?.home || this._home, data = this._preview?.data || this._data;
+    this._el.sel.innerHTML = home ? this._sels.map(p => outlineSvg(home, p)).join('') : '';
+    const px = this._px(), f = v => +v.toFixed(2), s = HANDLE * px;
+    this._el.handles.innerHTML = this._handles(data).map(h => (h.turn || h.mid || h.id.startsWith('pool')
+      ? `<circle class="${h.turn ? 'turn' : h.mid ? 'mid' : ''}" cx="${f(h.at[0])}" cy="${f(h.at[1])}" r="${f(s / (h.mid ? 2.6 : 2))}"/>`
+      : `<rect x="${f(h.at[0] - s / 2)}" y="${f(h.at[1] - s / 2)}" width="${f(s)}" height="${f(s)}"/>`)).join('');
+    this._renderGrid();
+  }
+
+  // The handles of the selected item, if it's the only one and can be changed.
+  _handles(data = this._data) {
+    if (this._sels.length !== 1 || !this.model.home || !data) return [];
+    return handles(this._sel, itemAt(data, this._sel), {reach: 3 * HANDLE * this._px()});
+  }
+
+  // The grid things snap to (GRID), with a stronger line every metre; the minor lines only when they're far enough
+  // apart to see.
+  _renderGrid() {
+    const g = this._el.grid, v = this._home?.view;
+    if (!this._showGrid || !v) { g.innerHTML = ''; return; }
+    const step = this._grid(), metre = step / GRID, px = this._px();
+    const lines = (d, cls) => {
+      if (d / px < 6) return '';
+      const out = [];
+      for (let x = Math.ceil(v.x / d) * d; x <= v.x + v.w; x += d) out.push(`M${+x.toFixed(2)},${v.y}V${v.y + v.h}`);
+      for (let y = Math.ceil(v.y / d) * d; y <= v.y + v.h; y += d) out.push(`M${v.x},${+y.toFixed(2)}H${v.x + v.w}`);
+      return `<path class="${cls}" d="${out.join('')}"/>`;
+    };
+    g.innerHTML = lines(step, 'minor') + lines(metre, 'major');
   }
 
   _renderPanels() {
-    renderList(this._el.list, this.model.data, this._sel, this._ctx);
+    renderList(this._el.list, this.model.data, this._sel, this._ctx, this._sels);
     renderProperties(this._el.props, this.model.data, this._sel, {...this._ctx, data: this.model.data, states: this._shown.states});
+    if (this._sels.length > 1) {
+      this._el.props.prepend(Object.assign(document.createElement('p'), {className: 'help',
+        textContent: `${this._sels.length} items selected: they move together, and Delete deletes them all. The last one's properties:`}));
+    }
     this._renderOverlay();
   }
 
   // Selects the item at `path` (null: the home itself) in the list, on the plan and in the text.
   select(path) {
-    this._sel = path && itemAt(this.model.data, path) !== undefined ? path : null;
-    this._renderPanels();
+    this._selectAll(path ? [path] : []);
     if (this._sel && !this._el.text.closest('[hidden]')) this._showInText(this._sel);
+  }
+
+  // Selects several items; the last is the one whose properties show.
+  _selectAll(paths) {
+    const seen = new Set();
+    this._sels = paths.filter(p => itemAt(this.model.data, p) !== undefined && !seen.has(pathKey(p)) && seen.add(pathKey(p)));
+    this._sel = this._sels.at(-1) || null;
+    this._renderPanels();
+  }
+
+  // Adds an item to the selection, or takes it out.
+  _toggle(path) {
+    const has = this._sels.some(p => samePath(p, path));
+    this._selectAll(has ? this._sels.filter(p => !samePath(p, path)) : [...this._sels, path]);
   }
 
   // Scrolls the YAML to the item and selects its text.
@@ -339,28 +428,241 @@ export class LightwellEditor extends HTMLElement {
     return {p: [p.x, p.y], tol: REACH / m.a};
   }
 
-  _pointer(e) {
-    const at = this._at(e);
-    const hit = at && hitTest(this._home, at.p, at.tol)[0];
-    this._el.hover.innerHTML = hit && !samePath(hit, this._sel) ? outlineSvg(this._home, hit) : '';
+  // A pixel in the drawing's units.
+  _px() {
+    const m = this._el.overlay.getScreenCTM();
+    return m?.a ? 1 / m.a : 1;
   }
 
-  // A click selects what's under it; clicking again where everything is the same goes on to the next thing under it.
-  // Alt+click taps the card underneath instead (lights toggle, the weather changes).
-  _click(e) {
+  // The grid's step in the drawing's units.
+  _grid() {
+    return (this._data?.units_per_metre || 100) * GRID;
+  }
+
+  // The handle under the pointer, if any: the nearest within reach.
+  _handleAt(at) {
+    let best = null;
+    for (const h of this._handles()) {
+      const d = Math.hypot(h.at[0] - at.p[0], h.at[1] - at.p[1]);
+      if (d <= at.tol + HANDLE * this._px() / 2 && (!best || d < best.d)) best = {...h, d};
+    }
+    return best;
+  }
+
+  _pointer(e) {
+    const at = this._at(e);
+    if (!at) return;
+    const handle = this._handleAt(at), hit = !handle && hitTest(this._home, at.p, at.tol)[0];
+    this._el.hover.innerHTML = hit && !this._sels.some(p => samePath(p, hit)) ? outlineSvg(this._home, hit) : '';
+    this._el.overlay.style.cursor = handle ? 'crosshair' : hit && this.model.home ? 'move' : 'default';
+  }
+
+  // A press on the plan: a click when the pointer doesn't move (_click), otherwise a drag (_startDrag).
+  _down(e) {
+    if (e.button !== 0 || !this._home) return;
+    const at = this._at(e);
+    if (!at) return;
+    this._el.preview.focus({preventScroll: true});
+    try { this._el.overlay.setPointerCapture(e.pointerId); } catch { /* a pointer the browser doesn't track */ }
+    this._press = {x: e.clientX, y: e.clientY, at, handle: this._handleAt(at), shift: e.shiftKey, drag: null};
+  }
+
+  _up(e) {
+    const press = this._press;
+    this._press = null;
+    if (!press) return;
+    if (press.drag) this._endDrag(press.drag);
+    else this._click(e, press);
+  }
+
+  // A click selects what's under it; clicking again where everything is the same goes on to the next thing under it;
+  // Shift+click adds it to the selection (or takes it out). Alt+click taps the card underneath instead (lights toggle,
+  // the weather changes). A click on a handle does nothing.
+  _click(e, press) {
     if (e.altKey) {
       const marker = this._card.shadowRoot?.elementsFromPoint(e.clientX, e.clientY).find(x => x.classList?.contains('m'));
       marker?.click();
       return;
     }
-    const at = this._at(e);
-    if (!at) return;
-    const hits = hitTest(this._home, at.p, at.tol);
+    if (press.handle) return;
+    const hits = hitTest(this._home, press.at.p, press.at.tol);
+    if (press.shift) {
+      if (hits[0]) this._toggle(hits[0]);
+      return;
+    }
     const again = this._hits && hits.length && hits.map(pathKey).join() === this._hits.map(pathKey).join();
     this._hits = hits;
-    this._el.preview.focus({preventScroll: true});
     if (again) return this._cycle();
     this.select(hits[0] || null);
+  }
+
+  // A double click on a polygon's corner removes it.
+  _dblclick(e) {
+    const at = this._at(e), handle = at && this._handleAt(at);
+    if (!handle?.id.match(/(^|\/)v:\d+$/)) return;
+    const item = removeCorner(this._sel, itemAt(this.model.data, this._sel), handle.id);
+    if (item) this._edit(() => this.model.set(this._sel, item));
+    else this._message('A polygon keeps at least three corners');
+  }
+
+  // What a drag does, decided when the pointer has moved far enough: a handle changes its item; on an item, moves
+  // the selection (the item first selected, if it wasn't); with Shift or on empty space, selects with a box.
+  _startDrag(press) {
+    const {at} = press;
+    const hits = press.handle ? [] : hitTest(this._home, at.p, at.tol);
+    if (press.shift || (!press.handle && !hits.length)) return {kind: 'box', from: at.p, add: press.shift};
+    if (!this.model.home) {
+      this._message('Fix the mistakes listed here first: the plan shows the last version without them.');
+      return {kind: 'none'};
+    }
+    const data = this.model.data, view = this._home.view.w / 1145;
+    if (press.handle) {
+      const {item, id} = startHandle(this._sel, itemAt(data, this._sel), press.handle.id);
+      return {kind: 'handle', path: this._sel, item, id, from: press.handle.at,
+        targets: snapTargets(this._items(data), [this._sel], view)};
+    }
+    if (!hits.some(h => this._sels.some(p => samePath(p, h)))) this.select(hits[0]);
+    const paths = this._sels, items = paths.map(p => itemAt(data, p));
+    return {kind: 'move', paths, items, from: at.p, pts: paths.flatMap((p, i) => anchors(p, items[i], view)),
+      axes: paths.length === 1 ? axesOf(paths[0], items[0]) : [1, 1], targets: snapTargets(this._items(data), paths, view)};
+  }
+
+  // Every item of the home: [[path, item]].
+  _items(data) {
+    return itemGroups(data).flatMap(g => g.items.map(it => [it.path, itemAt(data, it.path)]));
+  }
+
+  // The pointer moved while pressed: starts the drag once it's far enough, then previews it.
+  _dragTo(e) {
+    const press = this._press;
+    if (!press.drag) {
+      if (Math.hypot(e.clientX - press.x, e.clientY - press.y) < DRAG) return;
+      press.drag = this._startDrag(press);
+    }
+    const drag = press.drag, at = this._at(e);
+    if (!at || drag.kind === 'none') return;
+    const snap = {...drag.targets, tol: at.tol, grid: e.altKey ? 0 : this._grid(), axis: e.shiftKey};
+    if (e.altKey) Object.assign(snap, {xs: [], ys: []});
+    let guides = {}, ruler = null;
+    if (drag.kind === 'box') {
+      const [x0, y0, x1, y1] = boundsOf([drag.from, at.p]);
+      Object.assign(drag, {rect: [x0, y0, x1, y1]});
+      this._el.box.setAttribute('x', x0);
+      this._el.box.setAttribute('y', y0);
+      this._el.box.setAttribute('width', x1 - x0);
+      this._el.box.setAttribute('height', y1 - y0);
+      ruler = {size: [x1 - x0, y1 - y0]};
+    } else if (drag.kind === 'move') {
+      const moved = snapMove(drag.pts, at.p[0] - drag.from[0], at.p[1] - drag.from[1], {...snap, axes: drag.axes});
+      guides = moved.guides;
+      drag.changes = drag.paths.map((p, i) => [p, moveItem(p, drag.items[i], moved.dx, moved.dy)]);
+      ruler = {move: [moved.dx, moved.dy]};
+    } else if (drag.kind === 'handle') {
+      let p = at.p;
+      if (!e.altKey && snapsHandle(drag.path, drag.item, drag.id)) ({p, guides} = snapPoint(p, {...snap, from: drag.from}));
+      const done = dragHandle(drag.path, drag.item, drag.id, p, {turnStep: e.altKey ? 0 : TURN_STEP});
+      drag.changes = [[drag.path, done.item]];
+      ruler = done.ruler;
+    }
+    this._showGuides(guides);
+    const s = this._el.stage.getBoundingClientRect();
+    Object.assign(this._el.ruler.style, {left: `${e.clientX - s.left + 16}px`, top: `${e.clientY - s.top + 16}px`});
+    this._el.ruler.textContent = rulerText(ruler, this._data.units_per_metre);
+    if (drag.changes) this._showPreview(drag.changes);
+  }
+
+  // Lines across the view where a snap lined things up.
+  _showGuides({x, y} = {}) {
+    const v = this._home.view;
+    this._el.guides.innerHTML = (x !== undefined ? `<line x1="${x}" y1="${v.y}" x2="${x}" y2="${v.y + v.h}"/>` : '')
+      + (y !== undefined ? `<line x1="${v.x}" y1="${y}" x2="${v.x + v.w}" y2="${y}"/>` : '');
+  }
+
+  // The card and the overlay as they'd be with `changes` ([[path, value]]), drawn at most once a frame. A version
+  // that doesn't pass the check isn't shown.
+  _showPreview(changes) {
+    this._pending = changes;
+    this._frameRequest ||= requestAnimationFrame(() => {
+      this._frameRequest = 0;
+      if (!this._pending) return;
+      const data = structuredClone(this._data);
+      for (const [path, value] of this._pending) path.slice(0, -1).reduce((o, k) => o[k], data)[path.at(-1)] = value;
+      this._pending = null;
+      try {
+        this._preview = {data, home: defineHome(data)};
+      } catch {
+        return;
+      }
+      this._renderCard();
+    });
+  }
+
+  // The drag is over: the changes become one edit, a box selects what's inside it.
+  _endDrag(drag) {
+    const changes = drag.changes;
+    this._clearDrag();
+    if (drag.kind === 'box' && drag.rect) {
+      const [x0, y0, x1, y1] = drag.rect, view = this._home.view.w / 1145;
+      const inside = this._items(this._data).filter(([path, item]) => {
+        const pts = anchors(path, item, view);
+        return pts.length && pts.every(([x, y]) => x >= x0 && x <= x1 && y >= y0 && y <= y1);
+      }).map(([path]) => path);
+      this._selectAll(drag.add ? [...this._sels, ...inside] : inside);
+    } else if (changes) {
+      this._edit(() => this.model.batch(changes.map(([path, value]) => ({set: path, value}))));
+      this._renderCard();
+    }
+  }
+
+  // Escape, or the browser took the pointer: the drag is dropped, nothing changes.
+  _cancelDrag() {
+    if (!this._press) return;
+    this._press = null;
+    this._clearDrag();
+    this._renderCard();
+  }
+
+  _clearDrag() {
+    cancelAnimationFrame(this._frameRequest);
+    this._frameRequest = 0;
+    this._pending = null;
+    this._preview = null;
+    this._showGuides();
+    this._el.ruler.textContent = '';
+    this._el.box.setAttribute('width', 0);
+    this._el.box.setAttribute('height', 0);
+  }
+
+  // Moves the selection by (dx, dy), as one edit.
+  _moveBy(dx, dy) {
+    if (!this._sels.length) return;
+    if (!this.model.home) return this._message('Fix the mistakes listed here first: the plan shows the last version without them.');
+    this._edit(() => this.model.batch(this._sels.map(p => ({set: p, value: moveItem(p, itemAt(this.model.data, p), dx, dy)}))));
+  }
+
+  // Copies of the selected items, a little down and to the right, selected: pieces and rooms under a new name, the
+  // others at the end of their list.
+  _duplicate() {
+    if (!this._sels.length) return;
+    if (!this.model.home) return this._message('Fix the mistakes listed here first: the plan shows the last version without them.');
+    const data = this.model.data, off = 4 * this._grid(), ops = [], made = [], ends = {};
+    for (const path of this._sels) {
+      const value = moveItem(path, structuredClone(itemAt(data, path)), off, off);
+      if (path[0] === 'furniture' || path[0] === 'rooms') {
+        const base = String(path[1]).replace(/\d+$/, '');
+        let k = 2;
+        while (data[path[0]][`${base}${k}`] !== undefined || made.some(p => p[0] === path[0] && p[1] === `${base}${k}`)) k++;
+        ops.push({set: [path[0], `${base}${k}`], value});
+        made.push([path[0], `${base}${k}`]);
+      } else {
+        const list = path.slice(0, -1), key = pathKey(list);
+        ends[key] ??= itemAt(data, list).length;
+        ops.push({insert: list, value});
+        made.push([...list, ends[key]++]);
+      }
+    }
+    this._edit(() => this.model.batch(ops));
+    this._selectAll(made);
   }
 
   // The next item under the last click.
@@ -453,13 +755,13 @@ export class LightwellEditor extends HTMLElement {
     return out;
   }
 
-  // Deletes an item; a piece of furniture leaves the lights' shadows too.
-  _remove(path) {
-    const refs = path[0] === 'furniture' ? this._references('furniture', path[1]) : [];
+  // Deletes items, as one edit; a piece of furniture leaves the lights' shadows too.
+  _remove(paths) {
+    const refs = paths.flatMap(p => (p[0] === 'furniture' ? this._references('furniture', p[1]) : []));
+    // Last first, so that the indexes of the others stay right.
+    const all = [...paths, ...refs].sort(byPathDescending).filter((p, i, a) => !i || !samePath(p, a[i - 1]));
     this._edit(() => this.model.edit(doc => {
-      // Last first, so that the indexes of the others stay right.
-      for (const p of refs.reverse()) doc.deleteIn(p);
-      if (!doc.deleteIn(path)) throw new Error(`Nothing at ${path.join('.')}`);
+      for (const p of all) if (!doc.deleteIn(p) && paths.includes(p)) throw new Error(`Nothing at ${p.join('.')}`);
     }));
     this.select(null);
   }
@@ -494,6 +796,7 @@ export class LightwellEditor extends HTMLElement {
     b.redo.disabled = !this.model.canRedo;
     b['save-json'].disabled = !this.model.data;
     b.dark.setAttribute('aria-pressed', this._dark);
+    b.grid.setAttribute('aria-pressed', this._showGrid);
     this._el.name.textContent = this._file.name;
     this._el.name.title = this._file.handle ? 'Saves back to this file' : hasFileAccess() ? 'Save asks where to save it' : 'Saving downloads it';
     this._el.name.classList.toggle('unsaved', this.model.text !== this._file.saved);
@@ -509,6 +812,10 @@ export class LightwellEditor extends HTMLElement {
       if (act === 'undo' || act === 'redo') {
         this._textChanged();
         if (this.model[act]()) this._changed({text: true});
+      } else if (act === 'grid') {
+        this._showGrid = !this._showGrid;
+        this._renderGrid();
+        this._updateButtons();
       } else if (act === 'dark') {
         this._dark = !this._dark;
         this._el.preview.classList.toggle('dark', this._dark);
@@ -548,6 +855,7 @@ export class LightwellEditor extends HTMLElement {
     this._data = null;
     this._home = null;
     this._sel = null;
+    this._sels = [];
     this._changed({text: true});
   }
 
@@ -580,14 +888,22 @@ export class LightwellEditor extends HTMLElement {
         // In a text field, its own undo; elsewhere the editor's.
         e.preventDefault();
         this._act(key === 'y' || e.shiftKey ? 'redo' : 'undo');
+      } else if (key === 'd' && !typing && this._sels.length) {
+        e.preventDefault();
+        this._duplicate();
       }
       return;
     }
     if (typing || !this._root.contains(target) && target !== this) return;
-    if (e.key === 'Escape') this.select(null);
-    else if ((e.key === 'Delete' || e.key === 'Backspace') && this._sel) {
+    const arrow = {ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1]}[e.key];
+    if (e.key === 'Escape') this._press ? this._cancelDrag() : this.select(null);
+    else if ((e.key === 'Delete' || e.key === 'Backspace') && this._sels.length) {
       e.preventDefault();
-      this._remove(this._sel);
+      this._remove(this._sels);
+    } else if (arrow && this._sels.length && !e.altKey) {
+      e.preventDefault();
+      const step = this._grid() * (e.shiftKey ? 10 : 1);
+      this._moveBy(arrow[0] * step, arrow[1] * step);
     } else if (e.key === 'Tab' && target === this._el.preview && this._hits?.length > 1) {
       e.preventDefault();
       this._cycle(e.shiftKey ? -1 : 1);

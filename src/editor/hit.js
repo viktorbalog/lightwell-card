@@ -68,8 +68,46 @@ export function pathLines(d) {
   return {lines, closed};
 }
 
+// An SVG transform list ('rotate(-90 680 420) translate(5)') as a matrix [a, b, c, d, e, f] (x' = a x + c y + e,
+// y' = b x + d y + f), or null when there's none (or it doesn't parse).
+export function parseTransform(t) {
+  if (typeof t !== 'string' || !t.trim()) return null;
+  const mul = ([a, b, c, d, e, f], [A, B, C, D, E, F]) => [a * A + c * B, b * A + d * B, a * C + c * D, b * C + d * D, a * E + c * F + e, b * E + d * F + f];
+  let m = [1, 0, 0, 1, 0, 0], rest = t;
+  const re = /^\s*,?\s*(matrix|translate|scale|rotate|skewX|skewY)\s*\(([^)]*)\)/;
+  while (rest.trim()) {
+    const found = rest.match(re);
+    if (!found) return null;
+    rest = rest.slice(found[0].length);
+    const v = found[2].split(/[\s,]+/).filter(Boolean).map(Number), rad = (v[0] || 0) * Math.PI / 180;
+    if (v.some(Number.isNaN)) return null;
+    const [cos, sin] = [Math.cos(rad), Math.sin(rad)];
+    const step = {
+      matrix: () => v.length === 6 && v,
+      translate: () => [1, 0, 0, 1, v[0] || 0, v[1] || 0],
+      scale: () => [v[0] ?? 1, 0, 0, v[1] ?? v[0] ?? 1, 0, 0],
+      rotate: () => {
+        const [cx = 0, cy = 0] = v.slice(1);
+        return mul(mul([1, 0, 0, 1, cx, cy], [cos, sin, -sin, cos, 0, 0]), [1, 0, 0, 1, -cx, -cy]);
+      },
+      skewX: () => [1, 0, Math.tan(rad), 1, 0, 0],
+      skewY: () => [1, Math.tan(rad), 0, 1, 0, 0],
+    }[found[1]]();
+    if (!step) return null;
+    m = mul(m, step);
+  }
+  return m;
+}
+export const applyTransform = (m, [x, y]) => (m ? [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]] : [x, y]);
+// The inverse of a transform matrix.
+export function invertTransform([a, b, c, d, e, f]) {
+  const det = a * d - b * c;
+  return [d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det];
+}
+
 // A shape's (shapes.js) area as polygons and lines in the drawing, for hits and outlines: {polys, lines, circles}
-// (circles: [cx, cy, rx, ry]). `k`: the view's width / 1145, for texts. Raw SVG has none.
+// (circles: [cx, cy, rx, ry]). `k`: the view's width / 1145, for texts. Raw SVG has none. A shape's `transform`
+// applies (circles under one become polygons).
 export function shapeGeometry(s, k = 1) {
   // width: a stroked line's (stroke_width), which widens it.
   const g = {polys: [], lines: [], circles: [], width: +s?.stroke_width || 0};
@@ -91,7 +129,11 @@ export function shapeGeometry(s, k = 1) {
       g.polys.push(box(x0, y - size * 0.8, w, size));
     }
   }
-  return g;
+  const m = parseTransform(s.transform);
+  if (!m) return g;
+  const ellipse = ([cx, cy, rx, ry]) => Array.from({length: 24}, (_, j) => [cx + rx * Math.cos(j * Math.PI / 12), cy + ry * Math.sin(j * Math.PI / 12)]);
+  const map = list => list.map(q => applyTransform(m, q));
+  return {polys: [...g.polys, ...g.circles.map(ellipse)].map(map), lines: g.lines.map(map), circles: [], width: g.width};
 }
 const inGeometry = (g, p, tol) => g.polys.some(poly => inPoly(poly, p) || nearPoly(poly, p, tol))
   || g.lines.some(l => nearPoly(l, p, tol + g.width / 2, false))
@@ -104,7 +146,7 @@ export function pieceOutline({shape: {rect, turn = 0, circle, poly}}) {
   return {poly};
 }
 // A room's region as polygons.
-const regionPolys = region => (Array.isArray(region?.[0]?.[0]) ? [region[0]] : (region || []).map(r => box(...r)));
+export const regionPolys = region => (Array.isArray(region?.[0]?.[0]) ? [region[0]] : (region || []).map(r => box(...r)));
 // A light's centre: its pool's, or its first shape's middle.
 export function lightCentre(g) {
   if (g.pool) return [g.pool.x, g.pool.y];
