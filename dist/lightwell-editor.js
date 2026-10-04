@@ -9875,6 +9875,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
   var DRAFT = "lightwell-editor:draft";
   var TYPING = 250;
   var REACH = 6;
+  var CLICKS = 500;
   var DRAG = 4;
   var HANDLE = 8;
   var TURN_STEP = 15;
@@ -10635,6 +10636,9 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         marker?.click();
         return;
       }
+      const now = performance.now();
+      if (!this._clicks || now - this._clicks.t > CLICKS) this._clicks = { sel: this._sel };
+      this._clicks.t = now;
       if (press.handle) return;
       const { hits, inside } = this._hitsAt(press.at);
       if (this._inside !== null && !inside) this._out();
@@ -10664,19 +10668,22 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       return true;
     }
     // A double click on a polygon's corner removes it; on a piece of furniture, it enters it (to edit its insides,
-    // selecting the one under the pointer); while drawing a polygon, it finishes it.
+    // selecting the one under the pointer); while drawing a polygon, it finishes it. It goes by what was selected before
+    // its two clicks (which step through what's under the pointer): a selected piece under it is the one entered, and in
+    // a selected room the rectangle under it is selected.
     _dblclick(e) {
       if (this._tool !== "select") return this._poly && this._finishPoly();
       const at = this._at(e), handle = at && this._handleAt(at);
       if (at && !handle?.id.match(/(^|\/)v:\d+$/)) {
         if (this._hitsAt(at).inside) return;
-        const hits = hitTest(this._home, at.p, at.tol);
-        const room = this._sel?.[0] === "rooms" && hits.some((h) => h[0] === "rooms" && h[1] === this._sel[1]) && this.model.data.rooms[this._sel[1]];
+        const hits = hitTest(this._home, at.p, at.tol), before = this._clicks?.sel ?? this._sel;
+        const under = (path) => hits.some((h) => samePath2(h, path.slice(0, 2)));
+        const room = before?.[0] === "rooms" && under(before) && this.model.data.rooms[before[1]];
         if (Array.isArray(room) && !Array.isArray(room[0]?.[0])) {
           const i = room.findLastIndex((q) => inPoly(partPoly(q) || [], at.p));
-          if (i >= 0) return this.select(["rooms", this._sel[1], i]);
+          if (i >= 0) return this.select(["rooms", before[1], i]);
         }
-        const piece = hits.find((h) => h[0] === "furniture");
+        const piece = before?.[0] === "furniture" && before.length === 2 && under(before) ? before : hits.find((h) => h[0] === "furniture");
         if (piece) this._enter(piece[1], hitInside(this._home, piece[1], at.p, at.tol).slice(0, 1));
         return;
       }

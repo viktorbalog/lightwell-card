@@ -31,6 +31,8 @@ const DRAFT = 'lightwell-editor:draft';
 const TYPING = 250;
 // How near the pointer counts as on an item (px).
 const REACH = 6;
+// Clicks closer together than this make one run, as a double-click's two do (ms).
+const CLICKS = 500;
 // How far the pointer moves before a press is a drag (px); a handle's size (px); a turn's steps (°).
 const DRAG = 4;
 const HANDLE = 8;
@@ -783,6 +785,10 @@ export class LightwellEditor extends HTMLElement {
       marker?.click();
       return;
     }
+    // What was selected before a run of clicks: a double-click acts on it, not on what its clicks stepped to.
+    const now = performance.now();
+    if (!this._clicks || now - this._clicks.t > CLICKS) this._clicks = {sel: this._sel};
+    this._clicks.t = now;
     if (press.handle) return;
     const {hits, inside} = this._hitsAt(press.at);
     // A click outside the piece being edited leaves it.
@@ -815,20 +821,23 @@ export class LightwellEditor extends HTMLElement {
   }
 
   // A double click on a polygon's corner removes it; on a piece of furniture, it enters it (to edit its insides,
-  // selecting the one under the pointer); while drawing a polygon, it finishes it.
+  // selecting the one under the pointer); while drawing a polygon, it finishes it. It goes by what was selected before
+  // its two clicks (which step through what's under the pointer): a selected piece under it is the one entered, and in
+  // a selected room the rectangle under it is selected.
   _dblclick(e) {
     if (this._tool !== 'select') return this._poly && this._finishPoly();
     const at = this._at(e), handle = at && this._handleAt(at);
     if (at && !handle?.id.match(/(^|\/)v:\d+$/)) {
       if (this._hitsAt(at).inside) return;
-      const hits = hitTest(this._home, at.p, at.tol);
+      const hits = hitTest(this._home, at.p, at.tol), before = this._clicks?.sel ?? this._sel;
+      const under = path => hits.some(h => samePath(h, path.slice(0, 2)));
       // In a selected room (or one of its rectangles): the rectangle under the pointer, the last listed first.
-      const room = this._sel?.[0] === 'rooms' && hits.some(h => h[0] === 'rooms' && h[1] === this._sel[1]) && this.model.data.rooms[this._sel[1]];
+      const room = before?.[0] === 'rooms' && under(before) && this.model.data.rooms[before[1]];
       if (Array.isArray(room) && !Array.isArray(room[0]?.[0])) {
         const i = room.findLastIndex(q => inPoly(partPoly(q) || [], at.p));
-        if (i >= 0) return this.select(['rooms', this._sel[1], i]);
+        if (i >= 0) return this.select(['rooms', before[1], i]);
       }
-      const piece = hits.find(h => h[0] === 'furniture');
+      const piece = before?.[0] === 'furniture' && before.length === 2 && under(before) ? before : hits.find(h => h[0] === 'furniture');
       if (piece) this._enter(piece[1], hitInside(this._home, piece[1], at.p, at.tol).slice(0, 1));
       return;
     }
