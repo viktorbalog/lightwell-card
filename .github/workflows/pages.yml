@@ -1,0 +1,47 @@
+name: Pages
+
+# Publishes the editor and the simulator (scripts/site.sh) to GitHub Pages: https://viktorbalog.github.io/lightwell-card/
+# (editor/, simulator/). Needs Pages turned on in the repository's settings, with GitHub Actions as its source.
+on:
+  push:
+    branches: [main]
+    paths: [dist/**, example/**, tools/editor/**, tools/simulator/**, scripts/site.sh, docs/logo.svg, .github/workflows/pages.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      # dist/ is committed (HACS installs it); publish it only if it's what the source builds.
+      - run: npm run build
+      - run: git diff --exit-code -- dist example tools/simulator/controls.js
+      - run: scripts/site.sh _site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

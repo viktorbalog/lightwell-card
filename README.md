@@ -60,9 +60,37 @@ exist, a malformed entity id.
 
 > **YAML tip:** in Home Assistant's YAML, an unquoted `on` or `off` is read as true or false. Quote states: `'on'`.
 
-The fastest way to start is to copy [`example/home.yaml`](example/home.yaml), the flat in the pictures, and change it.
-Convert it to JSON for `home_url` with `node tools/simulator/home-tool.mjs json my-home.yaml my-home.json` (which
-checks it too) or any YAML-to-JSON converter, or paste it under `home:`.
+The easiest way to describe your home is [the editor](#the-editor). Or copy [`example/home.yaml`](example/home.yaml),
+the flat in the pictures, and change it by hand. Convert it to JSON for `home_url` with
+`node tools/simulator/home-tool.mjs json my-home.yaml my-home.json` (which checks it too) or any YAML-to-JSON
+converter, or paste it under `home:`.
+
+## The editor
+
+**[Open the editor](https://viktorbalog.github.io/lightwell-card/editor/)**: it runs in your browser, nothing to
+install, and your home stays on your computer.
+
+<p align="center"><img src="docs/editor.png" width="800" alt="The editor: the example flat with its living room lamp selected, its pool of light and the furniture casting shadows from it, and the lamp's properties"></p>
+
+Draw your home over a picture of its plan and see the card light it as you go, under any sun, in light or dark:
+
+1. **Start:** New → *Over a picture of its plan* (or drop the picture on the editor). Drag along something whose
+   length you know, a wall or a door, and type it: that sets the scale. Or start empty, or from the example.
+2. **Trace it** with the tools over the plan: walls (drag their box), rooms (a rectangle, or click the corners),
+   windows and doors (drag along an outer wall: the side and thickness come from the wall), furniture, lamps, markers
+   and labels. Everything snaps to the walls and to a 5 cm grid, with lengths shown in metres.
+3. **Adjust:** click to select, drag to move, the handles to resize or turn; the panel on the right has every field,
+   with your entities (by name and state), icons by search, a marker's label with the text it gives, and the effects
+   with a preview. With a lamp selected, Ctrl+click a piece to add it to the lamp's shadows. The YAML tab shows the
+   file itself, editable, and the card follows as you type.
+4. **Save** it as YAML (your comments kept) or as JSON for `home_url`. Chrome and Edge save back to the same file;
+   other browsers download it. The work in progress is kept in the browser, so a closed tab loses nothing.
+5. **In Home Assistant:** put the JSON (and the picture, if it stays as the background) in `/config/www/`, and give the
+   card `home_url: /local/my-home.json`.
+
+The pickers know the example's entities. For yours, run the editor from a clone of this repository with a snapshot of
+your states: `tools/simulator/snapshot.sh --home my-home.yaml --all`, then open
+`tools/editor/index.html?states=../simulator/states.js`.
 
 ## Describing your home
 
@@ -275,9 +303,12 @@ palette:
 
 ## Tools
 
-Open the pages in `tools/simulator/` straight from the files in a browser; nothing needs a server.
+Open the pages in `tools/` straight from the files in a browser; nothing needs a server.
 
-- **`index.html`, the simulator:** your home with a made-up sun. Pick a date and time (the sun is worked out for your
+- **`editor/index.html`, [the editor](#the-editor)**, also [online](https://viktorbalog.github.io/lightwell-card/editor/).
+
+- **`simulator/index.html`, the simulator:** your home with a made-up sun, also
+  [online](https://viktorbalog.github.io/lightwell-card/simulator/) with the example. Pick a date and time (the sun is worked out for your
   location), which way the plan faces, the clouds, the blinds and the lights; tap markers to switch things. Time
   presets set the lights and blinds the way the home's `simulator.scenes` say:
 
@@ -292,14 +323,17 @@ Open the pages in `tools/simulator/` straight from the files in a browser; nothi
   It shows the example by default. For your own home: `node tools/simulator/home-tool.mjs js my-home.yaml my-home.js`,
   then `tools/simulator/snapshot.sh --home my-home.yaml` (with `HA_HOST` and `HA_TOKEN` set) for your real states and
   location, and open `index.html?home=my-home.js&states=states.js` (paths relative to the page). With `--all` after
-  the home it saves every entity in Home Assistant, which the editor (`tools/editor/index.html?states=../simulator/states.js`)
-  then offers in its entity pickers.
-- **`bench.html` and `trace-report.cjs`:** how much work the card does, measured in a Chrome performance trace.
-- **`ref.html` and `pngdiff.cjs`:** fixed scenes in light and dark, and a pixel-by-pixel comparison of two screenshots,
+  the home it saves every entity in Home Assistant, for the editor's pickers.
+- **`simulator/bench.html` and `trace-report.cjs`:** how much work the card does, measured in a Chrome performance trace.
+- **`simulator/ref.html` and `pngdiff.cjs`:** fixed scenes in light and dark, and a pixel-by-pixel comparison of two screenshots,
   to check a change doesn't change the looks.
-- **`capture.html` and `scripts/pictures.sh`:** the pictures in this README.
+- **`simulator/capture.html` and `scripts/pictures.sh`:** the pictures in this README.
 
-All of them take `?card=`, `?tag=`, `?home=` and `?states=`.
+The simulator's pages take `?card=`, `?tag=`, `?home=` and `?states=`; the editor `?states=`. They load scripts by
+path only (`states.js`, `../../my/home.js`), never from another site.
+
+`scripts/site.sh` builds the site the [Pages workflow](.github/workflows/pages.yml) publishes: the editor and the
+simulator with the example homes.
 
 ## Development
 

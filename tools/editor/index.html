@@ -1,5 +1,5 @@
 <!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lightwell editor</title>
+<title>Lightwell editor</title><link rel="icon" href="../../docs/logo.svg">
 <!-- The editor for homes (src/editor/, built into dist/lightwell-editor.js): open a home file (YAML or JSON) or start
      from the example, edit it, see the card follow under any sun, and save it. Open this file in a browser; nothing
      needs a server. The states it shows: the example's made-up ones, or ?states=<script> for a snapshot of your own
@@ -9,8 +9,9 @@
   lightwell-editor { height: 100%; }
 </style>
 <script>
-  const Q = new URLSearchParams(location.search);
-  document.write(`<script src="${Q.get('states') || '../../example/states.js'}"><\/script>`);
+  // By path only, on the page's own site (no scheme, no //, no quotes), as tool.js does.
+  const Q = new URLSearchParams(location.search), states = Q.get('states');
+  document.write(`<script src="${states && /^(?!\/\/)[\w ./%~-]+\.js$/.test(states) ? states : '../../example/states.js'}"><\/script>`);
 </script>
 <script src="../../dist/lightwell-editor.js"></script>
 <body>

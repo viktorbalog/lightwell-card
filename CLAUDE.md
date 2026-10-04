@@ -17,7 +17,8 @@ HACS. The README describes it for users; read it first.
 - `dist/lightwell-card.js`: the bundle, built by `npm run build` and committed (HACS installs it from the repo). Never
   edit it by hand; rebuild and commit it with the source change.
 - `example/`: the example homes (YAML, plus the `home.js` the build makes for the tools) and made-up states.
-- `tools/editor/`: the editor's page. `tools/simulator/`: the simulator, the bench, the reference page, the capture
+- `tools/editor/`: the editor's page. `scripts/site.sh` builds the GitHub Pages site (`.github/workflows/pages.yml`)
+  from the tools and the examples. `tools/simulator/`: the simulator, the bench, the reference page, the capture
   page, `home-tool.mjs`, `snapshot.sh`.
 - `docs/`: the logo and the README's pictures; `docs/plans/`: the plans.
 
