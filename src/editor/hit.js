@@ -14,7 +14,7 @@ const MARKER = 0.03;
 // Text sizes by class, in the units of a view 1145 wide (card.js: .room, .lbl).
 const TEXT = {room: 40, lbl: 24};
 
-const inPoly = (poly, [x, y]) => {
+export const inPoly = (poly, [x, y]) => {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [xi, yi] = poly[i], [xj, yj] = poly[j];

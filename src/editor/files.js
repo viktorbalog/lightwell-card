@@ -76,3 +76,29 @@ export async function saveFileAs(text, format, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   return {name, handle: null};
 }
+
+// Pictures of plans, by the path the home gives them (/local/plan.png), kept in the browser (IndexedDB) so that the
+// editor can show a home's background before it's in Home Assistant. Failing storage only means no picture.
+const db = () => new Promise((resolve, reject) => {
+  const req = indexedDB.open('lightwell-editor', 1);
+  req.onupgradeneeded = () => req.result.createObjectStore('pictures');
+  req.onsuccess = () => resolve(req.result);
+  req.onerror = () => reject(req.error);
+});
+const inStore = (mode, fn) => db().then(d => new Promise((resolve, reject) => {
+  const req = fn(d.transaction('pictures', mode).objectStore('pictures'));
+  req.onsuccess = () => resolve(req.result);
+  req.onerror = () => reject(req.error);
+}));
+export const savePicture = (path, blob) => inStore('readwrite', s => s.put(blob, path)).catch(() => null);
+export const loadPicture = path => inStore('readonly', s => s.get(path)).catch(() => null);
+
+// An image file's size in pixels: {w, h}.
+export function imageSize(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve({w: img.naturalWidth, h: img.naturalHeight});
+    img.onerror = () => reject(new Error("That picture didn't load"));
+    img.src = url;
+  });
+}

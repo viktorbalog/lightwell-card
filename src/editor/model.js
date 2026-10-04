@@ -73,10 +73,19 @@ function create(doc, value, flow) {
   return node;
 }
 
+// The collection at `path` in block style if it's an empty flow one (`walls: []`) in a block collection: about to get
+// its first item, which goes on a line of its own as in the example homes.
+function unflowEmpty(doc, path) {
+  const node = path.length ? doc.getIn(path, true) : doc.contents;
+  const outer = path.length > 1 ? doc.getIn(path.slice(0, -1), true) : doc.contents;
+  if (isCollection(node) && node.flow && !node.items.length && path.length && isCollection(outer) && !outer.flow) node.flow = false;
+}
+
 // Sets the value at `path` in `doc`, creating the maps on the way; numbers and lists already there are changed in place.
 function setIn(doc, path, value) {
   const node = doc.getIn(path, true);
   if (node === undefined) {
+    if (path.length > 1) unflowEmpty(doc, path.slice(0, -1));
     const parent = path.length > 1 ? doc.getIn(path.slice(0, -1), true) : doc.contents;
     doc.setIn(path, create(doc, value, isCollection(parent) && parent.flow));
   } else {
@@ -92,6 +101,7 @@ function insertIn(doc, path, value, index) {
     seq = doc.getIn(path, true);
   }
   if (!YAML.isSeq(seq)) throw new Error(`${path.join('.')} isn't a list`);
+  unflowEmpty(doc, path);
   seq.items.splice(index ?? seq.items.length, 0, create(doc, value, seq.flow));
 }
 

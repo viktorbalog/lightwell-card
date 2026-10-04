@@ -122,12 +122,12 @@ step 6.
 | 1. Groundwork | done 2026-10-03 | Shared controls, the model (both example homes and the Taksony flat round-trip byte for byte), `<lightwell-editor>` with the YAML view, opening and saving, its own bundle. A fix followed the same day: states made up by a tap now have `attributes` (tapping a home's own lights failed with the example's states). |
 | 2. Selection and properties | done 2026-10-03 | `src/schema.js` with its check against `defineHome`, hit testing, the overlay, the item list (add, reorder, rename with references, delete), the property forms. A light's glow is picked after the furniture (see Approach). |
 | 3. Moving things | done 2026-10-04 | `src/editor/manipulate.js` (moving, handles, resizing, turning, polygon corners, snapping, the ruler), dragging with a live preview and one edit on letting go (`HomeModel.batch`), a selection of several, arrows, Ctrl+D, a grid. A light's pool centre handle moves the pool alone. |
-| 4. Drawing things | next | |
-| 5. Entities | | |
+| 4. Drawing things | done 2026-10-04 | `src/editor/create.js`: new homes (example, empty, over a picture kept in the browser, with the scale measured on it), the tools (wall, room, opening with its wall inferred, furniture, light, marker, label, scale), defaults by name and room. A lamp's shadows are toggled by Ctrl+click. Checked by tracing the background example's studio from its picture. |
+| 5. Entities | next | |
 | 6. Publishing | | |
 
 Each step's file has its Outcome. Still to do by hand from steps 1–3: Firefox, saving and reopening through the
-browser's real file dialogs, and rearranging the example's living room with a real mouse.
+browser's real file dialogs, and drawing with a real mouse.
 
 ## Verification
 

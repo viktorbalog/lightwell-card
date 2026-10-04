@@ -3,7 +3,8 @@
 // selected item's properties (panels.js, from the schema) and the home's YAML. Every change re-derives the home and
 // redraws the card, or lists the check's messages at the bottom while it doesn't pass (a message selects its item).
 // Items are moved, resized and turned on the plan (manipulate.js): the card follows the pointer, and the model gets
-// one edit when it's let go.
+// one edit when it's let go. The tools draw new ones (create.js); a home starts from the example, empty, or over a
+// picture of its plan, whose scale is set by measuring a known length on it.
 // The file is opened and saved as YAML (comments kept, model.js) or JSON (for the card's home_url), and the work in
 // progress is kept in the browser's storage.
 //
@@ -11,7 +12,8 @@
 // worked out for), set before it's connected; `example` (the YAML a new home starts from).
 import {HomeModel, renameIn, yamlOf} from './model.js';
 import {simulatorControls} from './controls.js';
-import {droppedFile, formatOf, hasFileAccess, pickFile, renamed, saveFileAs, writeFile} from './files.js';
+import {droppedFile, formatOf, hasFileAccess, imageSize, loadPicture, pickFile, renamed, savePicture, saveFileAs, writeFile} from './files.js';
+import {OPENING_KINDS, emptyHome, lightFrom, openingFrom, pictureHome, pieceFrom, scaleFrom, wallFrom} from './create.js';
 import {hitTest, itemAt, lightCentre, outlineSvg} from './hit.js';
 import {anchors, axesOf, boundsOf, dragHandle, handles, moveItem, removeCorner, rulerText, snapMove, snapPoint, snapTargets,
   snapsHandle, startHandle, tidy} from './manipulate.js';
@@ -31,6 +33,20 @@ const HANDLE = 8;
 const TURN_STEP = 15;
 // The grid, as a share of a metre (5 cm).
 const GRID = 0.05;
+// What each tool does, under the plan.
+const HINTS = {
+  select: "Click to select (again, or Tab: what's under it; Shift+click: more), drag on empty space for a box · drag to move, the handles to resize, turn or reshape (double-click a corner removes it) · Shift: along an axis, Alt: no snapping · arrows nudge (Shift: ×10) · Ctrl+D duplicates · with a lamp selected, Ctrl+click a piece to add it to its shadows or take it out · Alt+click taps the card · Esc clears",
+  wall: "Drag a wall's box, or along its middle for a wall of the usual thickness (25 cm outside, 15 cm inside a room) · Esc: back to selecting",
+  room: 'Drag a rectangle, or click its corners for a polygon (click the first again, double-click or Enter to finish; Backspace takes the last back) · Esc: back to selecting',
+  opening: 'Drag along an outer wall, from one end of the window or door to the other: its side and thickness come from the wall · Esc: back to selecting',
+  piece: 'Drag a rectangle, from the middle out for a circle, or click corners for a polygon (choose above); a click places a piece of the usual size · Esc: back to selecting',
+  light: "Click where the lamp is, or drag out its glow's size: its pool and shadows come with it · Esc: back to selecting",
+  marker: 'Click where the marker goes · Esc: back to selecting',
+  label: 'Click where the label goes (its middle) · Esc: back to selecting',
+  scale: 'Drag along something whose length you know (a wall, a door), then type its length to set the scale; or just measure · Esc: back to selecting',
+};
+// The keys of the tools.
+const TOOL_KEYS = {v: 'select', w: 'wall', r: 'room', o: 'opening', f: 'piece', l: 'light', m: 'marker', t: 'label', s: 'scale'};
 
 const STYLE = `
   :host { display: grid; grid-template-rows: auto 1fr auto; height: 100%; font: 14px system-ui, sans-serif;
@@ -54,7 +70,7 @@ const STYLE = `
   .pane { flex: 1; overflow: auto; min-height: 0; } .pane[hidden] { display: none; }
   .controls { padding: 12px; } .controls form { width: auto; }
   .preview { padding: 16px; display: flex; justify-content: center; align-items: flex-start; overflow: auto; outline: none; }
-  .preview.dark { background: #111; }
+  .preview.dark { background: #111; } .preview.dark .tools, .preview.dark .hint { color: #bbb; }
   .stage { position: relative; width: 100%; max-width: 900px; }
   ha-card { display: block; border-radius: 12px; background: var(--card-background-color, #fff); }
   .preview.dark ha-card { --card-background-color: #1c1c1c; }
@@ -71,6 +87,20 @@ const STYLE = `
   .overlay .box { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 3; fill: rgba(30, 136, 229, 0.08); }
   .overlay .grid .minor { stroke: rgba(30, 136, 229, 0.12); stroke-width: 0.5; }
   .overlay .grid .major { stroke: rgba(30, 136, 229, 0.3); stroke-width: 0.75; }
+  .overlay .draft * { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 5 3; fill: rgba(30, 136, 229, 0.15); }
+  .overlay .draft circle.point { fill: var(--accent); stroke: none; }
+  .overlay .shadows * { stroke: #ef6c00; stroke-width: 1.5; stroke-dasharray: 3 3; }
+  .overlay.drawing { cursor: crosshair !important; }
+  .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 10px; font-size: 13px; }
+  .tools button { padding: 3px 8px; }
+  .tools .options { display: flex; align-items: center; gap: 6px; margin-left: 6px; color: #555; }
+  .tools select, .tools input { font: inherit; }
+  dialog { border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; max-width: 460px; font: 14px system-ui, sans-serif; }
+  dialog h2 { margin: 0 0 12px; font-size: 16px; }
+  dialog .choice { display: grid; gap: 4px; margin: 0 0 14px; }
+  dialog .choice p { margin: 0; color: #666; font-size: 13px; }
+  dialog input[type=number] { width: 5em; font: inherit; }
+  dialog .end { text-align: right; }
   .ruler { position: absolute; pointer-events: none; padding: 2px 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.75);
     color: #fff; font: 12px ui-monospace, Menlo, Consolas, monospace; white-space: pre; }
   .ruler:empty { display: none; }
@@ -149,10 +179,20 @@ const HTML = `
       <div class="pane controls" data-pane="controls" hidden><form></form></div>
     </div>
     <div class="preview" tabindex="0">
-      <div><div class="stage"><svg class="overlay"><g class="grid"></g><g class="hover"></g><g class="sel"></g><g class="guides"></g><g class="handles"></g><rect class="box" width="0" height="0"/></svg><div class="ruler"></div></div>
-      <p class="hint">Click to select (again, or Tab: what's under it; Shift+click: more), drag on empty space for a box ·
-        drag to move, the handles to resize, turn or reshape (double-click a corner removes it) · Shift: along an axis,
-        Alt: no snapping · arrows nudge (Shift: ×10) · Ctrl+D duplicates · Alt+click taps the card · Esc clears</p></div>
+      <div><div class="tools" role="toolbar">
+        <button data-tool="select" title="Select, move and reshape (V)">Select</button>
+        <button data-tool="wall" title="Walls (W)">Wall</button>
+        <button data-tool="room" title="Rooms (R)">Room</button>
+        <button data-tool="opening" title="Windows and doors (O)">Opening</button>
+        <button data-tool="piece" title="Furniture (F)">Furniture</button>
+        <button data-tool="light" title="Lamps (L)">Light</button>
+        <button data-tool="marker" title="Markers (M)">Marker</button>
+        <button data-tool="label" title="Labels (T)">Label</button>
+        <button data-tool="scale" title="Measure, or set the scale from a known length (S)">Scale</button>
+        <span class="options"></span>
+      </div>
+      <div class="stage"><svg class="overlay"><g class="grid"></g><g class="hover"></g><g class="shadows"></g><g class="sel"></g><g class="guides"></g><g class="handles"></g><g class="draft"></g><rect class="box" width="0" height="0"/></svg><div class="ruler"></div></div>
+      <p class="hint"></p></div>
     </div>
     <div class="side right">
       <div class="tabs" role="tablist"><button data-tab="props" aria-selected="true">Properties</button><button data-tab="text">YAML</button></div>
@@ -161,7 +201,16 @@ const HTML = `
     </div>
   </main>
   <footer aria-live="polite"></footer>
-  <div class="drop">Drop a home file (YAML or JSON) to open it</div>
+  <dialog class="start"><form method="dialog">
+    <h2>Start a home</h2>
+    <div class="choice"><button value="example">The example flat</button><p>A made-up flat with every kind of item, to change into yours.</p></div>
+    <div class="choice"><button value="picture">Over a picture of its plan…</button><p>A floor plan image (or drop one on the editor):
+      measure a known length on it to set the scale, then trace it. It can stay under the card as its background.</p></div>
+    <div class="choice"><button value="empty">Empty</button><p><input type="number" name="w" value="10" min="1" step="any"> ×
+      <input type="number" name="h" value="8" min="1" step="any"> m, <input type="number" name="scale" value="100" min="1" step="any"> units a metre</p></div>
+    <p class="end"><button value="cancel">Cancel</button></p>
+  </form></dialog>
+  <div class="drop">Drop a home file (YAML or JSON) to open it, or a picture of a plan to start over it</div>
 `;
 
 const storage = {
@@ -203,6 +252,7 @@ export class LightwellEditor extends HTMLElement {
     this._el = {name: $('.name'), text: $('textarea'), footer: $('footer'), preview: $('.preview'), stage: $('.stage'),
       overlay: $('.overlay'), hover: $('.overlay .hover'), sel: $('.overlay .sel'), list: $('.list'), props: $('.props'),
       handles: $('.overlay .handles'), guides: $('.overlay .guides'), box: $('.overlay .box'), grid: $('.overlay .grid'), ruler: $('.ruler'),
+      draft: $('.overlay .draft'), shadows: $('.overlay .shadows'), hint: $('.hint'), options: $('.tools .options'), start: $('dialog.start'),
       buttons: Object.fromEntries([...root.querySelectorAll('[data-act]')].map(b => [b.dataset.act, b]))};
 
     const draft = storage.get();
@@ -213,6 +263,8 @@ export class LightwellEditor extends HTMLElement {
     this._sels = [];
     this._showGrid = false;
     this._preview = null;
+    this._pictures = {};
+    this._opts = {wall: 'auto', floor: true, kind: 'window', glass: true, piece: 'rect'};
     this._shown = {states: this.states, north: undefined};
 
     this._card = document.createElement('lightwell-card');
@@ -228,6 +280,8 @@ export class LightwellEditor extends HTMLElement {
       if (act) this._act(act);
       const tab = e.target.closest?.('[data-tab]');
       if (tab) this._tab(tab.dataset.tab);
+      const tool = e.target.closest?.('[data-tool]');
+      if (tool) this.setTool(tool.dataset.tool);
     });
     this._el.text.addEventListener('input', () => {
       clearTimeout(this._typing);
@@ -247,6 +301,7 @@ export class LightwellEditor extends HTMLElement {
     overlay.addEventListener('pointercancel', () => this._cancelDrag());
     overlay.addEventListener('dblclick', e => this._dblclick(e));
     overlay.addEventListener('pointerleave', () => { this._el.hover.innerHTML = ''; });
+    this._el.start.addEventListener('close', () => this._started());
     this._el.footer.addEventListener('click', e => {
       const path = e.target.closest('p')?.dataset.path;
       if (path) this.select(JSON.parse(path));
@@ -263,6 +318,8 @@ export class LightwellEditor extends HTMLElement {
       if (!e.dataTransfer.types.includes('Files')) return;
       e.preventDefault();
       this.classList.remove('dragging');
+      const image = [...e.dataTransfer.items].find(i => i.kind === 'file' && i.type.startsWith('image/'))?.getAsFile();
+      if (image) return this._picture(image).catch(err => this._message(err.message));
       const file = await droppedFile(e.dataTransfer);
       if (file) this._open(file);
     });
@@ -277,6 +334,7 @@ export class LightwellEditor extends HTMLElement {
       template: path => this._template(path),
       shapeTemplate: (kind, old) => this._shapeTemplate(kind, old),
     };
+    this.setTool('select');
     this._changed({text: true});
   }
 
@@ -317,8 +375,15 @@ export class LightwellEditor extends HTMLElement {
   }
 
   _renderCard() {
-    const data = this._preview?.data || this._data;
+    let data = this._preview?.data || this._data;
     if (!data) return;
+    // A background picture kept in the browser stands in for the one the home names (/local/plan.png); while it's
+    // being looked for there (null), the card goes without, rather than asking for a file that isn't there.
+    const bg = data.drawing?.background;
+    if (bg && typeof bg.image === 'string' && !(bg.image in this._pictures)) this._loadPicture(bg.image);
+    const url = bg && this._pictures[bg.image];
+    if (url) data = {...data, drawing: {...data.drawing, background: {...bg, image: url}}};
+    else if (bg && url === null) data = {...data, drawing: {...data.drawing, background: undefined}};
     try {
       this._card.setConfig({home: data, north: this._shown.north});
       this._card.hass = {states: this._shown.states, themes: {darkMode: this._dark}, callService: this._controls.callService};
@@ -346,12 +411,15 @@ export class LightwellEditor extends HTMLElement {
     this._el.handles.innerHTML = this._handles(data).map(h => (h.turn || h.mid || h.id.startsWith('pool')
       ? `<circle class="${h.turn ? 'turn' : h.mid ? 'mid' : ''}" cx="${f(h.at[0])}" cy="${f(h.at[1])}" r="${f(s / (h.mid ? 2.6 : 2))}"/>`
       : `<rect x="${f(h.at[0] - s / 2)}" y="${f(h.at[1] - s / 2)}" width="${f(s)}" height="${f(s)}"/>`)).join('');
+    // A selected lamp's pieces in shadow.
+    const pool = this._sels.length === 1 && this._sel[0] === 'lights' && itemAt(data, this._sel)?.pool;
+    this._el.shadows.innerHTML = home && pool ? (pool.shadows || []).map(n => outlineSvg(home, ['furniture', n])).join('') : '';
     this._renderGrid();
   }
 
   // The handles of the selected item, if it's the only one and can be changed.
   _handles(data = this._data) {
-    if (this._sels.length !== 1 || !this.model.home || !data) return [];
+    if (this._tool !== 'select' || this._sels.length !== 1 || !this.model.home || !data) return [];
     return handles(this._sel, itemAt(data, this._sel), {reach: 3 * HANDLE * this._px()});
   }
 
@@ -452,6 +520,11 @@ export class LightwellEditor extends HTMLElement {
   _pointer(e) {
     const at = this._at(e);
     if (!at) return;
+    if (this._tool !== 'select') {
+      this._el.hover.innerHTML = '';
+      if (this._poly) this._drawDraft(this._snap(e, at, this._poly.points.at(-1)), null, e);
+      return;
+    }
     const handle = this._handleAt(at), hit = !handle && hitTest(this._home, at.p, at.tol)[0];
     this._el.hover.innerHTML = hit && !this._sels.some(p => samePath(p, hit)) ? outlineSvg(this._home, hit) : '';
     this._el.overlay.style.cursor = handle ? 'crosshair' : hit && this.model.home ? 'move' : 'default';
@@ -465,13 +538,15 @@ export class LightwellEditor extends HTMLElement {
     this._el.preview.focus({preventScroll: true});
     try { this._el.overlay.setPointerCapture(e.pointerId); } catch { /* a pointer the browser doesn't track */ }
     this._press = {x: e.clientX, y: e.clientY, at, handle: this._handleAt(at), shift: e.shiftKey, drag: null};
+    if (this._tool !== 'select') Object.assign(this._press, {create: true, start: this._snap(e, at, this._poly?.points.at(-1))});
   }
 
   _up(e) {
     const press = this._press;
     this._press = null;
     if (!press) return;
-    if (press.drag) this._endDrag(press.drag);
+    if (press.create) this._drawEnd(e, press);
+    else if (press.drag) this._endDrag(press.drag);
     else this._click(e, press);
   }
 
@@ -486,6 +561,7 @@ export class LightwellEditor extends HTMLElement {
     }
     if (press.handle) return;
     const hits = hitTest(this._home, press.at.p, press.at.tol);
+    if ((e.ctrlKey || e.metaKey) && this._toggleShadow(hits)) return;
     if (press.shift) {
       if (hits[0]) this._toggle(hits[0]);
       return;
@@ -496,8 +572,24 @@ export class LightwellEditor extends HTMLElement {
     this.select(hits[0] || null);
   }
 
-  // A double click on a polygon's corner removes it.
+  // With a lamp with a pool selected: the piece among `hits` added to its shadows, or taken out. False when it isn't.
+  _toggleShadow(hits) {
+    const path = this._sels.length === 1 && this._sel[0] === 'lights' ? this._sel : null;
+    const light = path && itemAt(this.model.data, path), piece = hits.find(h => h[0] === 'furniture');
+    if (!light?.pool || !piece) return false;
+    if (!this.model.data.furniture[piece[1]]?.height) {
+      this._message(`${piece[1]} has no height, so it casts no shadows: give it one first`);
+      return true;
+    }
+    const shadows = light.pool.shadows || [];
+    const next = shadows.includes(piece[1]) ? shadows.filter(n => n !== piece[1]) : [...shadows, piece[1]];
+    this._edit(() => this.model.set([...path, 'pool', 'shadows'], next));
+    return true;
+  }
+
+  // A double click on a polygon's corner removes it; while drawing a polygon, it finishes it.
   _dblclick(e) {
+    if (this._tool !== 'select') return this._poly && this._finishPoly();
     const at = this._at(e), handle = at && this._handleAt(at);
     if (!handle?.id.match(/(^|\/)v:\d+$/)) return;
     const item = removeCorner(this._sel, itemAt(this.model.data, this._sel), handle.id);
@@ -535,6 +627,7 @@ export class LightwellEditor extends HTMLElement {
   // The pointer moved while pressed: starts the drag once it's far enough, then previews it.
   _dragTo(e) {
     const press = this._press;
+    if (press.create) return this._drawTo(e, press);
     if (!press.drag) {
       if (Math.hypot(e.clientX - press.x, e.clientY - press.y) < DRAG) return;
       press.drag = this._startDrag(press);
@@ -618,6 +711,7 @@ export class LightwellEditor extends HTMLElement {
   _cancelDrag() {
     if (!this._press) return;
     this._press = null;
+    this._el.draft.innerHTML = '';
     this._clearDrag();
     this._renderCard();
   }
@@ -631,6 +725,182 @@ export class LightwellEditor extends HTMLElement {
     this._el.ruler.textContent = '';
     this._el.box.setAttribute('width', 0);
     this._el.box.setAttribute('height', 0);
+  }
+
+  // The tool in use: 'select', or one that draws (wall, room, opening, piece, light, marker, label, scale).
+  setTool(tool) {
+    if (!HINTS[tool]) return;
+    this._tool = tool;
+    this._poly = null;
+    this._cancelDrag();
+    this._el.draft.innerHTML = '';
+    for (const b of this._root.querySelectorAll('[data-tool]')) b.setAttribute('aria-pressed', b.dataset.tool === tool);
+    this._el.overlay.classList.toggle('drawing', tool !== 'select');
+    this._el.hint.textContent = HINTS[tool];
+    this._renderOptions();
+    this._renderOverlay();
+  }
+
+  // The tool's options, next to the tools.
+  _renderOptions() {
+    const o = this._opts, box = this._el.options;
+    const select = (key, values) => `<select data-opt="${key}">${Object.entries(values).map(([v, t]) => `<option value="${v}"${o[key] === v ? ' selected' : ''}>${t}</option>`).join('')}</select>`;
+    const check = (key, text) => `<label><input type="checkbox" data-opt="${key}"${o[key] ? ' checked' : ''}> ${text}</label>`;
+    box.innerHTML = {
+      wall: select('wall', {auto: 'Outer or inner, by where', outer: 'Outer wall', inner: 'Inner wall'}),
+      room: check('floor', 'with its floor'),
+      opening: select('kind', {window: 'Window', door: 'Door'}) + check('glass', 'with its glass'),
+      piece: select('piece', {rect: 'Rectangle', circle: 'Circle', poly: 'Polygon'}),
+    }[this._tool] || '';
+    for (const input of box.querySelectorAll('[data-opt]')) {
+      input.onchange = () => { o[input.dataset.opt] = input.type === 'checkbox' ? input.checked : input.value; this._poly = null; this._el.draft.innerHTML = ''; };
+    }
+  }
+
+  // A pointer position snapped for drawing: to the other items and the grid (Shift: along an axis from `from`; Alt:
+  // not at all), with the guides shown.
+  _snap(e, at, from) {
+    if (e.altKey || !this._data) { this._showGuides(); return at.p; }
+    const key = this.model.text;
+    if (this._targets?.key !== key) this._targets = {key, ...snapTargets(this._items(this._data), [], this._home.view.w / 1145)};
+    const {p, guides} = snapPoint(at.p, {...this._targets, tol: at.tol, grid: this._grid(), axis: e.shiftKey && !!from, from});
+    this._showGuides(guides);
+    return p;
+  }
+
+  // What's being drawn, in the overlay: a box, a line, a circle or a polygon so far; the ruler with its size.
+  _drawDraft(p, press, e) {
+    const f = v => +v.toFixed(1), a = press?.start, tool = this._tool, m = this._data?.units_per_metre || 100;
+    let svg = '', ruler = null;
+    if (this._poly) {
+      const pts = [...this._poly.points, p];
+      svg = `<polyline points="${pts.map(q => q.map(f).join(',')).join(' ')}"/>` + this._poly.points.map(q => `<circle class="point" cx="${f(q[0])}" cy="${f(q[1])}" r="${f(3 * this._px())}"/>`).join('');
+      ruler = {length: Math.hypot(p[0] - pts.at(-2)[0], p[1] - pts.at(-2)[1])};
+    } else if (a && (tool === 'scale' || tool === 'opening')) {
+      svg = `<line x1="${f(a[0])}" y1="${f(a[1])}" x2="${f(p[0])}" y2="${f(p[1])}"/>`;
+      ruler = {length: Math.hypot(p[0] - a[0], p[1] - a[1])};
+    } else if (a && (tool === 'light' || (tool === 'piece' && this._opts.piece === 'circle'))) {
+      const r = Math.hypot(p[0] - a[0], p[1] - a[1]);
+      svg = `<circle cx="${f(a[0])}" cy="${f(a[1])}" r="${f(r)}"/>`;
+      ruler = {radius: r};
+    } else if (a && tool === 'wall') {
+      const {rect} = wallFrom(this._data, a, p, this._wallOpts());
+      svg = `<rect x="${rect[0]}" y="${rect[1]}" width="${rect[2]}" height="${rect[3]}"/>`;
+      ruler = {size: [rect[2], rect[3]]};
+    } else if (a) {
+      const [x0, y0, x1, y1] = boundsOf([a, p]);
+      svg = `<rect x="${f(x0)}" y="${f(y0)}" width="${f(x1 - x0)}" height="${f(y1 - y0)}"/>`;
+      ruler = {size: [x1 - x0, y1 - y0]};
+    }
+    this._el.draft.innerHTML = svg;
+    if (e) {
+      const s = this._el.stage.getBoundingClientRect();
+      Object.assign(this._el.ruler.style, {left: `${e.clientX - s.left + 16}px`, top: `${e.clientY - s.top + 16}px`});
+    }
+    this._el.ruler.textContent = rulerText(ruler, m);
+  }
+
+  _wallOpts() {
+    return {inner: this._opts.wall === 'auto' ? undefined : this._opts.wall === 'inner'};
+  }
+
+  _drawTo(e, press) {
+    if (!press.drag) {
+      if (Math.hypot(e.clientX - press.x, e.clientY - press.y) < DRAG) return;
+      press.drag = {kind: 'draw'};
+    }
+    const at = this._at(e);
+    if (at) this._drawDraft(this._snap(e, at, press.start), press, e);
+  }
+
+  // The pointer was let go while drawing: the new item, from the drag (or the click).
+  _drawEnd(e, press) {
+    const at = this._at(e), moved = !!press.drag, a = press.start, b = at && this._snap(e, at, a);
+    this._el.draft.innerHTML = '';
+    this._el.ruler.textContent = '';
+    this._showGuides();
+    if (!b || !this._data) return;
+    if (!this.model.home && this._tool !== 'scale') return this._message('Fix the mistakes listed here first: the plan shows the last version without them.');
+    const data = this.model.data, m = data.units_per_metre || 100, tool = this._tool, r = v => tidy(v);
+    const d = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const box = () => { const [x0, y0, x1, y1] = boundsOf([a, b]); return [x0, y0, x1 - x0, y1 - y0].map(r); };
+    if ((tool === 'room' || (tool === 'piece' && this._opts.piece === 'poly')) && (!moved || this._poly)) return this._addCorner(moved ? b : a);
+    if (tool === 'wall') {
+      if (!moved) return;
+      this._create([{insert: ['drawing', 'walls'], value: wallFrom(data, a, b, this._wallOpts())}], ['drawing', 'walls', (data.drawing?.walls || []).length]);
+    } else if (tool === 'room') {
+      this._newRoom([box()], {rect: box()});
+    } else if (tool === 'opening') {
+      if (!moved) return;
+      const made = openingFrom(data, a, b, {tol: at.tol, kind: this._opts.kind});
+      if (!made) return this._message('Drag along an outer wall: a rectangle in the walls (of class wall), from one end of the opening to the other.');
+      const ops = [{insert: ['openings'], value: made.opening}];
+      if (this._opts.glass) ops.push({insert: ['drawing', 'glazing'], value: made.glass});
+      this._create(ops, ['openings', (data.openings || []).length]);
+      if (!made.opening.room) this._message('This opening is in no room yet: choose its room.', 'info');
+    } else if (tool === 'piece') {
+      const kind = this._opts.piece;
+      const shape = kind === 'circle' ? {circle: [r(a[0]), r(a[1]), r(moved ? d : 0.3 * m)]}
+        : {rect: moved ? box() : [r(a[0] - 0.5 * m), r(a[1] - 0.3 * m), r(m), r(0.6 * m)]};
+      this._newPiece(shape);
+    } else if (tool === 'light') {
+      this._create([{insert: ['lights'], value: lightFrom(data, a, moved ? d : 0)}], ['lights', (data.lights || []).length]);
+    } else if (tool === 'marker') {
+      if (moved) return;
+      this._create([{insert: ['markers'], value: {entity: 'light.new_light', x: r(a[0]), y: r(a[1]), icon: 'mdi:lightbulb', tap: 'toggle'}}], ['markers', (data.markers || []).length]);
+    } else if (tool === 'label') {
+      if (moved) return;
+      const text = prompt('The label:', 'Room')?.trim();
+      if (!text) return;
+      this._create([{insert: ['drawing', 'labels'], value: {text, at: [r(a[0]), r(a[1])], class: 'room'}}], ['drawing', 'labels', (data.drawing?.labels || []).length]);
+    } else if (tool === 'scale') {
+      if (!moved) return;
+      const now = `${(d / m).toFixed(2)} m at the scale now`;
+      const answer = prompt(`That line is ${now}. How long is it really, in metres? (Cancel just measures.)`, (d / m).toFixed(2));
+      const metres = parseFloat(String(answer ?? '').replace(',', '.'));
+      if (!(metres > 0)) return this._message(`Measured: ${now}.`, 'info');
+      const scale = scaleFrom(a, b, metres);
+      this._edit(() => this.model.set(['units_per_metre'], scale));
+      this._message(`The scale is ${scale} units a metre now. Lengths in metres (heights, the ruler, shadows) follow it.`, 'info');
+    }
+  }
+
+  // Adds ops as one edit and selects `path`, staying in the tool.
+  _create(ops, path) {
+    this._edit(() => this.model.batch(ops));
+    this.select(path);
+  }
+
+  _newRoom(region, floor) {
+    const name = this._newName(['rooms'], 'room');
+    if (!name) return;
+    const ops = [{set: ['rooms', name], value: region}];
+    if (this._opts.floor) ops.push({insert: ['drawing', 'floors'], value: {...floor, class: 'floor'}});
+    this._create(ops, ['rooms', name]);
+  }
+
+  _newPiece(shape) {
+    const name = this._newName(['furniture'], 'piece');
+    if (name) this._create([{set: ['furniture', name], value: pieceFrom(this.model.data, name, shape)}], ['furniture', name]);
+  }
+
+  // A polygon drawn by clicks: a corner more, or the polygon finished by clicking its first corner again.
+  _addCorner(p) {
+    const poly = this._poly ??= {points: []}, pts = poly.points, px = this._px();
+    if (pts.length >= 3 && Math.hypot(p[0] - pts[0][0], p[1] - pts[0][1]) <= (REACH + 2) * px) return this._finishPoly();
+    const last = pts.at(-1);
+    if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > px) pts.push(p.map(tidy));
+    this._drawDraft(p);
+  }
+
+  _finishPoly() {
+    const pts = this._poly?.points || [];
+    this._poly = null;
+    this._el.draft.innerHTML = '';
+    this._el.ruler.textContent = '';
+    if (pts.length < 3) return this._message('A polygon needs three corners at least', 'info');
+    if (this._tool === 'room') this._newRoom([pts], {poly: pts});
+    else this._newPiece({poly: pts});
   }
 
   // Moves the selection by (dx, dy), as one edit.
@@ -822,8 +1092,8 @@ export class LightwellEditor extends HTMLElement {
         this._renderCard();
         this._updateButtons();
       } else if (act === 'new') {
-        if (this._unsaved() && !confirm('Start again from the example? The changes not saved are lost.')) return;
-        this._open({name: 'home.yaml', text: this.example, handle: null});
+        this._el.start.returnValue = '';
+        this._el.start.showModal();
       } else if (act === 'open') {
         if (this._unsaved() && !confirm('Open another file? The changes not saved are lost.')) return;
         const file = await pickFile();
@@ -834,6 +1104,66 @@ export class LightwellEditor extends HTMLElement {
     } catch (e) {
       this._message(e.message);
     }
+  }
+
+  // The start dialog closed: a new home from the example, an empty one, or a picture of a plan.
+  async _started() {
+    const how = this._el.start.returnValue, form = this._el.start.querySelector('form');
+    if (!['example', 'empty', 'picture'].includes(how)) return;
+    try {
+      if (how === 'picture') {
+        const file = await new Promise(resolve => {
+          const input = Object.assign(document.createElement('input'), {type: 'file', accept: 'image/*'});
+          input.onchange = () => resolve(input.files[0]);
+          input.oncancel = () => resolve(null);
+          input.click();
+        });
+        if (file) await this._picture(file);
+        return;
+      }
+      if (this._unsaved() && !confirm('Start a new home? The changes not saved are lost.')) return;
+      if (how === 'example') this._open({name: 'home.yaml', text: this.example, handle: null});
+      else {
+        const [w, h, scale] = ['w', 'h', 'scale'].map(k => +form.elements[k].value);
+        if (!(w > 0 && h > 0 && scale > 0)) throw new Error('An empty home needs a size and a scale above 0');
+        this._open({name: 'home.yaml', text: emptyHome(w, h, scale), handle: null});
+        this._opts.floor = true;
+        this.setTool('wall');
+      }
+    } catch (e) {
+      this._message(e.message);
+    }
+  }
+
+  // A picture of a plan: the background of the open home if it names it (/local/<its name>), or else a new home
+  // drawn over it, in its pixels, with the scale tool ready to measure a known length on it.
+  async _picture(file) {
+    const path = `/local/${file.name}`, url = URL.createObjectURL(file);
+    const own = this._data?.drawing?.background?.image;
+    if (own === path || own?.split('/').pop() === file.name) {
+      this._pictures[own] = url;
+      savePicture(own, file);
+      this._renderCard();
+      return;
+    }
+    const {w, h} = await imageSize(url);
+    if (this._unsaved() && !confirm('Start a new home over this picture? The changes not saved are lost.')) return;
+    this._pictures[path] = url;
+    savePicture(path, file);
+    this._open({name: `${file.name.replace(/\.[^.]+$/, '')}.yaml`, text: pictureHome(path, w, h), handle: null});
+    // Its floor would hide the picture: rooms start without one (the room tool's checkbox).
+    this._opts.floor = false;
+    this.setTool('scale');
+    this._message(`Now drag along something on the picture whose length you know (a wall, a door), and type its length: that sets the scale. In Home Assistant, put ${file.name} in /config/www/.`, 'info');
+  }
+
+  // A picture kept in the browser, for a background the home names (false when there's none: the home's own URL).
+  _loadPicture(path) {
+    this._pictures[path] = null;
+    loadPicture(path).then(blob => {
+      this._pictures[path] = blob ? URL.createObjectURL(blob) : false;
+      this._renderCard();
+    });
   }
 
   _unsaved() {
@@ -896,7 +1226,18 @@ export class LightwellEditor extends HTMLElement {
     }
     if (typing || !this._root.contains(target) && target !== this) return;
     const arrow = {ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1]}[e.key];
-    if (e.key === 'Escape') this._press ? this._cancelDrag() : this.select(null);
+    if (this._poly && (e.key === 'Enter' || e.key === 'Backspace')) {
+      e.preventDefault();
+      if (e.key === 'Enter') this._finishPoly();
+      else if (this._poly.points.pop() && !this._poly.points.length) { this._poly = null; this._el.draft.innerHTML = ''; }
+      return;
+    }
+    if (e.key === 'Escape') {
+      if (this._press) this._cancelDrag();
+      else if (this._poly) { this._poly = null; this._el.draft.innerHTML = ''; this._el.ruler.textContent = ''; }
+      else if (this._tool !== 'select') this.setTool('select');
+      else this.select(null);
+    } else if (!e.altKey && !e.shiftKey && TOOL_KEYS[e.key.toLowerCase()] && e.key.length === 1) this.setTool(TOOL_KEYS[e.key.toLowerCase()]);
     else if ((e.key === 'Delete' || e.key === 'Backspace') && this._sels.length) {
       e.preventDefault();
       this._remove(this._sels);
