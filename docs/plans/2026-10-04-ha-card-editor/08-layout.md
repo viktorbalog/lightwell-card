@@ -230,3 +230,5 @@ the room back; inside a table for 4, *Back to Table for 4* showed its settings a
   over its card background) with a soft shadow, as the toolbar by the plan; the hint inside them and the messages
   below have room around them; the editor's own dark-preview background no longer shows behind the hint. Checked on
   the test page in light and dark.
+- **The hint readable in dark** (the user): it had HA's disabled text colour; it has the secondary one now, as the
+  panel's help (about 5.7:1 on the panel in the test page's dark theme).
