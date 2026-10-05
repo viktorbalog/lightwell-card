@@ -67,3 +67,72 @@ Ctrl+D, Tab, Enter) and don't reach HA; typing in a field types; Esc with nothin
 - The standalone page: the toolbar by its stage, the YAML tab still there; `ref.html` renders as before.
 - In HA on the test dashboard, with the user: the card at 500 px with the bar beside it in large mode, above it in the
   normal dialog; the keys listed above, after each of the interactions listed above.
+
+## Outcome
+
+2026-10-05. In `src/editor/editor.js`:
+
+- **The toolbar** (`.lw-tools`): stroked icons drawn inline (`ICONS`, `TOOLS`), the view's own (Build: Select,
+  Rooms, Windows and doors, Furniture, Lamps and devices; Edit: its nine), names and keys as tooltips. `_placeTools`
+  puts it beside the plan as a column when there's room (on HA's preview: HA's column wider than the card and the bar;
+  the card moves right by the bar's width, keeping HA's 500 px), otherwise as a row above it (the card moves down);
+  standalone, beside from a 500 px preview column. It goes into HA's preview with the editing layer. Its styles use
+  HA's variables with fallbacks, as they live in the card's shadow root there. Step 5's widening (`_fitHosted`) is gone.
+- **The details panel** (`_renderDetails`; the tab is *Details*): a Build object selected whole shows its settings
+  (`_groupDetails`): a lamp its light (the picker moved there), a window or door its width (resized round its middle)
+  and its opening's heights, a catalogue group which prefab it is (another replaces it in place, turned the same:
+  `prefabOf` in `prefabs.js`, tested) and a Turn button, a room its name and size (`moveRoomOps` takes a new size: its
+  right and bottom walls and their windows move with those sides; tested). With nothing selected, the tool's choices
+  (`_toolDetails`): the room's name and outdoors, the cut's kind and width, the catalogue, the devices; Build's Select
+  has the home's (north, typed or pointed at on the plan, and *Find them*). Otherwise the properties form as before. The
+  Build panel above the plan and the North tool button are gone (pointing at north is the panel's button, the same tool
+  as before). Choosing a tool clears the selection, so that its choices show; after placing something, Esc brings them
+  back before it leaves the tool. In Build the Details tab opens first.
+- **HA's shell:** no YAML tab (HA's *Show code editor* is there); the hint under the tools is one line, the rest in its
+  tooltip. The standalone page keeps its YAML.
+- **The keyboard on HA's preview**, found in HA itself with real key presses: every edit makes HA rebuild its preview
+  card, and the layer, moved into the new card, lost the focus (before the new card is even in the page, and with a
+  focusout when the old card lets go of it), so from the second key on, keys went to HA (and its shortcuts). The layer
+  now remembers it had the keys (focusin/focusout, read before the old card lets go) and takes them back once it's in
+  the new card. The room-name field gives them back to the plan on Enter or Esc. V selects in Build too. Arrows move a
+  whole Build object as a drag does (a room with its walls made again, a window along its wall, then regrouped).
+
+Checked:
+
+- In HA (2024.12.5, the test dashboard, the editor opened by Edit card → Edit it here, never saved): with real keys,
+  → → ↓ moved the TV's lamp each time and Ctrl+Z undid the last, all reaching the editor and none HA; after a real
+  click on a toolbar button, Esc took the selection away and kept the dialog open; the kitchen's name edited on the
+  plan (End, a character, Enter), then Esc reached the editor. The toolbar above the plan in the normal dialog, beside
+  it in the large one (the card 480 px inside HA's 500).
+- On `tools/editor/ha.html` (isolated context): every tool from the toolbar, in both views, with its details; a table
+  for 4 swapped for a table for 6 in place; a window's width (1.6 m) and top (2.4 m); a room made 6 m wide, its window
+  staying put; its name; the toolbar above at 1000 px, beside at 1400 px, the overlay aligned.
+- The standalone page: the toolbar beside the plan, the YAML tab there. `src/card.js` didn't change in this step.
+- 122 tests pass.
+
+Left open: a window's kind (window, glass door, door) isn't changed from the panel (delete it and cut another), nor
+whether a room is outdoors; the README's picture of the editor (`docs/editor.png`) shows the old tools.
+
+Then, at the user's word (2026-10-05):
+
+- **New in HA** (to start from scratch, for testing): the header's *New…* shows in HA's shell too, offering an empty
+  home only (the example and a picture need the standalone page's files); there the new home is a step in the history
+  (`_restart`), so Undo brings the card's home back. The start dialog takes the panel's colours (it was the browser's
+  white in HA's dark theme).
+- **The `home_url` notice:** its two ways on are blocks of their own, the button above what it does, instead of a button
+  inside a sentence that ran on from it.
+- **Back to the group:** inside a Build object, the details start with *‹ Back to …* (as Esc), to its settings.
+
+Checked on `tools/editor/ha.html`: New → Empty (dark theme) made an empty home in Rooms and sent it to HA, Undo brought
+the room back; inside a table for 4, *Back to Table for 4* showed its settings again; the notice in the light theme.
+- **Several selected** (the user, the same day): the details list each of them, folded (`_multiDetails`): a Build
+  object selected whole as one entry with its settings (and its own Delete and *Its parts*; its changes keep the rest
+  selected), anything else with its properties form, built when unfolded. What's unfolded stays so through edits while
+  it's selected. In Build, Shift+click adds or takes out a whole object (it had added only the part under the pointer).
+  Checked on the test page: a table for 4, the lamp and the sofa, listed and unfolded; the table turned with the list
+  staying as it was; the lamp taken out again with Shift+click.
+- **Inside a group** (the user, the same day): the details list all its parts (`_memberDetails`), the selected ones
+  unfolded and the rest folded; one unfolded by hand stays so, and a selected one folded by hand stays folded until the
+  selection changes (`_folds`, shared with the list of several selected). Checked on the test page: inside a table for
+  4 with a chair selected, that chair open; the table opened by hand stayed open when another chair was selected, which
+  opened as the first folded; a field changed in the open form left the list as it was.

@@ -502,11 +502,12 @@ function shifted(item, dx, dy) {
   return s;
 }
 
-// Room `id` (one rectangle) moved by (dx, dy), snapped to the walls near it (`tol`): its floor and label move, the
-// walls it shared stay where another room needs them, walls are made around it where it lands, and the windows and
-// doors in its own walls go with it. What stands in it (furniture, lamps) stays. {ops, rect}, or null for a room that
-// isn't one rectangle.
-export function moveRoomOps(data, id, dx, dy, tol = 0) {
+// Room `id` (one rectangle) moved by (dx, dy), snapped to the walls near it (`tol`), and with `size` ([w, h]) made that
+// size (its right and bottom sides move): its floor and label move, the walls it shared stay where another room needs
+// them, walls are made around it where it lands, and the windows and doors in its own walls go with it (those in its
+// right and bottom walls with those sides). What stands in it (furniture, lamps) stays. {ops, rect}, or null for a
+// room that isn't one rectangle.
+export function moveRoomOps(data, id, dx, dy, tol = 0, size = null) {
   const region = data?.rooms?.[id], old = region?.[0];
   if (!Array.isArray(region) || region.length !== 1 || !Array.isArray(old) || Array.isArray(old[0])) return null;
   const outdoor = outdoors(data, id), kept = new Set(['floors', 'labels']);
@@ -521,10 +522,16 @@ export function moveRoomOps(data, id, dx, dy, tol = 0) {
     || (op.remove[0] === 'drawing' && kept.has(op.remove[1]) && op.remove.reduce((o, k) => o?.[k], data)?.part === id))));
   const stage1 = applyOps(data, del);
   // 2. Where it lands, against the walls there.
-  const rect = snapRoom(stage1, [old[0] + dx, old[1] + dy, old[2], old[3]], tol);
-  const [mx, my] = [rect[0] - old[0], rect[1] - old[1]];
-  const move = [{set: ['rooms', id], value: [rect]},
-    ...partsOf(stage1, id).filter(p => p[0] === 'drawing').map(p => ({set: p, value: shifted(p.reduce((o, k) => o?.[k], stage1), mx, my)}))];
+  const placed = [old[0] + dx, old[1] + dy, size?.[0] ?? old[2], size?.[1] ?? old[3]].map(tidy);
+  const rect = size ? placed : snapRoom(stage1, placed, tol);
+  const [mx, my, dw, dh] = [rect[0] - old[0], rect[1] - old[1], rect[2] - old[2], rect[3] - old[3]];
+  const same = (a, b) => Array.isArray(a) && a.every((v, k) => Math.abs(v - b[k]) < 0.01);
+  const move = [{set: ['rooms', id], value: [rect]}, ...partsOf(stage1, id).filter(p => p[0] === 'drawing').map(p => {
+    const item = p.reduce((o, k) => o?.[k], stage1);
+    // Its floor takes its new shape; its label stays in its middle (as far as it was from it).
+    if (same(item.rect, old)) return {set: p, value: {...item, rect}};
+    return {set: p, value: shifted(item, mx + (p[1] === 'labels' ? dw / 2 : 0), my + (p[1] === 'labels' ? dh / 2 : 0))};
+  })];
   const stage2 = applyOps(stage1, move);
   // 3. Its walls there.
   const walls = outdoor ? [] : wallOps(stage2, id, rect);
@@ -533,12 +540,15 @@ export function moveRoomOps(data, id, dx, dy, tol = 0) {
   // window's own glass, opening and markers moved with it (kept as they were, with their part).
   const recut = [];
   for (const {gap, parts} of cuts) {
-    const ax = gap.axis, mid = (gap.band[0] + gap.band[1]) / 2 + (ax === 0 ? my : mx), d = ax === 0 ? mx : my;
+    // A wall on its right or bottom side moves with that side.
+    const ax = gap.axis, far = gap.band[0] >= (ax === 0 ? old[1] + old[3] : old[0] + old[2]) - 0.01;
+    const [ox, oy] = [mx + (ax === 1 && far ? dw : 0), my + (ax === 0 && far ? dh : 0)];
+    const mid = (gap.band[0] + gap.band[1]) / 2 + (ax === 0 ? oy : ox), d = ax === 0 ? ox : oy;
     const at = v => (ax === 0 ? [v, mid] : [mid, v]);
     const made = cutOps(now, at(gap.from + d), {until: at(gap.to + d)});
     if (!made) continue;
     const ops = [...made.ops.filter(op => (op.remove || op.insert)?.[1] === 'walls'),
-      ...parts.map(([path, item]) => ({insert: path.slice(0, -1), value: shifted(item, mx, my)}))];
+      ...parts.map(([path, item]) => ({insert: path.slice(0, -1), value: shifted(item, ox, oy)}))];
     recut.push(...ops);
     now = applyOps(now, ops);
   }

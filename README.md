@@ -78,7 +78,9 @@ The same editor works in two places: **in Home Assistant**, as the card's editor
 card; and **[online](https://viktorbalog.github.io/lightwell-card/editor/)**, in your browser, for a home kept in a file
 (`home_url`): nothing to install, and your home stays on your computer.
 
-It has two views:
+Its tools are a toolbar of icons beside the plan (above it where there's no room beside), and the panel next to it
+holds the details: what's selected, or, with nothing selected, the tool's choices (the furniture catalogue, your
+devices, a window's width). It has two views:
 
 - **Build:** a home step by step, without knowing its format. *Rooms*: name a room and drag its rectangle; it comes
   with its floor, its name and its walls, and a room drawn against another's wall shares it (rooms outdoors, a terrace
@@ -89,8 +91,14 @@ It has two views:
   and Shift+click where it goes; R turns it. A light asks which of your lights it is, or, for a lamp that isn't
   smart, whether it's lit always, after dark or never. *Lamps and devices*: your lights, blinds, sensors and the rest,
   dragged where they are (or Shift+clicked): a light becomes a lamp glowing in its colour with a marker that switches
-  it, a blind dropped on a window darkens it. *North*: click in its direction. What Build makes is selected, moved and
-  deleted as one thing (a window with its glass; a room with its walls), and each step picks its own kind.
+  it, a blind dropped on a window darkens it. What Build makes is one thing, as a piece of furniture with its insides
+  is: a click selects it (a window with its glass, a room with its walls, a table with its chairs), a drag (or the
+  arrows) moves it, and a double-click (or Enter) goes inside it to change its parts one by one, Esc coming back out.
+  A room moved has its walls made again where it lands, its windows and doors going with it; a lamp or a piece moved
+  into another room lights or shades that room. Selected, each shows its settings: a lamp which light it is, a window
+  its width and height, a piece from the catalogue which piece it is (another one replaces it in place), a room its
+  name and size. With nothing selected, the panel has your home's: which way north is (typed, or pointed at on the
+  plan).
 - **Edit:** every item and field, drawn and changed precisely, as below.
 
 Both work on the same home at any time, with one undo. In Home Assistant the editor opens in Build; online, a new
@@ -114,7 +122,7 @@ Draw your home over a picture of its plan and see the card light it as you go, u
    A room's rectangles are listed in its form (+ adds one) and selected on their own (double-click one in a
    selected room). The sun's daylight spills and blockers are on the plan too, under the
    drawing (click again to reach them, or pick them in the list). The YAML tab shows the file itself, editable, and
-   the card follows as you type.
+   the card follows as you type (in Home Assistant, its own *Show code editor* does).
 4. **Save** it as YAML (your comments kept) or as JSON for `home_url`. Chrome and Edge save back to the same file;
    other browsers download it. The work in progress is kept in the browser, so a closed tab loses nothing.
 5. **In Home Assistant:** put the JSON (and the picture, if it stays as the background) in `/config/www/`, and give the

@@ -167,10 +167,10 @@ build) and `tools/editor/ha.html` to see it.
 | 5. Home Assistant | built, tried in HA by the user | `ha.js`, `loader.js`, `stub.js`, the Release workflow; editing on HA's preview; selecting and dragging there confirmed by the user (2026-10-04); the keyboard there still unreliable (step 8). The dev build stays on the test dashboard. |
 | 6. Descriptions, docs | done 2026-10-04 | README (the editor in HA, Build, notes and parts), CHANGELOG, CLAUDE.md. |
 | 7. Groups | done 2026-10-05 | Checked on the test page, not in HA yet. A lamp's entity set on one part reaches all (the user's lamp issue). |
-| 8. Toolbar, panel, keys | planned 2026-10-05 | Undoes step 5's widening of the preview. |
+| 8. Toolbar, panel, keys | done 2026-10-05 | Toolbar beside or above HA's 500 px preview; details panel; no YAML tab in HA; keys on HA's preview fixed and checked in HA with real key presses. |
 
-Nothing of it is committed yet (2026-10-05): it's all in the working tree of the branch `feature/card-editor`, with
-120 tests passing.
+Steps 1–7 are committed on `feature/card-editor` (62368ac, 2026-10-05); step 8 is in the working tree. 122 tests
+pass.
 
 ## Answers from the user
 

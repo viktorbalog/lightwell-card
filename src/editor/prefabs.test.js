@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {defineHome} from '../home.js';
-import {PREFABS, placePrefab, prefabSvg, turnedPiece} from './prefabs.js';
+import {PREFABS, placePrefab, prefabOf, prefabSvg, turnedPiece} from './prefabs.js';
 
 const home = upm => ({view: {x: 0, y: 0, w: 20 * upm, h: 20 * upm}, units_per_metre: upm, rooms: {room: [[0, 0, 20 * upm, 20 * upm]]},
   furniture: {sofa_3: {shape: {rect: [0, 0, 10, 10]}}}, sun: {north: 0}});
@@ -58,4 +58,12 @@ test('a light from the catalogue: one object, its glow, pool and marker (and a f
   assert.deepEqual(strip.shape, [{path: 'M300,0 L300,200', stroke_width: 15, fill: 'none'}]);
   assert.equal(strip.top, true);
   assert.equal(strip.pool, undefined);
+});
+
+test("a group's prefab, middle and turn are found from its pieces", () => {
+  for (const turn of [0, 90, 180, 270]) {
+    const data = home(100), made = placePrefab(data, 'dining_4', [500, 400], turn);
+    for (const op of made.ops) data.furniture[op.set[1]] = op.value;
+    assert.deepEqual(prefabOf(data, made.part), {id: 'dining_4', at: [500, 400], turn});
+  }
 });

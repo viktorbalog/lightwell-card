@@ -22,7 +22,7 @@ import {simulatorControls} from './controls.js';
 import {droppedFile, formatOf, hasFileAccess, imageSize, loadPicture, pickFile, renamed, savePicture, saveFileAs, writeFile} from './files.js';
 import {HaConnection, cannotReach, finishSignIn, haUrl, savedTokens, signIn, signOut} from './live.js';
 import {OPENING_KINDS, emptyHome, lightFrom, openingFrom, pictureHome, pieceFrom, scaleFrom, wallFrom} from './create.js';
-import {PREFABS, placePrefab, prefab, prefabSvg, turnedPiece} from './prefabs.js';
+import {PREFABS, placePrefab, prefab, prefabOf, prefabSvg, turnedPiece} from './prefabs.js';
 import {devicesIn, iconOf, placeDevice, placedIn} from './devices.js';
 import {CUTS, adoptOps, applyOps, cutOps, cutSpan, deleteOps, gapEndAt, gapOf, gapRange, lampEntityOps, moveRoomOps, partOf, partsOf, regroupOps, resizeGapOps, roomOps, slideOps, snapRoom, wallAt} from './build.js';
 import {applyTransform, hitInside, hitTest, inPoly, invertTransform, isExtra, itemAt, lightCentre, onPiece, outlineSvg, parseTransform, partPoly,
@@ -49,35 +49,35 @@ const TURN_STEP = 15;
 const GRID = 0.05;
 // What each tool does, under the plan.
 const HINTS = {
-  select: "Click to select (again, or Tab: what's under it; Shift+click: more), drag on empty space for a box · drag to move, Ctrl (⌘)+drag a piece to turn it · in Build, double-click a room to rename it · the handles to resize, turn or reshape (double-click a corner removes it; Alt: a piece's insides stay) · Shift: along an axis, Alt: no snapping · arrows nudge (Shift: ×10) · Ctrl+D duplicates · double-click a piece (or Enter) to edit its insides · with a lamp selected, Ctrl+click a piece to add it to its shadows or take it out · Alt+click taps the card · Esc clears",
+  select: "Click to select (again, or Tab: what's under it; Shift+click: more), drag on empty space for a box · drag to move, Ctrl (⌘)+drag a piece to turn it · in Build, double-click something to change its parts, or a room's name to rename it · the handles to resize, turn or reshape (double-click a corner removes it; Alt: a piece's insides stay) · Shift: along an axis, Alt: no snapping · arrows nudge (Shift: ×10) · Ctrl+D duplicates · double-click a piece (or Enter) to edit its insides · with a lamp selected, Ctrl+click a piece to add it to its shadows or take it out · Alt+click taps the card · Esc clears",
   wall: "Drag a wall's box, or along its middle for a wall of the usual thickness (25 cm outside, 15 cm inside a room) · Esc: back to selecting",
   room: 'Drag a rectangle, or click its corners for a polygon (click the first again, double-click or Enter to finish; Backspace takes the last back) · Esc: back to selecting',
   opening: 'Drag along an outer wall, from one end of the window or door to the other: its side and thickness come from the wall · Esc: back to selecting',
-  piece: 'Drag a rectangle, from the middle out for a circle, or click corners for a polygon (choose above); a click places a piece of the usual size · Esc: back to selecting',
+  piece: 'Drag a rectangle, from the middle out for a circle, or click corners for a polygon (choose in the details); a click places a piece of the usual size · Esc: back to selecting',
   light: "Click where the lamp is, or drag out its glow's size: its pool and shadows come with it · Esc: back to selecting",
   marker: 'Click where the marker goes · Esc: back to selecting',
   label: 'Click where the label goes (its middle) · Esc: back to selecting',
   scale: 'Drag along something whose length you know (a wall, a door), then type its length to set the scale; or just measure · Esc: back to selecting',
   // The Build view's.
   'build-room': "Drag a room's rectangle: its walls, floor and name come with it. Drawn against another room's wall, it shares it · click a room to select it, double-click it to rename it · Esc: back to selecting",
-  'build-piece': 'Choose a piece above, then Shift+click where it goes (or drag it onto the plan) · R turns it · click a piece to select it, drag to move it, R or Ctrl (⌘)+drag turns it · Esc: back to selecting',
-  'build-device': 'Choose a lamp or device above, then Shift+click where it is (or drag it onto the plan); a blind dropped on a window is its shutter · click one to select it, drag to move it · Esc: back to selecting',
-  'build-north': 'Click on the plan in the direction of north (or type its bearing above) · Esc: back to selecting',
-  'build-cut': 'Click on a wall for a window or a door of the width above, or drag along the wall for its width; in a wall between rooms, a doorway · drag the end of one to resize it · Esc: back to selecting',
+  'build-piece': 'Choose a piece, then Shift+click where it goes (or drag it onto the plan) · R turns it · click a piece to select it, drag to move it, R or Ctrl (⌘)+drag turns it · Esc: back to selecting',
+  'build-device': 'Choose a lamp or device, then Shift+click where it is (or drag it onto the plan); a blind dropped on a window is its shutter · click one to select it, drag to move it · Esc: back to selecting',
+  'build-north': 'Click on the plan in the direction of north (or type its bearing in the details) · Esc: back to selecting',
+  'build-cut': 'Click on a wall for a window or a door of the width in the details, or drag along the wall for its width; in a wall between rooms, a doorway · drag the end of one to resize it · Esc: back to selecting',
 };
 // What the Build view's tab says for each of its tools.
 const BUILD_HELP = {
-  select: 'Build your home step by step with the buttons over the plan: rooms first, then windows and doors. Click anything to select it, drag to move it. Everything else (and anything finer) is in the Edit view.',
-  'build-room': 'Name the room above the plan (or leave it without a name: no label then; double-click it later to name it), then drag its rectangle. Start with the rooms indoors; a terrace or a balcony is a room outdoors, without walls of its own.',
-  'build-piece': 'Choose a piece, then Shift+click on the plan where it goes, or drag it there. R (or Turn) turns it a quarter. Each piece has its real size and height: the tall ones cast long shadows. A table comes with its chairs, each a piece of its own.',
+  select: 'Build your home step by step with the tools by the plan: rooms first, then windows and doors, furniture, lamps. Click anything to select it, drag to move it, double-click it to change its parts. Anything finer is in the Edit view.',
+  'build-room': 'Name the room here (or leave it without a name: no label then; double-click it later to name it), then drag its rectangle. Start with the rooms indoors; a terrace or a balcony is a room outdoors, without walls of its own.',
+  'build-piece': 'Choose a piece, then Shift+click on the plan where it goes, or drag it there. R (or Turn) turns it a quarter. Each piece has its real size and height: the tall ones cast long shadows. A table comes with its chairs, and moves and turns with them.',
   'build-device': 'Your lamps and devices. Choose one, then Shift+click on the plan where it is, or drag it there. A light becomes a lamp that glows in its colour, with a marker that switches it; a blind or shutter dropped on a window darkens it as it closes; a sensor shows its value. Those already on the plan are ticked.',
   'build-north': 'Which way is north? Click on the plan in its direction, or type the bearing the top of the plan faces (0: north is up). It sets where the sun comes in: a map of your building gives it best; a phone compass can be far off indoors.',
-  'build-cut': 'Choose a window, a glass door or a door above the plan, then click on a wall (for the width above) or drag along it (for its own width). Drag the end of a window, door or doorway to make it wider or narrower: its wall, glass and opening follow. Windows and glass doors let the sun in; in a wall between two rooms you always get a doorway.',
+  'build-cut': 'Choose a window, a glass door or a door, then click on a wall (for the width here) or drag along it (for its own width). Drag the end of a window, door or doorway to make it wider or narrower: its wall, glass and opening follow. Windows and glass doors let the sun in; in a wall between two rooms you always get a doorway.',
 };
 // Inside a piece of furniture: what the tools do there, and the ones offered.
 const INSIDE_HINTS = {
   select: "Inside {name}: click its shapes to select them (again, or Tab: what's under it; Shift+click: more), drag on its empty space for a box · drag to move, the handles to resize · Shift: along an axis, Alt: no snapping · arrows nudge · Ctrl+D duplicates · Esc or a click outside it leaves",
-  piece: 'Inside {name}: drag a rectangle (a cushion, a device), a circle from its middle, or a line (choose above); a click places a small one · Esc: back to selecting',
+  piece: 'Inside {name}: drag a rectangle (a cushion, a device), a circle from its middle, or a line (choose in the details); a click places a small one · Esc: back to selecting',
   label: 'Inside {name}: click where the label goes · Esc: back to selecting',
   scale: HINTS.scale,
 };
@@ -85,6 +85,37 @@ const INSIDE_HINTS = {
 const GROUP_HINT = "Inside {name}: click its parts to select them (again, or Tab: what's under it; Shift+click: more) · drag to move one, the handles to resize · arrows nudge · Esc or a click outside leaves";
 // The keys of the tools.
 const TOOL_KEYS = {v: 'select', w: 'wall', r: 'room', o: 'opening', f: 'piece', l: 'light', m: 'marker', t: 'label', s: 'scale'};
+
+// The tools, as icons (24 × 24, stroked), with their names and keys as tooltips; the view shows its own.
+const ICONS = {
+  select: '<path d="M6 3.5 18 13l-5.6.8 3.2 6.2-2.4 1.2-3.2-6.3L6 18.6z"/>',
+  rooms: '<path d="M3.5 4.5h17v15h-17zM12 4.5v8M12 16v3.5M12 12.5h3"/>',
+  openings: '<path d="M2.5 9.5h6v5h-6zM15.5 9.5h6v5h-6zM8.5 12h7"/>',
+  furniture: '<path d="M4 10.5V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2.5M3 11.5a1.5 1.5 0 0 1 3 0V14h12v-2.5a1.5 1.5 0 0 1 3 0V17H3zM5 17v2M19 17v2"/>',
+  entities: '<path d="M9 17.5h6M10 20.5h4M8.5 14.5a6 6 0 1 1 7 0c-.6.5-1 1.3-1 2v1h-5v-1c0-.7-.4-1.5-1-2z"/>',
+  wall: '<path d="M3 8.5h18v7H3z"/>',
+  room: '<path d="M4 4.5h10l6 6v9H4z"/>',
+  opening: '<path d="M2.5 9.5h6v5h-6zM15.5 9.5h6v5h-6zM8.5 10.5h7M8.5 13.5h7"/>',
+  piece: '<path d="M5 6.5h14v11H5zM8 9.5h8"/>',
+  light: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
+  marker: '<circle cx="12" cy="10" r="3"/><path d="M12 21.5s-6.5-6.2-6.5-11.5a6.5 6.5 0 0 1 13 0c0 5.3-6.5 11.5-6.5 11.5z"/>',
+  label: '<path d="M5 6.5V4.5h14v2M12 4.5v15M9 19.5h6"/>',
+  scale: '<path d="M3 15.5 15.5 3 21 8.5 8.5 21zM7 14.5l1.5 1.5M10 11.5l2 2M13 8.5l1.5 1.5"/>',
+};
+const TOOLS = [
+  ['select', 'select', 'Select and move (V)', ''],
+  ['build-room', 'rooms', 'Rooms: drag one, its walls come with it', 'build-only'],
+  ['build-cut', 'openings', 'Windows and doors: click on a wall', 'build-only'],
+  ['build-piece', 'furniture', 'Furniture from the catalogue', 'build-only'],
+  ['build-device', 'entities', 'Lamps and devices from Home Assistant', 'build-only'],
+  ['wall', 'wall', 'Walls (W)', 'edit-only'], ['room', 'room', 'Rooms (R)', 'edit-only'], ['opening', 'opening', 'Windows and doors (O)', 'edit-only'],
+  ['piece', 'piece', 'Furniture (F)', 'edit-only'], ['light', 'light', 'Lamps (L)', 'edit-only'], ['marker', 'marker', 'Markers (M)', 'edit-only'],
+  ['label', 'label', 'Labels (T)', 'edit-only'], ['scale', 'scale', 'Measure, or set the scale from a known length (S)', 'edit-only'],
+];
+const TOOLBAR = `<div class="lw-tools" role="toolbar" aria-label="Tools">${TOOLS.map(([tool, icon, title, cls]) =>
+  `<button type="button" data-tool="${tool}" class="${cls}" title="${title}" aria-label="${title}"><svg viewBox="0 0 24 24">${ICONS[icon]}</svg></button>`).join('')}</div>`;
+// The toolbar's width beside the plan, and its gap (px).
+const TOOLBAR_SIDE = 44, TOOLBAR_GAP = 8;
 
 // The editing layer's styles: the overlay over the card's drawing (selection, handles, guides, drafts), the ruler and
 // the name field. In the editor's own stage, or inside HA's preview card when the editor edits on it (`.lw-edit`).
@@ -125,6 +156,17 @@ const OVERLAY_STYLE = `
     color: var(--lw-text); min-width: 8em; }
   .overlay .draft rect.cut.grab { fill-opacity: 0.9; }
   .overlay .draft .north * { stroke: #d81b60; stroke-width: 3; fill: none; }
+  .lw-tools { position: absolute; z-index: 4; display: flex; gap: 2px; padding: 3px; border: 1px solid var(--divider-color, #ddd);
+    border-radius: 10px; background: var(--card-background-color, #fff); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12); box-sizing: border-box; }
+  .lw-tools.beside { right: 100%; top: 0; margin-right: ${TOOLBAR_GAP}px; flex-direction: column; width: ${TOOLBAR_SIDE}px; }
+  .lw-tools:not(.beside) { bottom: 100%; left: 0; margin-bottom: ${TOOLBAR_GAP}px; }
+  .lw-tools button { width: 36px; height: 36px; padding: 0; border: 0; border-radius: 7px; background: none; display: grid; place-items: center;
+    color: var(--primary-text-color, #333); cursor: pointer; }
+  .lw-tools button:hover:not(:disabled) { background: rgba(127, 127, 127, 0.16); }
+  .lw-tools button[aria-pressed="true"] { background: var(--primary-color, #1e88e5); color: var(--text-primary-color, #fff); }
+  .lw-tools button:disabled { opacity: 0.35; cursor: default; }
+  .lw-tools svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .lw-tools[data-shows=build] .edit-only, .lw-tools[data-shows=edit] .build-only { display: none; }
   .overlay .draft .north text { fill: #d81b60; stroke: none; font: bold 28px sans-serif; text-anchor: middle; vector-effect: none; }
 `;
 
@@ -156,15 +198,19 @@ const STYLE = `${OVERLAY_STYLE}
   .pane { flex: 1; overflow: auto; min-height: 0; } .pane[hidden] { display: none; }
   .controls { padding: 12px; } .controls form { width: auto; }
   .preview { padding: 16px; display: flex; justify-content: center; align-items: flex-start; overflow: auto; outline: none; }
-  .preview.dark { background: #111; } .preview.dark .tools, .preview.dark .hint { color: #bbb; }
+  .preview.dark { background: #111; } .preview.dark .hint { color: #bbb; }
   .stage { position: relative; width: 100%; max-width: 900px; }
   ha-card { display: block; border-radius: 12px; background: var(--card-background-color, #fff); }
   .preview.dark ha-card { --card-background-color: #1c1c1c; }
-  .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 10px; font-size: 13px; }
-  .tools button { padding: 3px 8px; }
-  .tools .options { display: flex; align-items: center; gap: 6px; margin-left: 6px; color: var(--lw-muted); }
-  .tools select, .tools input { font: inherit; }
-  dialog { border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; max-width: 460px; font: 14px system-ui, sans-serif; }
+  .stage.beside { margin-left: ${TOOLBAR_SIDE + TOOLBAR_GAP}px; width: calc(100% - ${TOOLBAR_SIDE + TOOLBAR_GAP}px); }
+  .stage:not(.beside) { margin-top: 50px; }
+  dialog { border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; max-width: 460px; font: 14px system-ui, sans-serif;
+    background: var(--lw-panel); color: var(--lw-text); }
+  .props .back { margin: 0 0 8px; }
+  .props details.multi { border-bottom: 1px solid var(--lw-line); }
+  .props details.multi > summary { cursor: pointer; padding: 7px 2px; font-weight: 600; }
+  .props details.multi > .body { padding: 0 0 10px 14px; }
+  .props .title .grow { flex: 1; }
   dialog h2 { margin: 0 0 12px; font-size: 16px; }
   dialog .choice { display: grid; gap: 4px; margin: 0 0 14px; }
   dialog .choice p { margin: 0; color: var(--lw-muted); font-size: 13px; }
@@ -253,11 +299,10 @@ const STYLE = `${OVERLAY_STYLE}
   header .views button:last-child { border-radius: 0 6px 6px 0; border-left: 0; }
   :host(:not([view=build])) .build-only, :host([view=build]) .edit-only { display: none; }
   .preview > div { width: 100%; max-width: 900px; }
-  .build { margin: 0 auto 10px; padding: 10px 12px; font-size: 13px; line-height: 1.45; border: 1px solid var(--lw-line);
-    border-radius: 8px; background: var(--lw-panel); max-height: 200px; overflow: auto; position: relative; z-index: 2; }
-  .build p { margin: 0 0 8px; } .build p:last-child { margin-bottom: 0; } .build .muted { color: var(--lw-muted); }
-  .preview.dark .build { color: var(--lw-text); }
-  .build h3 { font-size: 11px; margin: 10px 0 4px; color: var(--lw-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .props .options { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 4px 0 10px; }
+  .props .options select, .props .options input[type=number], .props .options input[type=text] { flex: none; }
+  .props .muted { color: var(--lw-muted); }
+  .props h3 { font-size: 11px; margin: 10px 0 4px; color: var(--lw-muted); text-transform: uppercase; letter-spacing: 0.04em; }
   .catalogue { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 4px; }
   .catalogue button { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 2px; font-size: 11px;
     line-height: 1.2; text-align: center; cursor: grab; }
@@ -267,9 +312,9 @@ const STYLE = `${OVERLAY_STYLE}
   .catalogue svg .furn2 { fill: #e4dba2; } .catalogue svg .dev { fill: #3a3a3a; stroke: none; }
   .catalogue svg .fix2 { fill: #b5b5b5; } .catalogue svg .line { fill: none; }
   .catalogue svg .glow { fill: #ffd54f; stroke: none; opacity: 0.8; } .catalogue svg .glow-line { stroke: #ffb300; fill: none; stroke-width: 0.25; stroke-linecap: round; }
-  .build .adopt { background: var(--lw-row-on); padding: 6px 8px; border-radius: 6px; } .build .adopt button { margin-left: 4px; }
-  .build .lamp { display: flex; align-items: center; gap: 8px; } .build .lamp select { font: inherit; flex: 1; min-width: 0; }
-  .build input[type=search] { width: 100%; box-sizing: border-box; font: inherit; padding: 4px 8px; margin-bottom: 8px;
+  .props .adopt { background: var(--lw-row-on); padding: 6px 8px; border-radius: 6px; } .props .adopt button { margin-left: 4px; }
+  .props .lamp { display: flex; align-items: center; gap: 8px; } .props .lamp select { font: inherit; flex: 1; min-width: 0; }
+  .props input[type=search] { width: 100%; box-sizing: border-box; font: inherit; padding: 4px 8px; margin-bottom: 8px;
     border: 1px solid var(--lw-border); border-radius: 6px; background: var(--lw-panel); color: inherit; }
   .devices { display: flex; flex-direction: column; gap: 2px; }
   .devices button { display: flex; align-items: center; gap: 8px; border: 0; border-radius: 4px; background: none; text-align: left;
@@ -288,13 +333,14 @@ const STYLE = `${OVERLAY_STYLE}
     --lw-row-on: rgba(var(--rgb-primary-color, 30, 136, 229), 0.18); --lw-error: var(--error-color, #b00020);
     --lw-error-bg: rgba(var(--rgb-error-color, 219, 68, 55), 0.08); }
   :host([shell=ha]) header { background: none; border: 0; padding: 0 0 8px; }
-  :host([shell=ha]) header :is(h1, .name, [data-act=new], [data-act=open], [data-act=save], [data-act=save-yaml], [data-act=save-json], [data-act=ha]) { display: none; }
+  :host([shell=ha]) header :is(h1, .name, [data-act=open], [data-act=save], [data-act=save-yaml], [data-act=save-json], [data-act=ha]) { display: none; }
   :host([shell=ha]) main { grid-template-columns: 1fr; grid-template-areas: "preview" "left"; overflow: visible;
     border: 1px solid var(--lw-line); border-radius: 8px; }
   :host([shell=ha]) .tabs button { padding: 8px 4px; }
   :host([hosted]) .stage, :host([hosted]) [data-act=dark], :host([hosted]) [data-tab=controls] { display: none; }
   :host([hosted]) .preview { padding: 0; border: 0; }
-  :host([shell=ha]) .hint { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+  :host([shell=ha]) .hint { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; overflow: hidden; }
+  :host([shell=ha]) dialog.start .file-only { display: none; }
   header .tip { flex-basis: 100%; margin: 4px 0 0; font-size: 12px; color: var(--lw-muted); }
   header .tip button { padding: 0 6px; line-height: 16px; margin-left: 4px; }
   :host([shell=ha]) .preview { grid-area: preview; padding: 8px; border-bottom: 1px solid var(--lw-line); }
@@ -309,7 +355,7 @@ const STYLE = `${OVERLAY_STYLE}
 const HTML = `
   <header>
     <h1>Lightwell editor</h1><span class="views" role="tablist"><button data-view="build" title="Build a home step by step: rooms, windows and doors">Build</button><button data-view="edit" title="Every field and tool">Edit</button></span><span class="name"></span>
-    <button data-act="new" title="Start again from the example home">New</button>
+    <button data-act="new" title="Start a new home">New…</button>
     <button data-act="open" title="Open a home file (YAML or JSON), or drop one on the page">Open…</button>
     <button data-act="save" title="Save (Ctrl+S)">Save</button>
     <button data-act="save-yaml" title="Save as a YAML file, comments kept">Save as YAML…</button>
@@ -327,29 +373,12 @@ const HTML = `
       <div class="pane controls" data-pane="controls" hidden><form></form></div>
     </div>
     <div class="preview" tabindex="0">
-      <div><div class="tools" role="toolbar">
-        <button data-tool="select" title="Select, move and reshape (V)">Select</button>
-        <button data-tool="build-room" class="build-only" title="Rooms, with their walls">Rooms</button>
-        <button data-tool="build-cut" class="build-only" title="Windows and doors, clicked onto the walls">Windows and doors</button>
-        <button data-tool="build-piece" class="build-only" title="Furniture from the catalogue">Furniture</button>
-        <button data-tool="build-device" class="build-only" title="Lamps and devices from your Home Assistant">Lamps and devices</button>
-        <button data-tool="build-north" class="build-only" title="Which way north is">North</button>
-        <button data-tool="wall" class="edit-only" title="Walls (W)">Wall</button>
-        <button data-tool="room" class="edit-only" title="Rooms (R)">Room</button>
-        <button data-tool="opening" class="edit-only" title="Windows and doors (O)">Opening</button>
-        <button data-tool="piece" class="edit-only" title="Furniture (F)">Furniture</button>
-        <button data-tool="light" class="edit-only" title="Lamps (L)">Light</button>
-        <button data-tool="marker" class="edit-only" title="Markers (M)">Marker</button>
-        <button data-tool="label" class="edit-only" title="Labels (T)">Label</button>
-        <button data-tool="scale" class="edit-only" title="Measure, or set the scale from a known length (S)">Scale</button>
-        <span class="options"></span>
-      </div>
-      <div class="build build-only" aria-live="polite"></div>
-      <div class="stage"><svg class="overlay"><g class="inside"></g><g class="grid"></g><g class="hover"></g><g class="shadows"></g><g class="sel"></g><g class="guides"></g><g class="handles"></g><g class="draft"></g><rect class="box" width="0" height="0"/></svg><div class="ruler"></div></div>
+      <div>
+      <div class="stage">${TOOLBAR}<svg class="overlay"><g class="inside"></g><g class="grid"></g><g class="hover"></g><g class="shadows"></g><g class="sel"></g><g class="guides"></g><g class="handles"></g><g class="draft"></g><rect class="box" width="0" height="0"/></svg><div class="ruler"></div></div>
       <p class="hint"></p></div>
     </div>
     <div class="side right">
-      <div class="tabs" role="tablist"><button data-tab="props" aria-selected="true">Properties</button><button data-tab="text">YAML</button></div>
+      <div class="tabs" role="tablist"><button data-tab="props" aria-selected="true">Details</button><button data-tab="text">YAML</button></div>
       <div class="pane props" data-pane="props"></div>
       <div class="pane text" data-pane="text" hidden><textarea spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="The home's YAML"></textarea></div>
     </div>
@@ -368,8 +397,8 @@ const HTML = `
   </form></dialog>
   <dialog class="start"><form method="dialog">
     <h2>Start a home</h2>
-    <div class="choice"><button value="example">The example flat</button><p>A made-up flat with every kind of item, to change into yours.</p></div>
-    <div class="choice"><button value="picture">Over a picture of its plan…</button><p>A floor plan image (or drop one on the editor):
+    <div class="choice file-only"><button value="example">The example flat</button><p>A made-up flat with every kind of item, to change into yours.</p></div>
+    <div class="choice file-only"><button value="picture">Over a picture of its plan…</button><p>A floor plan image (or drop one on the editor):
       measure a known length on it to set the scale, then trace it. It can stay under the card as its background.</p></div>
     <div class="choice"><button value="empty">Empty</button><p><input type="number" name="w" value="10" min="1" step="any"> ×
       <input type="number" name="h" value="8" min="1" step="any"> m, <input type="number" name="scale" value="100" min="1" step="any"> units a metre</p></div>
@@ -382,6 +411,8 @@ const storage = {
   get() { try { return JSON.parse(localStorage.getItem(DRAFT)); } catch { return null; } },
   set(v) { try { localStorage.setItem(DRAFT, JSON.stringify(v)); } catch { /* storage full or blocked */ } },
 };
+// An element with properties and children.
+const h = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
 const samePath = (a, b) => (a === b) || (!!a && !!b && a.length === b.length && a.every((k, i) => k === b[i]));
 const round = tidy;
 // Paths in an order that deletes safely: within a list, the last first (and what's inside an item before it).
@@ -468,11 +499,12 @@ export class LightwellEditor extends HTMLElement {
     if (this._ha) this._oneSide(root);
     this.style.position ||= 'relative';
     const $ = s => root.querySelector(s);
-    this._el = {name: $('.name'), text: $('textarea'), footer: $('footer'), preview: $('.preview'), stage: $('.stage'),
+    // The YAML (in HA, which has its own code editor, kept out of sight: the history goes through its text).
+    this._el = {name: $('.name'), text: $('textarea') || document.createElement('textarea'), footer: $('footer'), preview: $('.preview'), stage: $('.stage'),
       overlay: $('.overlay'), hover: $('.overlay .hover'), sel: $('.overlay .sel'), list: $('.list'), props: $('.props'),
       handles: $('.overlay .handles'), guides: $('.overlay .guides'), box: $('.overlay .box'), grid: $('.overlay .grid'), ruler: $('.ruler'),
-      draft: $('.overlay .draft'), shadows: $('.overlay .shadows'), hint: $('.hint'), options: $('.tools .options'), start: $('dialog.start'),
-      ha: $('dialog.ha'), haButton: $('header .ha'), inside: $('.overlay .inside'), build: $('.preview .build'),
+      draft: $('.overlay .draft'), shadows: $('.overlay .shadows'), hint: $('.hint'), toolbar: $('.lw-tools'), start: $('dialog.start'),
+      ha: $('dialog.ha'), haButton: $('header .ha'), inside: $('.overlay .inside'),
       buttons: Object.fromEntries([...root.querySelectorAll('[data-act]')].map(b => [b.dataset.act, b]))};
 
     const draft = this._ha ? null : storage.get();
@@ -500,15 +532,13 @@ export class LightwellEditor extends HTMLElement {
     const plan = this.model.home || {openings: [], sun: {entity: 'sun.sun', weather: 'weather.home', north: 0}};
     this._controls = simulatorControls($('form'), {plan, states: this.states, location: this.location, help: false,
       onChange: shown => { this._shown = shown; this._renderCard(); }});
-    new ResizeObserver(() => this._place()).observe(this._el.stage);
+    new ResizeObserver(() => { this._placeTools(); this._place(); }).observe(this._el.preview);
 
     root.addEventListener('click', e => {
       const act = e.target.closest?.('[data-act]')?.dataset.act;
       if (act) this._act(act);
       const tab = e.target.closest?.('[data-tab]');
       if (tab) this._tab(tab.dataset.tab);
-      const tool = e.target.closest?.('[data-tool]');
-      if (tool) this.setTool(tool.dataset.tool);
       const view = e.target.closest?.('[data-view]');
       if (view) this.setView(view.dataset.view);
     });
@@ -522,6 +552,14 @@ export class LightwellEditor extends HTMLElement {
         e.preventDefault();
         document.execCommand('insertText', false, '  ');
       }
+    });
+    // The toolbar (with the plan: in HA's preview, it goes with the editing layer).
+    this._el.toolbar.addEventListener('click', e => {
+      const tool = e.target.closest?.('[data-tool]')?.dataset.tool;
+      if (!tool) return;
+      // A tool that makes something shows its choices in the details: what was selected goes.
+      if (tool !== 'select' && this._group === null && this._inside === null && this._sels.length) this.select(null);
+      this.setTool(tool);
     });
     const overlay = this._el.overlay;
     overlay.addEventListener('pointerdown', e => this._down(e));
@@ -614,7 +652,7 @@ export class LightwellEditor extends HTMLElement {
   disconnectedCallback() {
     if (this._keys) window.removeEventListener('keydown', this._keys);
     if (this._offered) window.removeEventListener('lightwell-preview', this._offered);
-    if (this._hosted) { this._hosted.editLayer = null; this._hosted.style.width = ''; }
+    if (this._hosted) { this._hosted.editLayer = null; this._unplaceTools(this._hosted); }
     this._live?.close();
   }
 
@@ -769,40 +807,73 @@ export class LightwellEditor extends HTMLElement {
   // change) takes the layer over.
   _adopt(card) {
     if (!card) return;
-    if (card === this._hosted) { card.editLayer = this._layer; return; }
-    if (this._hosted) { this._hosted.editLayer = null; this._hosted.style.width = ''; }
+    // Taking the layer out of the old card fires a focusout: whether it had the keys is taken before.
+    const keys = !!this._layerFocus;
+    if (card === this._hosted) { card.editLayer = this._layer; this._refocus(); return; }
+    if (this._hosted) { this._hosted.editLayer = null; this._unplaceTools(this._hosted); }
     if (!this._layer) {
       // Focusable, so that a click on the plan there gives it the keys (the card has nothing else to focus), which it
       // hands to the editor as its own.
       this._layer = Object.assign(document.createElement('div'), {className: 'lw-edit', tabIndex: -1});
       this._layer.innerHTML = `<style>${OVERLAY_STYLE}</style>`;
       this._layer.addEventListener('keydown', e => { if (this._key(e) || e.key !== 'Escape') e.stopPropagation(); });
+      // Whether it has the keys. HA rebuilds its preview on every change, taking the layer out with the old card, which
+      // drops its focus without a focusout (so the flag stays): the layer gets it back in the new card.
+      this._layer.addEventListener('focusin', () => { this._layerFocus = true; });
+      this._layer.addEventListener('focusout', e => { if (!this._layer.contains(e.relatedTarget)) this._layerFocus = false; });
     }
-    this._layer.append(this._el.overlay, this._el.ruler);
+    this._layer.append(this._el.overlay, this._el.ruler, this._el.toolbar);
     this._hosted = this._card = card;
     card.editLayer = this._layer;
+    // The new card offers itself before HA puts it in the page (and again once it's there): the keys go back to the
+    // layer once it's in the page.
+    if (keys) this._focusDue = true;
+    this._refocus();
+    requestAnimationFrame(() => this._refocus());
     this.setAttribute('hosted', '');
     this._hostObserver?.disconnect();
-    this._hostObserver = new ResizeObserver(() => { this._fitHosted(); this._place(); });
+    this._hostObserver = new ResizeObserver(() => { this._placeTools(); this._place(); });
     this._hostObserver.observe(card);
     this._column = null;
     this._renderCard();
+    this._placeTools();
   }
 
-  // HA keeps its preview card to 500 px, also when its dialog is made large: our card, while it's edited on, widens
-  // itself to the column it's in (only itself: it reads the column's width, and changes nothing of HA's). When there's
-  // no wider column (or HA lays it out otherwise), it stays as it is.
-  _fitHosted() {
-    const card = this._hosted, column = card?.parentElement?.parentElement;
-    if (!card || !column) return;
-    // The column HA's preview is in (around the hui-card around our card), followed for its width once the card is
-    // in it (it offers itself before HA puts it there).
-    if (this._column !== column) { this._column = column; this._hostObserver.observe(column); }
-    card.style.width = '';
-    const k = card.offsetWidth ? card.getBoundingClientRect().width / card.offsetWidth || 1 : 1;
-    const pad = parseFloat(getComputedStyle(column).paddingRight) || 0;
-    const room = (column.getBoundingClientRect().right - card.getBoundingClientRect().left) / k - pad;
-    if (room > card.offsetWidth + 1) card.style.width = `${Math.floor(room)}px`;
+  // The layer gets the keys back, if it had them before HA rebuilt its preview, once it's in the page.
+  _refocus() {
+    if (!this._focusDue || !this._layer?.isConnected) return;
+    this._focusDue = false;
+    this._layer.focus({preventScroll: true});
+  }
+
+  // The toolbar beside the plan (a column of icons on its left) where there's room for it, otherwise above it. On HA's
+  // preview, the room is in the column HA's preview is in (HA keeps the card to 500 px, also in its large mode): the
+  // card moves right by the toolbar's width, keeping its own (only our card's margins change, nothing of HA's). In the
+  // editor's own stage, by the stage's width.
+  _placeTools() {
+    const bar = this._el.toolbar, card = this._hosted, side = TOOLBAR_SIDE + TOOLBAR_GAP;
+    let beside;
+    if (card) {
+      // The column around the hui-card around our card, once HA has put it there (followed for its width).
+      const column = card.parentElement?.parentElement;
+      if (column && this._column !== column) { this._column = column; this._hostObserver.observe(column); }
+      this._unplaceTools(card);
+      const k = card.offsetWidth ? card.getBoundingClientRect().width / card.offsetWidth || 1 : 1, width = card.offsetWidth;
+      const pad = column ? parseFloat(getComputedStyle(column).paddingRight) || 0 : 0;
+      const room = column ? (column.getBoundingClientRect().right - card.getBoundingClientRect().left) / k - pad : 0;
+      beside = room >= width + side;
+      bar.classList.toggle('beside', beside);
+      Object.assign(card.style, beside ? {marginLeft: `${side}px`, width: `${width}px`} : {marginTop: `${bar.offsetHeight + TOOLBAR_GAP}px`});
+    } else {
+      beside = this._el.preview.clientWidth >= 500;
+      this._el.stage.classList.toggle('beside', beside);
+    }
+    bar.classList.toggle('beside', beside);
+  }
+
+  // Our card as HA laid it out, without the toolbar's room.
+  _unplaceTools(card) {
+    Object.assign(card.style, {marginLeft: '', marginTop: '', width: ''});
   }
 
   // The element the editing layer is placed in: the editor's stage, or the layer in HA's preview card.
@@ -998,14 +1069,8 @@ export class LightwellEditor extends HTMLElement {
 
   _renderPanels() {
     renderList(this._el.list, this.model.data, this._sel, {...this._ctx, inside: this._inside}, this._sels);
-    renderProperties(this._el.props, this.model.data, this._sel, {...this._ctx, data: this.model.data, states: this._shown.states,
-      previewing: this._effect});
-    if (this._sels.length > 1) {
-      this._el.props.prepend(Object.assign(document.createElement('p'), {className: 'help',
-        textContent: `${this._sels.length} items selected: they move together, and Delete deletes them all. The last one's properties:`}));
-    }
+    this._renderDetails();
     this._renderOverlay();
-    if (this._el.build) this._renderBuild();
   }
 
   // Selects the item at `path` (null: the home itself) in the list, on the plan and in the text.
@@ -1027,6 +1092,7 @@ export class LightwellEditor extends HTMLElement {
     const group = this._group;
     if (group !== null && this._sels.some(p => partOf(this.model.data, p) !== group)) this._group = null;
     this._sel = this._sels.at(-1) || null;
+    this._folded = null;
     if (was !== this._inside || group !== this._group) this._renderTools();
     // In HA's dialog, the list and the properties share the tabs: what's selected shows its properties.
     if (this._ha && this._sel && this._tabNow === 'list') this._tab('props');
@@ -1053,6 +1119,9 @@ export class LightwellEditor extends HTMLElement {
   // own: a click on its title).
   _oneSide(root) {
     const left = root.querySelector('.side.left'), right = root.querySelector('.side.right'), tabs = left.querySelector('.tabs');
+    // No YAML: HA's own code editor shows the card's (its "Show code editor").
+    right.querySelector('[data-tab="text"]').remove();
+    right.querySelector('[data-pane="text"]').remove();
     tabs.querySelector('[data-tab="list"]').after(...right.querySelectorAll('.tabs [data-tab]'));
     left.append(...right.querySelectorAll('.pane'));
     right.remove();
@@ -1165,14 +1234,14 @@ export class LightwellEditor extends HTMLElement {
       const text = input.value.trim();
       input.remove();
       if (!keep || !text || text === shape?.text) return;
-      this._edit(() => this.model.batch(label ? [{set: [...label, 'text'], value: text}]
-        : [{insert: ['drawing', 'labels'], value: {text, at: spot.map(tidy), class: 'room', part: room}}]));
-      this._selectObject(room);
+      this._setRoomName(room, text);
     };
+    // Enter or Esc: the keys back to the plan (the field had them; leaving it by a click elsewhere gives them there).
+    const back = () => (this._hosted ? this._layer : this._el.preview).focus({preventScroll: true});
     input.addEventListener('keydown', ev => {
       ev.stopPropagation();
-      if (ev.key === 'Enter') finish(true);
-      else if (ev.key === 'Escape') finish(false);
+      if (ev.key === 'Enter') { finish(true); back(); }
+      else if (ev.key === 'Escape') { finish(false); back(); }
     });
     input.addEventListener('blur', () => finish(true));
     this._frameEl().append(input);
@@ -1280,7 +1349,12 @@ export class LightwellEditor extends HTMLElement {
     if ((this._inside !== null || this._group !== null) && !inside) this._out();
     if ((e.ctrlKey || e.metaKey) && this._toggleShadow(hits)) return;
     if (press.shift) {
-      if (hits[0]) this._toggle(hits[0]);
+      // A Build object goes in or out whole.
+      const id = hits[0] && this._objectAt(hits[0]);
+      if (id) {
+        const parts = partsOf(this.model.data, id), all = parts.every(q => this._sels.some(r => samePath(q, r)));
+        this._selectAll(all ? this._sels.filter(r => !parts.some(q => samePath(q, r))) : [...this._sels, ...parts]);
+      } else if (hits[0]) this._toggle(hits[0]);
       return;
     }
     const again = this._hits && hits.length && hits.map(pathKey).join() === this._hits.map(pathKey).join();
@@ -1603,48 +1677,216 @@ export class LightwellEditor extends HTMLElement {
     this._view = view;
     this.setAttribute('view', view);
     for (const b of this._root.querySelectorAll('[data-view]')) b.setAttribute('aria-pressed', b.dataset.view === view);
+    this._el.toolbar.dataset.shows = view;
     if (view === 'build' && this._inside !== null) this._leave();
     if (view !== 'build' && this._group !== null) this._out();
-    this._tab('list');
+    // Build's panel is its details (the home's, the tool's choices, the selection's); Edit starts from the list.
+    this._tab(view === 'build' ? 'props' : 'list');
     this.setTool('select');
+    this._placeTools();
   }
 
-  // The Build view's panel, under its steps: what the step in use is about, and its catalogue or devices.
-  _renderBuild() {
-    const box = this._el.build, rooms = Object.keys(this.model?.data?.rooms || {}).length;
-    box.innerHTML = '';
-    const lamp = this._view === 'build' && this._sel?.[0] === 'lights' && this._objectOf(this._sels);
-    if (lamp) box.append(this._lampPicker(lamp));
-    box.append(Object.assign(document.createElement('p'), {textContent: BUILD_HELP[this._tool] || BUILD_HELP.select}));
-    // A home not made here: its objects found and tagged, so that Build picks them as one.
-    const adopt = this.model?.data && this.model.home ? adoptOps(this.model.data) : [];
-    if (adopt.length) {
-      const p = Object.assign(document.createElement('p'), {className: 'adopt'});
-      const b = Object.assign(document.createElement('button'), {type: 'button', textContent: 'Find them'});
-      b.onclick = () => this._edit(() => this.model.batch(adoptOps(this.model.data)));
-      p.append(`This home has rooms, windows, doors or lamps not made in Build (${adopt.length} parts): find them, so that Build picks each as one. `, b);
-      box.prepend(p);
+  // The details panel: a Build object's settings when one is selected whole; with nothing selected, the tool's choices
+  // (in Build's Select, the home's); otherwise the selected item's properties.
+  _renderDetails() {
+    const box = this._el.props, data = this.model?.data;
+    const id = this._view === 'build' && this._group === null && this._inside === null && data ? this._objectOf(this._sels) : undefined;
+    if (id && partsOf(data, id).length === this._sels.length) return this._groupDetails(box, id);
+    if (this._group !== null && data) return this._memberDetails(box);
+    if (!this._sels.length && (this._view === 'build' || this._tool !== 'select')) return this._toolDetails(box);
+    if (this._sels.length > 1) return this._multiDetails(box);
+    renderProperties(box, data, this._sel, {...this._ctx, data, states: this._shown.states, previewing: this._effect});
+  }
+
+  // Inside a Build object: the way back to it whole, and each of its parts, folded but those selected (and those
+  // unfolded by hand).
+  _memberDetails(box) {
+    const data = this.model.data, back = h('button', {type: 'button', textContent: `‹ Back to ${this._groupName(this._group)}`, title: 'The whole of it again, with its settings (Esc)'});
+    back.onclick = () => this._leaveGroup();
+    const parts = partsOf(data, this._group);
+    this._folds(box, parts.map(p => this._itemEntry(p)), key => this._sels.some(p => pathKey(p) === key),
+      h('p', {className: 'back'}, back), h('p', {className: 'help', textContent: `Its ${parts.length} parts: click one on the plan to select it.`}));
+  }
+
+  // The item at `path` as an entry of a folded list: its kind and name, and its properties form.
+  _itemEntry(p) {
+    const data = this.model.data, group = itemGroups(data).find(g => samePath(g.path, p.slice(0, -1)));
+    const label = group?.items.find(it => samePath(it.path, p))?.label ?? p.join('.');
+    return {key: pathKey(p), title: `${group ? `${group.title}: ` : ''}${label}`,
+      render: b => renderProperties(b, data, p, {...this._ctx, data, states: this._shown.states, previewing: this._effect})};
+  }
+
+  // A list of entries ({key, title, render(box)}) folded in `box`, after `head`: unfolded when `wanted` says so (what's
+  // selected), unless folded by hand (until the selection changes), or when unfolded by hand. A form is built when it's unfolded.
+  _folds(box, entries, wanted, ...head) {
+    const opened = this._unfolded ||= new Set(), closed = this._folded ||= new Set();
+    box.textContent = '';
+    box.append(...head);
+    for (const entry of entries) {
+      const auto = wanted(entry.key), body = h('div', {className: 'body'});
+      const fold = h('details', {className: 'multi', open: auto ? !closed.has(entry.key) : opened.has(entry.key)}, h('summary', {textContent: entry.title}), body);
+      const fill = () => { if (fold.open && !body.childElementCount) entry.render(body); };
+      fold.ontoggle = () => {
+        const set = auto ? closed : opened;
+        if (fold.open === auto) set.delete(entry.key); else set.add(entry.key);
+        fill();
+      };
+      fill();
+      box.append(fold);
     }
-    if (this._tool === 'build-device') return this._renderDevices(box);
-    if (this._tool !== 'build-piece') {
-      box.append(Object.assign(document.createElement('p'), {className: 'muted', textContent: `${rooms} room${rooms === 1 ? '' : 's'}, ${(this.model?.data?.openings || []).length} windows and glass doors so far.`}));
-      return;
+  }
+
+  // Several things selected: each of them, folded (a click unfolds it, and it stays so while it's selected). In the
+  // Build view, an object selected whole is one of them, with its settings; anything else has its properties.
+  _multiDetails(box) {
+    const data = this.model.data, entries = [], seen = new Set();
+    for (const p of this._sels) {
+      const id = this._view === 'build' && this._group === null && this._inside === null ? this._objectAt(p) : undefined;
+      if (id && partsOf(data, id).every(q => this._sels.some(r => samePath(q, r)))) {
+        if (!seen.has(id)) { seen.add(id); entries.push({key: `object:${id}`, title: `${this._groupKind(id)}: ${this._groupName(id)}`, render: b => this._groupDetails(b, id, {single: false})}); }
+      } else entries.push(this._itemEntry(p));
     }
+    this._folds(box, entries, () => false, h('p', {className: 'help', textContent: `${entries.length} selected: they move together, and Delete deletes them all.`}));
+  }
+
+  // With nothing selected: what the tool does, and its choices (the catalogue, the devices, a room's name, a cut's
+  // kind and width); in Build's Select, the home's settings.
+  _toolDetails(box) {
+    box.textContent = '';
+    const tool = this._tool, build = this._view === 'build', data = this.model?.data;
+    const title = {select: build ? 'Your home' : 'The home', 'build-room': 'Rooms', 'build-cut': 'Windows and doors', 'build-piece': 'Furniture',
+      'build-device': 'Lamps and devices', 'build-north': 'North'}[tool] || TOOLS.find(t => t[0] === tool)?.[2].replace(/ \(.\)$/, '');
+    box.append(h('h2', {textContent: title}), h('p', {className: 'help', textContent: (build ? BUILD_HELP[tool] : null) || HINTS[tool]}));
+    const options = h('div', {className: 'options'});
+    options.innerHTML = this._optionsHtml();
+    if (options.innerHTML) { box.append(options); this._wireOptions(options); }
+    if (build && tool === 'select' && data) {
+      // A home not made here: its objects found and tagged, so that Build picks them as one.
+      const adopt = this.model.home ? adoptOps(data) : [];
+      if (adopt.length) {
+        const b = h('button', {type: 'button', textContent: 'Find them'});
+        b.onclick = () => this._edit(() => this.model.batch(adoptOps(this.model.data)));
+        box.append(h('p', {className: 'adopt'}, `This home has rooms, windows, doors or lamps not made in Build (${adopt.length} parts): find them, so that Build picks each as one. `, b));
+      }
+      const rooms = Object.keys(data.rooms || {}).length, cuts = (data.openings || []).length;
+      box.append(h('p', {className: 'help', textContent: `${rooms} room${rooms === 1 ? '' : 's'}, ${cuts} window${cuts === 1 ? '' : 's'} and glass door${cuts === 1 ? '' : 's'} so far.`}));
+    }
+    if (tool === 'build-device') this._renderDevices(box);
+    if (tool !== 'build-piece') return;
     // The catalogue: each piece drawn, chosen by a click, or dragged onto the plan.
     for (const group of Object.values(PREFABS)) {
-      box.append(Object.assign(document.createElement('h3'), {textContent: group.title}));
-      const grid = Object.assign(document.createElement('div'), {className: 'catalogue'});
+      box.append(h('h3', {textContent: group.title}));
+      const grid = h('div', {className: 'catalogue'});
       for (const [id, item] of Object.entries(group.items)) {
-        const b = Object.assign(document.createElement('button'), {type: 'button', draggable: true, title: `${item.name}: ${item.w} × ${item.d} m${item.height ? `, ${item.height} m high` : ''}`});
+        const b = h('button', {type: 'button', draggable: true, title: `${item.name}: ${item.w} × ${item.d} m${item.height ? `, ${item.height} m high` : ''}`});
         b.innerHTML = `${prefabSvg(id)}<span></span>`;
         b.querySelector('span').textContent = item.name;
         b.setAttribute('aria-pressed', this._opts.prefab === id);
-        b.onclick = () => { this._opts.prefab = id; this._renderBuild(); this._renderOptions(); };
+        b.onclick = () => { this._opts.prefab = id; this._renderDetails(); };
         b.ondragstart = e => { this._opts.prefab = id; e.dataTransfer.setData('text/x-lightwell-prefab', id); e.dataTransfer.effectAllowed = 'copy'; };
         grid.append(b);
       }
       box.append(grid);
     }
+  }
+
+  // A Build object selected whole: what it is, and its settings. A lamp: which light it is. A window or door: its width
+  // and heights. Furniture from the catalogue: which piece it is (another replaces it, in its place), and a turn. A
+  // room: its name and size. Its parts are a double-click (or Enter) away.
+  // (`single`: it's all that's selected; otherwise it's one of several, in their list, and they stay selected.)
+  _groupDetails(box, id, {single = true} = {}) {
+    box.textContent = '';
+    const data = this.model.data, parts = partsOf(data, id), u = data.units_per_metre || 100, metres = v => +(v / u).toFixed(2);
+    const room = data.rooms?.[id] !== undefined, lamp = parts.some(p => p[0] === 'lights'), cut = !room && this._isCut(id);
+    const found = !room && !lamp && !cut && parts.every(p => p[0] === 'furniture') ? prefabOf(data, id) : null;
+    const kind = this._groupKind(id), keep = () => { if (single) this._selectObject(id); };
+    const enter = h('button', {type: 'button', textContent: 'Its parts', title: 'Change its parts one by one (double-click it, or Enter)'});
+    enter.onclick = () => this._enterGroup(id, [parts.at(-1)]);
+    const del = h('button', {type: 'button', className: 'delete', textContent: 'Delete', title: 'Delete it (Delete)'});
+    del.onclick = () => this._remove(partsOf(this.model.data, id));
+    box.append(h('div', {className: 'title'}, single ? h('h2', {textContent: `${kind}: ${this._groupName(id)}`}) : h('span', {className: 'grow'}), enter, del));
+    const row = (label, ...kids) => h('div', {className: 'row'}, h('span', {className: 'key', textContent: label}), h('span', {className: 'value'}, ...kids));
+    const number = (value, onchange, attrs = {}) => {
+      const i = h('input', {type: 'number', value, step: 0.05, min: 0, ...attrs});
+      i.onchange = () => { const v = +i.value; if (i.value !== '' && Number.isFinite(v)) onchange(v); };
+      return i;
+    };
+    const unit = text => h('span', {className: 'unit', textContent: text});
+    if (lamp) box.append(this._lampPicker(id, keep));
+    if (room) {
+      const label = parts.find(p => p[1] === 'labels'), name = h('input', {type: 'text', value: (label && itemAt(data, label)?.text) || '', placeholder: 'none: no label', spellcheck: false});
+      name.onchange = () => this._setRoomName(id, name.value.trim());
+      box.append(row('Name', name));
+      const r = data.rooms[id];
+      if (r.length === 1 && Array.isArray(r[0]) && !Array.isArray(r[0][0])) {
+        const resize = (w, d) => {
+          const made = moveRoomOps(this.model.data, id, 0, 0, 0, [tidy(w * u), tidy(d * u)]);
+          if (made) this._edit(() => this.model.batch(made.ops));
+          keep();
+        };
+        const [w, d] = [metres(r[0][2]), metres(r[0][3])];
+        box.append(row('Size', number(w, v => resize(v, d), {min: 0.5}), unit('×'), number(d, v => resize(w, v), {min: 0.5}), unit('m')));
+      } else box.append(h('p', {className: 'help', textContent: 'A room of several rectangles, or a polygon: its shape is changed in the Edit view.'}));
+    }
+    if (cut) {
+      const gap = gapOf(data, id);
+      if (gap) {
+        const width = number(metres(gap.to - gap.from), v => {
+          const g = gapOf(this.model.data, id), mid = (g.from + g.to) / 2, [lo] = gapRange(this.model.data, g, 'from'), [, hi] = gapRange(this.model.data, g, 'to');
+          const [a, b] = [Math.max(mid - v * u / 2, lo), Math.min(mid + v * u / 2, hi)];
+          if (b - a >= 0.3 * u) this._edit(() => this.model.batch(resizeGapOps(this.model.data, g, a, b)));
+          keep();
+        }, {min: 0.3});
+        box.append(row('Width', width, unit('m')));
+      } else box.append(h('p', {className: 'help', textContent: "Not in a gap of its own in the wall (drawn by hand, beside another): its size is changed in the Edit view."}));
+      const opening = parts.find(p => p[0] === 'openings'), o = opening && itemAt(data, opening);
+      if (o) {
+        const set = (key, v) => { this._edit(() => this.model.set([...opening, key], v)); keep(); };
+        box.append(row('From', number(o.lo ?? 0, v => set('lo', v)), unit('m above the floor')), row('To', number(o.hi ?? 2.2, v => set('hi', v)), unit('m')));
+      }
+    }
+    if (kind === 'Furniture') {
+      const select = h('select', {disabled: !found, title: found ? 'Another piece in its place' : 'Its pieces were changed since it was placed: delete it and place another'});
+      for (const group of Object.values(PREFABS)) {
+        const og = h('optgroup', {label: group.title});
+        for (const [pid, item] of Object.entries(group.items)) if (!item.lamp) og.append(h('option', {value: pid, textContent: item.name, selected: found?.id === pid}));
+        if (og.children.length) select.append(og);
+      }
+      if (!found) select.prepend(h('option', {value: '', textContent: 'Changed since it was placed', selected: true}));
+      select.onchange = () => this._replacePrefab(id, select.value);
+      const turn = h('button', {type: 'button', textContent: 'Turn ↻', title: 'Turn it a quarter (R)'});
+      turn.onclick = () => this._turnPieces(90, parts);
+      box.append(row('Which', select), row('', turn));
+    }
+  }
+
+  // What kind of Build object `id` is, in words.
+  _groupKind(id) {
+    const data = this.model.data, parts = partsOf(data, id);
+    if (data.rooms?.[id] !== undefined) return 'Room';
+    if (parts.some(p => p[0] === 'lights')) return 'Lamp';
+    if (this._isCut(id)) return {window: 'Window', glass_door: 'Glass door', door: 'Door', doorway: 'Doorway'}[id.replace(/_\d+$/, '')] || 'Window or door';
+    return parts.every(p => p[0] === 'furniture') ? 'Furniture' : 'Object';
+  }
+
+  // The catalogue's object `id` replaced by the prefab `with`, where it is and turned as it is.
+  _replacePrefab(id, other) {
+    const data = this.model.data, found = prefabOf(data, id);
+    if (!found || !other) return;
+    const del = deleteOps(data, id), made = placePrefab(applyOps(data, del), other, found.at, found.turn);
+    if (!made) return;
+    this._edit(() => this.model.batch([...del, ...made.ops]));
+    this._selectObject(made.part);
+  }
+
+  // A room's name: its label's text (a label added in its middle when it has none; none when emptied).
+  _setRoomName(room, text) {
+    const data = this.model.data, label = partsOf(data, room).find(p => p[0] === 'drawing' && p[1] === 'labels'), shape = label && itemAt(data, label);
+    if (text === (shape?.text ?? '')) return;
+    const r = data.rooms[room][0], spot = shape?.at || (Array.isArray(r?.[0]) ? r[0] : [r[0] + r[2] / 2, r[1] + r[3] / 2]);
+    this._edit(() => this.model.batch(!text ? [{remove: label}] : label ? [{set: [...label, 'text'], value: text}]
+      : [{insert: ['drawing', 'labels'], value: {text, at: spot.map(tidy), class: 'room', part: room}}]));
+    this._selectObject(room);
   }
 
   // The prefab about to be placed turned a quarter.
@@ -1655,7 +1897,7 @@ export class LightwellEditor extends HTMLElement {
 
   // Which light the selected lamp (object `id`) is: an entity of the states in use, or none (lit always, while the sun
   // is down, or never). Its marker follows its entity; without one it has none.
-  _lampPicker(id) {
+  _lampPicker(id, keep = () => this._selectObject(id)) {
     const data = this.model.data, paths = partsOf(data, id), lightPath = paths.find(p => p[0] === 'lights'), light = itemAt(data, lightPath);
     const markers = paths.filter(p => p[0] === 'markers'), current = light?.entities?.[0] ?? `lit:${light?.lit || 'dark'}`;
     const choices = devicesIn(this._shown.states).filter(d => ['light', 'switch', 'fan', 'media_player'].includes(d.domain));
@@ -1682,7 +1924,7 @@ export class LightwellEditor extends HTMLElement {
         else ops.push({insert: ['markers'], value: {entity: v, x, y, icon: iconOf(v, this._shown.states?.[v]), tap: 'toggle', small: true, part: id}});
       }
       this._edit(() => this.model.batch(ops));
-      this._selectObject(id);
+      keep();
     };
     row.append(Object.assign(document.createElement('strong'), {textContent: 'This light is '}), select);
     return row;
@@ -1714,7 +1956,7 @@ export class LightwellEditor extends HTMLElement {
 
   // Places the entity `id` (the one chosen) at `p`: a lamp, a shutter, or a marker; selects what it made.
   _placeDevice(p, tol, id = this._opts.device) {
-    if (!id) return this._message('Choose a lamp or device above the plan first.', 'info');
+    if (!id) return this._message('Choose a lamp or device in the details first.', 'info');
     if (!this.model.home) return this._message('Fix the mistakes listed here first: the plan shows the last version without them.');
     const g = this._grid(), at = p.map(v => tidy(Math.round(v / g) * g));
     const made = placeDevice(this.model.data, id, this._shown.states?.[id], at, Math.max(tol, 0.3 * (this._data?.units_per_metre || 100)));
@@ -1785,6 +2027,8 @@ export class LightwellEditor extends HTMLElement {
     this._cancelDrag();
     this._el.draft.innerHTML = '';
     if (tool === 'build-north') this._northArrow(this.model?.data?.sun?.north ?? 0);
+    // In HA's dialog the details share the tabs with the list: a tool with choices shows them.
+    if (this._ha && tool !== 'select' && !this._sels.length) this._tab('props');
     this._renderTools();
     this._renderOverlay();
   }
@@ -1792,24 +2036,22 @@ export class LightwellEditor extends HTMLElement {
   // The tools' buttons, options and hint, for the tool in use and whether a piece is being edited.
   _renderTools() {
     const inside = this._inside !== null, tool = this._tool;
-    for (const b of this._root.querySelectorAll('[data-tool]')) {
-      b.setAttribute('aria-pressed', b.dataset.tool === tool);
-      b.disabled = inside && !INSIDE_HINTS[b.dataset.tool];
+    for (const b of this._el.toolbar.querySelectorAll('[data-tool]')) {
+      b.setAttribute('aria-pressed', b.dataset.tool === tool || (tool === 'build-north' && b.dataset.tool === 'select'));
+      b.disabled = (inside && !INSIDE_HINTS[b.dataset.tool]) || (this._group !== null && b.dataset.tool !== 'select');
     }
-    const piece = this._root.querySelector('[data-tool="piece"]');
-    piece.textContent = inside ? 'Shapes' : 'Furniture';
+    const piece = this._el.toolbar.querySelector('[data-tool="piece"]');
     piece.title = inside ? `Shapes on ${this._inside} (F)` : 'Furniture (F)';
     this._el.overlay.classList.toggle('drawing', tool !== 'select');
     this._el.hint.textContent = this._el.hint.title = inside ? INSIDE_HINTS[tool].replace('{name}', this._inside)
       : this._group !== null ? GROUP_HINT.replace('{name}', this._groupName(this._group)) : HINTS[tool];
-    this._renderOptions();
-    this._renderBuild();
+    this._renderDetails();
   }
 
   // The selected pieces turned by `deg` (a quarter): each around its middle, or a Build object's around the middle of
   // them all, so that a table keeps its chairs round it.
-  _turnPieces(deg) {
-    const data = this.model.data, paths = this._sels.filter(p => p[0] === 'furniture' && p.length === 2);
+  _turnPieces(deg, among = this._sels) {
+    const data = this.model.data, paths = among.filter(p => p[0] === 'furniture' && p.length === 2);
     const middle = it => { const sh = it.shape; return sh.circle?.slice(0, 2) || (sh.rect ? [sh.rect[0] + sh.rect[2] / 2, sh.rect[1] + sh.rect[3] / 2] : boundsOf(sh.poly).reduce((a, v, i) => (a[i % 2] += v / 2, a), [0, 0])); };
     const whole = paths.length > 1 && this._objectOf(paths);
     const [x0, y0, x1, y1] = whole ? boundsOf(paths.map(p => middle(itemAt(data, p)))) : [0, 0, 0, 0], c = [(x0 + x1) / 2, (y0 + y1) / 2];
@@ -1822,28 +2064,41 @@ export class LightwellEditor extends HTMLElement {
     })));
   }
 
-  // The tool's options, next to the tools.
+  // The tool's choices changed (or what they show): the details show them again, when they're showing.
   _renderOptions() {
-    const o = this._opts, box = this._el.options;
-    const select = (key, values) => `<select data-opt="${key}">${Object.entries(values).map(([v, t]) => `<option value="${v}"${o[key] === v ? ' selected' : ''}>${t}</option>`).join('')}</select>`;
+    if (!this._sels.length) this._renderDetails();
+  }
+
+  // The tool's choices, as HTML (wired by _wireOptions): a room's name, a cut's kind and width, the piece about to be
+  // placed, the shapes the Edit tools draw; in Build's Select, north.
+  _optionsHtml() {
+    const o = this._opts;
+    const select = (key, values) => `<label>${{wall: 'Kind', kind: 'Kind', piece: 'Shape', extra: 'Shape', cut: 'Kind'}[key] || ''} <select data-opt="${key}">${Object.entries(values).map(([v, t]) => `<option value="${v}"${o[key] === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>`;
     const check = (key, text) => `<label><input type="checkbox" data-opt="${key}"${o[key] ? ' checked' : ''}> ${text}</label>`;
     const esc = v => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-    box.innerHTML = {
-      'build-room': `<label>Name <input type="text" data-opt="roomName" value="${esc(o.roomName)}" placeholder="none: no label" size="12"></label>`
+    const north = `<label>The top of the plan faces <input type="number" data-north value="${this.model?.data?.sun?.north ?? 0}" min="0" max="359" step="1" style="width: 4.5em">° from north</label>`;
+    return {
+      select: this._view === 'build' ? `${north}<span><button type="button" data-point-north title="Click on the plan towards north">Point to north on the plan</button></span>` : '',
+      'build-north': north,
+      'build-room': `<label>The new room's name <input type="text" data-opt="roomName" value="${esc(o.roomName)}" placeholder="none: no label" size="14"></label>`
         + check('outdoor', 'outdoors (a terrace, a balcony)'),
-      'build-piece': `<span>${esc(prefab(o.prefab)?.name || '')}: Shift+click to place</span> <button type="button" data-turn title="Turn it a quarter (R)">Turn ↻</button>`,
-      'build-north': `<label>The top of the plan faces <input type="number" data-north value="${this.model?.data?.sun?.north ?? 0}" min="0" max="359" step="1" style="width: 4.5em">°</label>`,
-      'build-cut': select('cut', CUTS) + `<label><input type="number" data-opt="cutWidth" value="${o.cutWidth}" min="0.3" step="0.1" style="width: 4.5em"> m wide</label>`,
+      'build-piece': `<span>${esc(prefab(o.prefab)?.name || '')}: Shift+click on the plan to place it <button type="button" data-turn title="Turn it a quarter (R)">Turn ↻</button></span>`,
+      'build-cut': select('cut', CUTS) + `<label>Width <input type="number" data-opt="cutWidth" value="${o.cutWidth}" min="0.3" step="0.1" style="width: 4.5em"> m</label>`,
       wall: select('wall', {auto: 'Outer or inner, by where', outer: 'Outer wall', inner: 'Inner wall'}),
       room: check('floor', 'with its floor'),
       opening: select('kind', {window: 'Window', door: 'Door'}) + check('glass', 'with its glass'),
       piece: this._inside !== null ? select('extra', {rect: 'Rectangle', circle: 'Circle', line: 'Line'})
         : select('piece', {rect: 'Rectangle', circle: 'Circle', poly: 'Polygon'}),
     }[this._tool] || '';
-    const north = box.querySelector('[data-north]');
+  }
+
+  _wireOptions(box) {
+    const o = this._opts, north = box.querySelector('[data-north]');
     if (north) north.onchange = () => { const v = ((+north.value % 360) + 360) % 360; if (Number.isFinite(v)) this._edit(() => this.model.set(['sun', 'north'], v)); };
     const turn = box.querySelector('[data-turn]');
     if (turn) turn.onclick = () => this._turnPrefab();
+    const point = box.querySelector('[data-point-north]');
+    if (point) point.onclick = () => this.setTool('build-north');
     for (const input of box.querySelectorAll('[data-opt]')) {
       input.onchange = () => {
         o[input.dataset.opt] = input.type === 'checkbox' ? input.checked : input.type === 'number' ? (+input.value > 0 ? +input.value : o[input.dataset.opt]) : input.value;
@@ -2091,7 +2346,23 @@ export class LightwellEditor extends HTMLElement {
   _moveBy(dx, dy) {
     if (!this._sels.length) return;
     if (!this.model.home) return this._message('Fix the mistakes listed here first: the plan shows the last version without them.');
-    this._edit(() => this.model.batch(this._sels.map(p => ({set: p, value: moveItem(p, itemAt(this.model.data, p), dx, dy, this._withPiece(p))}))));
+    const data = this.model.data, id = this._view === 'build' && this._group === null ? this._objectOf(this._sels) : undefined;
+    // A Build object moves as a drag moves it: a room with its walls made again, a window or door along its wall.
+    if (id && data.rooms?.[id] !== undefined) {
+      const made = moveRoomOps(data, id, dx, dy);
+      if (made) { this._edit(() => this.model.batch(made.ops)); this._selectObject(id); }
+      return;
+    }
+    const gap = id && gapOf(data, id);
+    if (gap) {
+      const d = gap.axis === 0 ? dx : dy;
+      if (d) this._edit(() => this.model.batch(slideOps(data, gap, d)));
+      this._selectObject(id);
+      return;
+    }
+    const ops = this._sels.map(p => ({set: p, value: moveItem(p, itemAt(data, p), dx, dy, this._withPiece(p))}));
+    if (this._view === 'build') ops.push(...regroupOps(applyOps(data, ops), this._sels));
+    this._edit(() => this.model.batch(ops));
   }
 
   // Copies of the selected items, a little down and to the right, selected: pieces and rooms under a new name, the
@@ -2348,12 +2619,14 @@ export class LightwellEditor extends HTMLElement {
         if (file) await this._picture(file);
         return;
       }
-      if (this._unsaved() && !confirm('Start a new home? The changes not saved are lost.')) return;
+      // In HA the home is the card's, and a new one is a step in the history (undone as any other).
+      if (!this._ha && this._unsaved() && !confirm('Start a new home? The changes not saved are lost.')) return;
       if (how === 'example') this._open({name: 'home.yaml', text: this.example, handle: null});
       else {
         const [w, h, scale] = ['w', 'h', 'scale'].map(k => +form.elements[k].value);
         if (!(w > 0 && h > 0 && scale > 0)) throw new Error('An empty home needs a size and a scale above 0');
-        this._open({name: 'home.yaml', text: emptyHome(w, h, scale), handle: null});
+        if (this._ha) this._restart(emptyHome(w, h, scale));
+        else this._open({name: 'home.yaml', text: emptyHome(w, h, scale), handle: null});
         this._opts.floor = true;
         // A new home is built step by step: its rooms first.
         this.setView('build');
@@ -2362,6 +2635,15 @@ export class LightwellEditor extends HTMLElement {
     } catch (e) {
       this._message(e.message);
     }
+  }
+
+  // The home replaced by the one in `text` (HA's shell), as one step in the history: nothing selected, nothing entered.
+  _restart(text) {
+    this._inside = null;
+    this._group = null;
+    this._sels = [];
+    this._sel = null;
+    if (this.model.setText(text)) this._changed({text: true});
   }
 
   // A picture of a plan: the background of the open home if it names it (/local/<its name>), or else a new home
@@ -2467,6 +2749,7 @@ export class LightwellEditor extends HTMLElement {
     if (e.key === 'Escape') {
       if (this._press) this._cancelDrag();
       else if (this._poly) { this._poly = null; this._el.draft.innerHTML = ''; this._el.ruler.textContent = ''; }
+      else if (this._sels.length && this._tool.startsWith('build-') && this._group === null) this.select(null);
       else if (this._tool !== 'select') this.setTool('select');
       else if (this._inside !== null) this._leave();
       else if (this._group !== null) this._leaveGroup();
@@ -2483,7 +2766,7 @@ export class LightwellEditor extends HTMLElement {
     } else if (this._view === 'build' && e.key.toLowerCase() === 'r' && this._sels.some(p => p[0] === 'furniture' && p.length === 2)) {
       // The selected pieces turned a quarter (Shift: back).
       this._turnPieces(e.shiftKey ? -90 : 90);
-    } else if (this._view !== 'build' && !e.altKey && !e.shiftKey && TOOL_KEYS[e.key.toLowerCase()] && e.key.length === 1) this.setTool(TOOL_KEYS[e.key.toLowerCase()]);
+    } else if ((this._view !== 'build' || e.key.toLowerCase() === 'v') && !e.altKey && !e.shiftKey && TOOL_KEYS[e.key.toLowerCase()] && e.key.length === 1) this.setTool(TOOL_KEYS[e.key.toLowerCase()]);
     else if ((e.key === 'Delete' || e.key === 'Backspace') && this._sels.length) {
       e.preventDefault();
       this._remove(this._sels);

@@ -32,6 +32,16 @@ versions [Semantic Versioning](https://semver.org/). Changes not released yet ar
   lamp or a piece moved into another room belongs to that room: its light stays in it, and its shadows follow. A table
   from the catalogue keeps its chairs, and turns with them. A lamp's entity changed on its light or on its marker
   changes both.
+- **The editor:** its tools are a toolbar of icons beside the plan (above it where there's no room), and the panel
+  beside it holds the details: the selection's settings (in Build, a lamp's light, a window's width and height, which
+  catalogue piece a group is, a room's name and size), or with nothing selected the tool's choices. In Home Assistant
+  the preview keeps HA's 500 px with the toolbar beside it in the large dialog, and there's no YAML tab (HA's own code
+  editor shows it). Keys on HA's preview no longer go to Home Assistant after the first edit.
+- **The editor in Home Assistant:** *New…* starts again from an empty home (Undo brings the card's back); inside a
+  Build object, *Back to …* returns to it whole.
+- **The editor:** with several things selected, the details list all of them, folded, each opening to its settings or
+  its fields. In the Build view, Shift+click adds or takes out a whole object.
+- **The editor's Build view:** inside an object, the details list all its parts, the selected one unfolded.
 - A piece of furniture that is a polygon can be turned (`turn`, around the middle of its bounding box), as a
   rectangle can; in the editor by its turn handle, Ctrl (⌘) and a drag, or R in the Build view.
 

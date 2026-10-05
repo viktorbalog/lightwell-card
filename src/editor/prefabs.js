@@ -253,3 +253,26 @@ export function turnedPiece(piece, deg) {
   };
   return {...piece, shape: one(s), ...(Array.isArray(piece.extra) ? {extra: piece.extra.map(one)} : {})};
 }
+
+// The prefab a group of pieces (part `part`) was placed from, where and turned how: {id, at, turn}, or null when its
+// pieces aren't (any more) as the prefab places them, moved together aside.
+export function prefabOf(data, part) {
+  const id = String(part).replace(/_\d+$/, ''), item = prefab(id);
+  if (!item || item.lamp) return null;
+  const pieces = Object.values(data?.furniture || {}).filter(p => p?.part === part);
+  const point = sh => (sh?.rect ? sh.rect.slice(0, 2) : sh?.circle ? sh.circle.slice(0, 2) : sh?.poly?.[0]);
+  for (const turn of [0, 90, 180, 270]) {
+    const made = placePrefab(data, id, [0, 0], turn).ops.map(op => op.value);
+    if (made.length !== pieces.length) return null;
+    const [a, b] = [point(made[0].shape), point(pieces[0].shape)];
+    if (!a || !b) return null;
+    const at = [tidy(b[0] - a[0]), tidy(b[1] - a[1])];
+    const fits = made.every((m, k) => {
+      const [p, q] = [point(m.shape), point(pieces[k].shape)];
+      return p && q && Math.abs(p[0] + at[0] - q[0]) < 0.5 && Math.abs(p[1] + at[1] - q[1]) < 0.5
+        && JSON.stringify(m.shape.rect?.slice(2)) === JSON.stringify(pieces[k].shape.rect?.slice(2)) && (m.shape.turn || 0) === (pieces[k].shape.turn || 0);
+    });
+    if (fits) return {id, at, turn};
+  }
+  return null;
+}

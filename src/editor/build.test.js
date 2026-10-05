@@ -261,3 +261,15 @@ test('a group of pieces deleted leaves the lamps it was in the shadows of', () =
   assert.deepEqual(Object.keys(after.furniture), ['sofa']);
   assert.deepEqual(after.lights[0].pool.shadows, ['sofa']);
 });
+
+test('a room made larger: its far walls and the window in its bottom wall move with its sides', () => {
+  const data = build([room('Living', [0, 0, 500, 400]), d => cutOps(d, [250, 412], {kind: 'window', metres: 1.2}).ops]);
+  const big = build([d => moveRoomOps(d, 'living', 0, 0, 0, [600, 500]).ops], data);
+  assert.deepEqual(big.rooms.living, [[0, 0, 600, 500]]);
+  assert.deepEqual(big.drawing.floors.find(f => f.part === 'living').rect, [0, 0, 600, 500]);
+  assert.deepEqual(big.drawing.labels[0].at, [300, 250]);
+  assert.equal(area(walls(big)) + 120 * 25, 650 * 550 - 600 * 500);
+  assert.equal(big.openings[0].at, data.openings[0].at + 100);
+  assert.equal(big.openings[0].x, data.openings[0].x);
+  assert.ok(gapOf(big, 'window_1'));
+});
