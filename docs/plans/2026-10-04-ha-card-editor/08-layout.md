@@ -220,6 +220,3 @@ the room back; inside a table for 4, *Back to Table for 4* showed its settings a
 - **The list's clicks in HA** (the user): a click in the Items list selects and stays on the list; a double-click (two
   clicks on the same line, counted by the editor, `_fromList`: the list is drawn again between them) opens the
   details. A selection on the plan still shows the details. Checked on the test page in both views.
-- **The sun in Build** (the user): Build's *Your home* has the home's sun settings (north, the sun's and the weather's
-  entities, blockers, trees, spills, outdoor: `homeField` in `panels.js`, the Edit view's own form), with *Point to north
-  on the plan* above them, instead of north alone. Checked on the test page: north typed there set it.

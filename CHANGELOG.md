@@ -94,8 +94,6 @@ versions [Semantic Versioning](https://semver.org/). Changes not released yet ar
 - **The editor:** renaming a room made in the Build view keeps it one object (its walls, floor and name follow).
 - **The editor in Home Assistant:** a click in the Items list selects without leaving the list; a double-click opens
   the details.
-- **The editor's Build view:** the home's sun settings (north, the sun's and weather's entities, trees, blockers) are
-  in its details with nothing selected.
 
 ## 0.2.0 (2026-10-04)
 

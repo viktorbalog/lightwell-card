@@ -30,7 +30,7 @@ import {applyTransform, hitInside, hitTest, inPoly, invertTransform, isExtra, it
   pieceOutline, pieceTurn} from './hit.js';
 import {anchors, axesOf, boundsOf, dragHandle, handles, insideTargets, moveItem, removeCorner, rulerText, snapMove, snapPoint, snapTargets,
   snapsHandle, startHandle, tidy} from './manipulate.js';
-import {homeField, itemGroups, pathKey, renderList, renderProperties} from './panels.js';
+import {itemGroups, pathKey, renderList, renderProperties} from './panels.js';
 import {fieldAt} from '../schema.js';
 import {defineHome} from '../home.js';
 
@@ -1885,8 +1885,6 @@ export class LightwellEditor extends HTMLElement {
         b.onclick = () => this._edit(() => this.model.batch(adoptOps(this.model.data)));
         box.append(h('p', {className: 'adopt'}, `This home has rooms, windows, doors or lamps not made in Build (${adopt.length} parts): find them, so that Build picks each as one. `, b));
       }
-      // The sun: north, its entity and the weather's, the trees, the blockers and spills (as in the Edit view).
-      box.append(homeField(data, 'sun', {...this._ctx, data, states: this._shown.states}));
       const rooms = Object.keys(data.rooms || {}).length, cuts = (data.openings || []).length;
       box.append(h('p', {className: 'help', textContent: `${rooms} room${rooms === 1 ? '' : 's'}, ${cuts} window${cuts === 1 ? '' : 's'} and glass door${cuts === 1 ? '' : 's'} so far.`}));
     }
@@ -2215,7 +2213,7 @@ export class LightwellEditor extends HTMLElement {
     const esc = v => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     const north = `<label>The top of the plan faces <input type="number" data-north value="${this.model?.data?.sun?.north ?? 0}" min="0" max="359" step="1" style="width: 4.5em">° from north</label>`;
     return {
-      select: this._view === 'build' ? '<span><button type="button" data-point-north title="Click on the plan towards north">Point to north on the plan</button></span>' : '',
+      select: this._view === 'build' ? `${north}<span><button type="button" data-point-north title="Click on the plan towards north">Point to north on the plan</button></span>` : '',
       'build-north': north,
       'build-room': `<label>The new room's name <input type="text" data-opt="roomName" value="${esc(o.roomName)}" placeholder="none: no label" size="14"></label>`
         + check('outdoor', 'outdoors (a terrace, a balcony)'),
