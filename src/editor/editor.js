@@ -350,6 +350,9 @@ const STYLE = `${OVERLAY_STYLE}
   :host([shell=ha]) .tabs button { padding: 8px 4px; }
   :host([hosted]) .stage, :host([hosted]) [data-act=dark], :host([hosted]) [data-tab=controls] { display: none; }
   :host([hosted]) .preview { padding: 0; border: 0; }
+  /* Editing on HA's preview, the editor's own plan column holds only the tool's hint: under the panels. */
+  :host([hosted]) main { grid-template-areas: "left" "preview"; } :host([hosted]) .preview { border-top: 1px solid var(--lw-line); }
+  :host([hosted]) .hint { margin: 6px 12px; }
   :host([shell=ha]) .hint { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; overflow: hidden; }
   :host([shell=ha]) dialog.start .file-only { display: none; }
   header .tip { flex-basis: 100%; margin: 4px 0 0; font-size: 12px; color: var(--lw-muted); }

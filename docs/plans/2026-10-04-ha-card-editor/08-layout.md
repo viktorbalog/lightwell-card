@@ -223,3 +223,6 @@ the room back; inside a table for 4, *Back to Table for 4* showed its settings a
 - **The view switch on the right** (the user): Build/Edit at the right end of the header, in both shells (HA's tip
   stays a line of its own under it). (Before it, the home's sun settings were put in Build's details and taken out
   again, the user having meant something else: ab7935d, reverted by 774db8b.)
+- **The hint under the panels** (the user): editing on HA's preview, the editor's own plan column holds only the
+  tool's hint, so it goes under the tabs and their panel; without a preview (the editor's own plan) the order is as
+  before.
