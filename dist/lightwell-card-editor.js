@@ -10568,7 +10568,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
   .catalogue svg .fix2 { fill: #b5b5b5; } .catalogue svg .line { fill: none; }
   .catalogue svg .glow { fill: #ffd54f; stroke: none; opacity: 0.8; } .catalogue svg .glow-line { stroke: #ffb300; fill: none; stroke-width: 0.25; stroke-linecap: round; }
   .props .adopt { background: var(--lw-row-on); padding: 6px 8px; border-radius: 6px; } .props .adopt button { margin-left: 4px; }
-  .props .lamp { display: flex; align-items: center; gap: 8px; } .props .lamp select { font: inherit; flex: 1; min-width: 0; }
+  .props .lamp { display: flex; align-items: center; gap: 8px; } .props .lamp select { font: inherit; flex: 1; min-width: 0; width: 0; }
+  .props select { max-width: 100%; } .side { min-width: 0; }
   .props input[type=search] { width: 100%; box-sizing: border-box; font: inherit; padding: 4px 8px; margin-bottom: 8px;
     border: 1px solid var(--lw-border); border-radius: 6px; background: var(--lw-panel); color: inherit; }
   .devices { display: flex; flex-direction: column; gap: 2px; }
@@ -10589,7 +10590,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     --lw-error-bg: rgba(var(--rgb-error-color, 219, 68, 55), 0.08); }
   :host([shell=ha]) header { background: none; border: 0; padding: 0 0 8px; }
   :host([shell=ha]) header :is(h1, .name, [data-act=open], [data-act=save], [data-act=save-yaml], [data-act=save-json], [data-act=ha]) { display: none; }
-  :host([shell=ha]) main { grid-template-columns: 1fr; grid-template-areas: "preview" "left"; overflow: visible;
+  :host([shell=ha]) main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "preview" "left"; overflow: visible;
     border: 1px solid var(--lw-line); border-radius: 8px; }
   :host([shell=ha]) .tabs button { padding: 8px 4px; }
   :host([hosted]) .stage, :host([hosted]) [data-act=dark], :host([hosted]) [data-tab=controls] { display: none; }

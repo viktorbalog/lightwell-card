@@ -156,3 +156,7 @@ the room back; inside a table for 4, *Back to Table for 4* showed its settings a
   pairs (`window_1` + `door_1`, `window_2` + `door_2`, already tagged) are found as rows, and slide and resize to
   homes that pass `defineHome`. Checked on the test page: a glass door cut 15 cm from the stub's window met it (the
   preview too), their shared boundary dragged, the door's details naming the window beside it.
+- **The panel overflowing** (the user, on lamp 3 of the flat, in HA): the light picker's longest option (a long
+  device name) set its width, and HA's one column (`1fr`) grew to fit it: 545 px of panel in a 486 px editor, under
+  the preview. The column is `minmax(0, 1fr)`, the sides may shrink, the picker takes the row's width. Checked in HA:
+  lamp 3, the TV's lamp, a window and the living room each 484 px in the 486 px editor.
