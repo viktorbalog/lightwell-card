@@ -207,3 +207,7 @@ the room back; inside a table for 4, *Back to Table for 4* showed its settings a
   as one: a room with its walls, a window along its wall); otherwise what's on top, as before. Checked on the test
   page in both views: an added rectangle moved alone; a lamp dragged while a window was selected moved whole; a room
   selected whole moved as a room; the sofa dragged with nothing selected.
+- **A room's rectangles picked one by one** (the user): in a room of several rectangles, `_hitsAt` gives the one under
+  the pointer instead of the room (the room whole is its group in Build, and its line in the list); in Build outside
+  the room, a click still selects the room as a group. Checked on the test page: in Edit, a click in an added
+  rectangle selected it alone; in Build the room's group, and inside it the rectangle.

@@ -1013,7 +1013,14 @@ export class LightwellEditor extends HTMLElement {
   _hitsAt(at) {
     const piece = this._home?.furniture?.[this._inside];
     if (piece && onPiece(piece, at.p, at.tol)) return {hits: hitInside(this._home, this._inside, at.p, at.tol), inside: true};
-    const hits = hitTest(this._home, at.p, at.tol);
+    // A room of several rectangles: the one under the pointer, on its own (the room whole is its group in Build, or
+    // its line in the list).
+    const hits = hitTest(this._home, at.p, at.tol).map(h => {
+      const region = h[0] === 'rooms' && h.length === 2 && this.model.data.rooms?.[h[1]];
+      if (!Array.isArray(region) || region.length < 2 || Array.isArray(region[0]?.[0])) return h;
+      const i = region.findLastIndex(q => inPoly(partPoly(q) || [], at.p));
+      return i >= 0 ? [...h, i] : h;
+    });
     // Inside a Build object: its parts under the pointer, if any.
     if (this._group !== null) {
       const own = hits.filter(h => partOf(this.model.data, h) === this._group);

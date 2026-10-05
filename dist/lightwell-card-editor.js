@@ -11298,7 +11298,12 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     _hitsAt(at) {
       const piece = this._home?.furniture?.[this._inside];
       if (piece && onPiece(piece, at.p, at.tol)) return { hits: hitInside(this._home, this._inside, at.p, at.tol), inside: true };
-      const hits = hitTest(this._home, at.p, at.tol);
+      const hits = hitTest(this._home, at.p, at.tol).map((h2) => {
+        const region = h2[0] === "rooms" && h2.length === 2 && this.model.data.rooms?.[h2[1]];
+        if (!Array.isArray(region) || region.length < 2 || Array.isArray(region[0]?.[0])) return h2;
+        const i = region.findLastIndex((q) => inPoly(partPoly(q) || [], at.p));
+        return i >= 0 ? [...h2, i] : h2;
+      });
       if (this._group !== null) {
         const own = hits.filter((h2) => partOf2(this.model.data, h2) === this._group);
         if (own.length) return { hits: own, inside: true };

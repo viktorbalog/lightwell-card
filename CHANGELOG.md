@@ -89,6 +89,8 @@ versions [Semantic Versioning](https://semver.org/). Changes not released yet ar
 - **The editor in Home Assistant:** the card's frame no longer flashes a light border with each change.
 - **The editor:** a drag moves what's selected when it's under the pointer, rather than what lies on top of it there (a
   room's rectangle just added moved the floor over it).
+- **The editor:** in a room of several rectangles a click picks the rectangle under the pointer (in the Build view,
+  inside the room), rather than the whole room.
 
 ## 0.2.0 (2026-10-04)
 
