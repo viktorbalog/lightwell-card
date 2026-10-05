@@ -10014,6 +10014,10 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       });
     }
   }
+  function homeField(data, key, ctx) {
+    const d = data && typeof data === "object" ? data : {};
+    return row(key, SCHEMA.fields[key], d[key], [key], ctx);
+  }
   function choices(field, ctx) {
     const d = ctx.data || {};
     switch (field.type) {
@@ -12136,6 +12140,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
           b.onclick = () => this._edit(() => this.model.batch(adoptOps(this.model.data)));
           box2.append(h("p", { className: "adopt" }, `This home has rooms, windows, doors or lamps not made in Build (${adopt.length} parts): find them, so that Build picks each as one. `, b));
         }
+        box2.append(homeField(data, "sun", { ...this._ctx, data, states: this._shown.states }));
         const rooms = Object.keys(data.rooms || {}).length, cuts = (data.openings || []).length;
         box2.append(h("p", { className: "help", textContent: `${rooms} room${rooms === 1 ? "" : "s"}, ${cuts} window${cuts === 1 ? "" : "s"} and glass door${cuts === 1 ? "" : "s"} so far.` }));
       }
@@ -12460,7 +12465,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       const esc = (v) => String(v).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
       const north = `<label>The top of the plan faces <input type="number" data-north value="${this.model?.data?.sun?.north ?? 0}" min="0" max="359" step="1" style="width: 4.5em">\xB0 from north</label>`;
       return {
-        select: this._view === "build" ? `${north}<span><button type="button" data-point-north title="Click on the plan towards north">Point to north on the plan</button></span>` : "",
+        select: this._view === "build" ? '<span><button type="button" data-point-north title="Click on the plan towards north">Point to north on the plan</button></span>' : "",
         "build-north": north,
         "build-room": `<label>The new room's name <input type="text" data-opt="roomName" value="${esc(o.roomName)}" placeholder="none: no label" size="14"></label>` + check("outdoor", "outdoors (a terrace, a balcony)"),
         "build-piece": `<span>${esc(prefab(o.prefab)?.name || "")}: Shift+click on the plan to place it <button type="button" data-turn title="Turn it a quarter (R)">Turn \u21BB</button></span>`,

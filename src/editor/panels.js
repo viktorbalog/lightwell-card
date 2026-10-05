@@ -209,6 +209,12 @@ export function renderList(box, data, selected, ctx, also = []) {
   }
 }
 
+// One of the home's own fields (`key`: sun, view…) as its form shows it, for a panel of its own (the Build view's home).
+export function homeField(data, key, ctx) {
+  const d = data && typeof data === 'object' ? data : {};
+  return row(key, SCHEMA.fields[key], d[key], [key], ctx);
+}
+
 // The options a field's input offers, from the home and the states.
 function choices(field, ctx) {
   const d = ctx.data || {};
