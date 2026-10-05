@@ -732,9 +732,9 @@ export function moveRoomOps(data, id, dx, dy, tol = 0, size = null) {
 }
 
 // After the items at `paths` moved (`data`: as they are now), what they're in follows where they are: a light's room
-// (`clip`) and, with a pool, the pieces in its shadows (those with a height in its new room); a piece's room
-// (`shadow_room`), and the pools of the lamps in its old and new rooms (out of one's shadows, into the other's). Only
-// what changed rooms changes: shadows chosen by hand stay while a lamp stays in its room.
+// (`clip`); a piece's room (`shadow_room`), and the pools of the lamps in its old and new rooms (out of one's shadows,
+// into the other's). A lamp's own shadows stay as they were chosen: those of pieces in another room don't show (its
+// light stays in its room), so a lamp moved away and back has them as before.
 export function regroupOps(data, paths) {
   const ops = [], shadows = new Map();
   const lights = data?.lights || [], furniture = data?.furniture || {};
@@ -745,7 +745,6 @@ export function regroupOps(data, paths) {
       const c = lightCentre(item), room = c && roomAt(data, c);
       if (!room || room === item.clip) continue;
       ops.push({set: [...path, 'clip'], value: room});
-      if (item.pool) shadows.set(path[1], Object.entries(furniture).filter(([, p]) => p?.height && p.shadow_room === room).map(([n]) => n));
     } else if (path[0] === 'furniture' && path.length === 2 && item?.shape) {
       const c = item.shape.circle?.slice(0, 2) || pieceCentre(item.shape), room = c && roomAt(data, c), was = item.shadow_room;
       if (!room || room === was) continue;

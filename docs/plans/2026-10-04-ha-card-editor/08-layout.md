@@ -195,3 +195,8 @@ the room back; inside a table for 4, *Back to Table for 4* showed its settings a
   border ran from 3 px of the text colour down to 0 over 0.3 s. The card marks itself `editing` while it carries the
   editor's layer, and its `ha-card` has no transition then (on dashboards, as before). Checked in HA, every frame after
   a real key: 3 px → 0 over 0.3 s with the mark suppressed (in that tab), 0 px from the first frame with it.
+- **A lamp's shadows after a round trip** (the user: the bedroom strip moved to the hall and back, and the bed cast
+  shadows): `regroupOps` reset a moved lamp's shadows to every piece with a height in its new room, so the way back
+  brought the bed in, which the user had left out (the flat's strip: desk, desk chair, wardrobe, dresser). A moved lamp
+  now keeps its shadows (another room's pieces' don't show: its light stays in its room); a moved piece still joins
+  its new room's lamps. Tested: to the hall and back, the same shadows.

@@ -29,7 +29,8 @@ versions [Semantic Versioning](https://semver.org/). Changes not released yet ar
 - **The editor's Build view:** what it makes behaves as one thing, as a piece of furniture with its insides does. A
   click selects it, a drag moves it, a double-click (or Enter) goes inside it to change its parts one by one, and Esc
   comes back out. A room moves too: its walls are made again where it lands, and its windows and doors go with it. A
-  lamp or a piece moved into another room belongs to that room: its light stays in it, and its shadows follow. A table
+  lamp or a piece moved into another room belongs to that room: a lamp's light stays in it (keeping the shadows chosen
+  for it), a piece casts shadows from that room's lamps. A table
   from the catalogue keeps its chairs, and turns with them. A lamp's entity changed on its light or on its marker
   changes both.
 - **The editor:** its tools are a toolbar of icons beside the plan (above it where there's no room), and the panel

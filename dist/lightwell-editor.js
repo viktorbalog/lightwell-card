@@ -9803,7 +9803,6 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         const c = lightCentre(item), room = c && roomAt(data, c);
         if (!room || room === item.clip) continue;
         ops.push({ set: [...path, "clip"], value: room });
-        if (item.pool) shadows.set(path[1], Object.entries(furniture).filter(([, p]) => p?.height && p.shadow_room === room).map(([n2]) => n2));
       } else if (path[0] === "furniture" && path.length === 2 && item?.shape) {
         const c = item.shape.circle?.slice(0, 2) || pieceCentre(item.shape), room = c && roomAt(data, c), was = item.shadow_room;
         if (!room || room === was) continue;

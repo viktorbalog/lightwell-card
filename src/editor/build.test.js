@@ -245,7 +245,8 @@ test('a lamp or a piece moved into another room: what it is in follows', () => {
   home.furniture.sofa = {...home.furniture.sofa, shape: {rect: [550, 250, 200, 90]}};
   const after = applyOps(home, regroupOps(home, [['lights', 0], ['furniture', 'sofa']]));
   assert.equal(after.lights[0].clip, 'kitchen');
-  assert.deepEqual(after.lights[0].pool.shadows, ['fridge']);
+  // Its shadows as they were chosen (the living room's sofa's doesn't show from the kitchen).
+  assert.deepEqual(after.lights[0].pool.shadows, ['sofa']);
   assert.equal(after.furniture.sofa.shadow_room, 'kitchen');
   // Out of the living room lamp's shadows.
   assert.deepEqual(after.lights[1].pool.shadows, []);
@@ -351,4 +352,21 @@ test('a window and a door side by side drawn by hand (a unit off) are adopted an
   const after = build([d => moveBoundaryOps(d, cutRunOf(d, 'door_1').run, 1, 260)], adopted);
   assert.deepEqual(after.drawing.glazing[0].rect.slice(0, 3), [150, 407.5, 110]);
   assert.equal(after.openings[1].x, 260);
+});
+
+test('a lamp moved to another room and back keeps the shadows chosen for it', () => {
+  const data = build([room('Bedroom', [0, 0, 500, 400]), room('Hall', [525, 0, 300, 400])]);
+  const home = {...data, furniture: {bed: {shape: {rect: [50, 50, 200, 160]}, height: 0.5, shadow_room: 'bedroom'},
+    desk: {shape: {rect: [300, 300, 120, 60]}, height: 0.75, shadow_room: 'bedroom'}, bench: {shape: {rect: [600, 50, 100, 40]}, height: 0.45, shadow_room: 'hall'}},
+  lights: [{entities: ['light.strip'], shape: [{circle: [200, 200, 20]}], clip: 'bedroom', pool: {x: 200, y: 200, r: 300, height: 1.2, shadows: ['desk']}}]};
+  const move = (d, dx) => {
+    const g = d.lights[0], moved = {...g, shape: [{circle: [g.shape[0].circle[0] + dx, 200, 20]}], pool: {...g.pool, x: g.pool.x + dx}};
+    const next = {...d, lights: [moved]};
+    return applyOps(next, regroupOps(next, [['lights', 0]]));
+  };
+  const hall = move(home, 500);
+  assert.equal(hall.lights[0].clip, 'hall');
+  const back = move(hall, -500);
+  assert.equal(back.lights[0].clip, 'bedroom');
+  assert.deepEqual(back.lights[0].pool.shadows, ['desk']);
 });
