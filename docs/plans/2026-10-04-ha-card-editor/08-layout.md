@@ -226,3 +226,7 @@ the room back; inside a table for 4, *Back to Table for 4* showed its settings a
 - **The hint under the panels** (the user): editing on HA's preview, the editor's own plan column holds only the
   tool's hint, so it goes under the tabs and their panel; without a preview (the editor's own plan) the order is as
   before.
+- **A shaded panel** (the user: it looked odd): in HA the panels are a card of their own, tinted (the theme's text 4%
+  over its card background) with a soft shadow, as the toolbar by the plan; the hint inside them and the messages
+  below have room around them; the editor's own dark-preview background no longer shows behind the hint. Checked on
+  the test page in light and dark.

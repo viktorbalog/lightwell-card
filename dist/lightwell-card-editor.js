@@ -10603,7 +10603,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
   :host([hosted]) .preview { padding: 0; border: 0; }
   /* Editing on HA's preview, the editor's own plan column holds only the tool's hint: under the panels. */
   :host([hosted]) main { grid-template-areas: "left" "preview"; } :host([hosted]) .preview { border-top: 1px solid var(--lw-line); }
-  :host([hosted]) .hint { margin: 6px 12px; }
+  :host([hosted]) .hint { margin: 10px 14px; }
+  :host([hosted]) .preview.dark { background: none; } :host([hosted]) .preview.dark .hint { color: var(--lw-faint); }
   :host([shell=ha]) .hint { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; overflow: hidden; }
   :host([shell=ha]) dialog.start .file-only { display: none; }
   header .tip { flex-basis: 100%; margin: 4px 0 0; font-size: 12px; color: var(--lw-muted); }
@@ -10613,7 +10614,9 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
   :host([shell=ha]) .side.right { grid-area: right; border-left: 0; }
   :host([shell=ha]) .pane { flex: none; height: 420px; overflow: auto; }
   :host([shell=ha]) .text textarea { min-height: 300px; }
-  :host([shell=ha]) footer { background: none; border: 0; max-height: none; }
+  :host([shell=ha]) footer { background: none; border: 0; max-height: none; margin-top: 8px; }
+  /* The panels as a card of their own, as the toolbar by the plan is. */
+  :host([shell=ha]) main { background: color-mix(in srgb, var(--lw-text) 4%, var(--lw-panel)); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); }
   .preview:not(.dark) ha-card { --card-background-color: #fff; }
 `;
   var HTML = `
