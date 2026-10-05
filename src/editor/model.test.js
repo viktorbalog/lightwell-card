@@ -142,3 +142,11 @@ test('renaming a key where it is', () => {
   assert.deepEqual(changedLines(EXAMPLE, m.text), ['  sideboard:']);
   assert.throws(() => m.edit(doc => renameIn(doc, ['furniture', 'sofa'], 'bed')), /already a bed/);
 });
+
+test('a home as data comes back as the same data (the HA shell\'s value in and out)', () => {
+  for (const file of ['example/home.yaml', 'example/background/home.yaml']) {
+    const data = new HomeModel(fs.readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8')).data;
+    data.description = 'A note: with a colon, "quotes", 08 and\na second line';
+    assert.deepEqual(new HomeModel(yamlOf(data)).data, data, file);
+  }
+});

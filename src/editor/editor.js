@@ -12,11 +12,19 @@
 //
 // Properties: `states` (the states in use, by entity id) and `location` ({latitude, longitude}, where the sun is
 // worked out for), set before it's connected; `example` (the YAML a new home starts from).
+//
+// Its shell (the `shell` attribute, set before it's connected): `standalone` (the page's: files, drafts in the
+// browser, the Home Assistant sign-in) or `ha` (inside Home Assistant's card editor: the home comes in as `value` and
+// goes out with a `value-changed` event after every edit that leaves it without mistakes; `hass` gives the states,
+// the location and the theme; keys only while the editor has the focus, and those it uses don't reach HA).
 import {HomeModel, renameIn, yamlOf} from './model.js';
 import {simulatorControls} from './controls.js';
 import {droppedFile, formatOf, hasFileAccess, imageSize, loadPicture, pickFile, renamed, savePicture, saveFileAs, writeFile} from './files.js';
 import {HaConnection, cannotReach, finishSignIn, haUrl, savedTokens, signIn, signOut} from './live.js';
 import {OPENING_KINDS, emptyHome, lightFrom, openingFrom, pictureHome, pieceFrom, scaleFrom, wallFrom} from './create.js';
+import {PREFABS, placePrefab, prefab, prefabSvg, turnedPiece} from './prefabs.js';
+import {devicesIn, iconOf, placeDevice, placedIn} from './devices.js';
+import {CUTS, adoptOps, applyOps, cutOps, cutSpan, deleteOps, gapEndAt, gapOf, gapRange, lampEntityOps, moveRoomOps, partOf, partsOf, regroupOps, resizeGapOps, roomOps, slideOps, snapRoom, wallAt} from './build.js';
 import {applyTransform, hitInside, hitTest, inPoly, invertTransform, isExtra, itemAt, lightCentre, onPiece, outlineSvg, parseTransform, partPoly,
   pieceOutline, pieceTurn} from './hit.js';
 import {anchors, axesOf, boundsOf, dragHandle, handles, insideTargets, moveItem, removeCorner, rulerText, snapMove, snapPoint, snapTargets,
@@ -41,7 +49,7 @@ const TURN_STEP = 15;
 const GRID = 0.05;
 // What each tool does, under the plan.
 const HINTS = {
-  select: "Click to select (again, or Tab: what's under it; Shift+click: more), drag on empty space for a box · drag to move, the handles to resize, turn or reshape (double-click a corner removes it; Alt: a piece's insides stay) · Shift: along an axis, Alt: no snapping · arrows nudge (Shift: ×10) · Ctrl+D duplicates · double-click a piece (or Enter) to edit its insides · with a lamp selected, Ctrl+click a piece to add it to its shadows or take it out · Alt+click taps the card · Esc clears",
+  select: "Click to select (again, or Tab: what's under it; Shift+click: more), drag on empty space for a box · drag to move, Ctrl (⌘)+drag a piece to turn it · in Build, double-click a room to rename it · the handles to resize, turn or reshape (double-click a corner removes it; Alt: a piece's insides stay) · Shift: along an axis, Alt: no snapping · arrows nudge (Shift: ×10) · Ctrl+D duplicates · double-click a piece (or Enter) to edit its insides · with a lamp selected, Ctrl+click a piece to add it to its shadows or take it out · Alt+click taps the card · Esc clears",
   wall: "Drag a wall's box, or along its middle for a wall of the usual thickness (25 cm outside, 15 cm inside a room) · Esc: back to selecting",
   room: 'Drag a rectangle, or click its corners for a polygon (click the first again, double-click or Enter to finish; Backspace takes the last back) · Esc: back to selecting',
   opening: 'Drag along an outer wall, from one end of the window or door to the other: its side and thickness come from the wall · Esc: back to selecting',
@@ -50,6 +58,21 @@ const HINTS = {
   marker: 'Click where the marker goes · Esc: back to selecting',
   label: 'Click where the label goes (its middle) · Esc: back to selecting',
   scale: 'Drag along something whose length you know (a wall, a door), then type its length to set the scale; or just measure · Esc: back to selecting',
+  // The Build view's.
+  'build-room': "Drag a room's rectangle: its walls, floor and name come with it. Drawn against another room's wall, it shares it · click a room to select it, double-click it to rename it · Esc: back to selecting",
+  'build-piece': 'Choose a piece above, then Shift+click where it goes (or drag it onto the plan) · R turns it · click a piece to select it, drag to move it, R or Ctrl (⌘)+drag turns it · Esc: back to selecting',
+  'build-device': 'Choose a lamp or device above, then Shift+click where it is (or drag it onto the plan); a blind dropped on a window is its shutter · click one to select it, drag to move it · Esc: back to selecting',
+  'build-north': 'Click on the plan in the direction of north (or type its bearing above) · Esc: back to selecting',
+  'build-cut': 'Click on a wall for a window or a door of the width above, or drag along the wall for its width; in a wall between rooms, a doorway · drag the end of one to resize it · Esc: back to selecting',
+};
+// What the Build view's tab says for each of its tools.
+const BUILD_HELP = {
+  select: 'Build your home step by step with the buttons over the plan: rooms first, then windows and doors. Click anything to select it, drag to move it. Everything else (and anything finer) is in the Edit view.',
+  'build-room': 'Name the room above the plan (or leave it without a name: no label then; double-click it later to name it), then drag its rectangle. Start with the rooms indoors; a terrace or a balcony is a room outdoors, without walls of its own.',
+  'build-piece': 'Choose a piece, then Shift+click on the plan where it goes, or drag it there. R (or Turn) turns it a quarter. Each piece has its real size and height: the tall ones cast long shadows. A table comes with its chairs, each a piece of its own.',
+  'build-device': 'Your lamps and devices. Choose one, then Shift+click on the plan where it is, or drag it there. A light becomes a lamp that glows in its colour, with a marker that switches it; a blind or shutter dropped on a window darkens it as it closes; a sensor shows its value. Those already on the plan are ticked.',
+  'build-north': 'Which way is north? Click on the plan in its direction, or type the bearing the top of the plan faces (0: north is up). It sets where the sun comes in: a map of your building gives it best; a phone compass can be far off indoors.',
+  'build-cut': 'Choose a window, a glass door or a door above the plan, then click on a wall (for the width above) or drag along it (for its own width). Drag the end of a window, door or doorway to make it wider or narrower: its wall, glass and opening follow. Windows and glass doors let the sun in; in a wall between two rooms you always get a doorway.',
 };
 // Inside a piece of furniture: what the tools do there, and the ones offered.
 const INSIDE_HINTS = {
@@ -58,38 +81,16 @@ const INSIDE_HINTS = {
   label: 'Inside {name}: click where the label goes · Esc: back to selecting',
   scale: HINTS.scale,
 };
+// Inside a Build object (a room, a window, a lamp, furniture from the catalogue), entered by a double-click.
+const GROUP_HINT = "Inside {name}: click its parts to select them (again, or Tab: what's under it; Shift+click: more) · drag to move one, the handles to resize · arrows nudge · Esc or a click outside leaves";
 // The keys of the tools.
 const TOOL_KEYS = {v: 'select', w: 'wall', r: 'room', o: 'opening', f: 'piece', l: 'light', m: 'marker', t: 'label', s: 'scale'};
 
-const STYLE = `
-  :host { display: grid; grid-template-rows: auto 1fr auto; height: 100%; font: 14px system-ui, sans-serif;
-    color: #222; background: #f6f6f4; --line: #ddd; --accent: #1e88e5; }
-  header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 12px; background: #fff;
-    border-bottom: 1px solid var(--line); }
-  header h1 { font-size: 15px; margin: 0 10px 0 0; }
-  header .name { color: #666; margin-right: auto; }
-  header .name.unsaved::after { content: ' •'; color: #e65100; }
-  header .ha::before { content: '● '; color: #bbb; } header .ha.on::before { color: #2e7d32; } header .ha.off::before { color: #e65100; }
-  dialog.ha input[name=url] { width: 100%; box-sizing: border-box; font: inherit; padding: 4px 6px; margin: 4px 0 8px; }
-  dialog.ha .why { color: #b00020; } dialog.ha .status { color: #555; }
-  button { font: inherit; padding: 4px 10px; border: 1px solid #ccc; border-radius: 6px; background: #fafafa;
-    color: inherit; cursor: pointer; }
-  button:hover:not(:disabled) { background: #eee; } button:disabled { opacity: 0.45; cursor: default; }
-  button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
-  main { display: grid; grid-template-columns: 300px minmax(320px, 1fr) minmax(320px, 0.75fr); min-height: 0; }
-  main > * { min-height: 0; }
-  .side { display: flex; flex-direction: column; background: #fff; min-height: 0; }
-  .side.left { border-right: 1px solid var(--line); } .side.right { border-left: 1px solid var(--line); }
-  .tabs { display: flex; border-bottom: 1px solid var(--line); flex: none; }
-  .tabs button { flex: 1; border: 0; border-radius: 0; background: none; padding: 8px; color: #666; }
-  .tabs button[aria-selected="true"] { color: #222; box-shadow: inset 0 -2px var(--accent); }
-  .pane { flex: 1; overflow: auto; min-height: 0; } .pane[hidden] { display: none; }
-  .controls { padding: 12px; } .controls form { width: auto; }
-  .preview { padding: 16px; display: flex; justify-content: center; align-items: flex-start; overflow: auto; outline: none; }
-  .preview.dark { background: #111; } .preview.dark .tools, .preview.dark .hint { color: #bbb; }
-  .stage { position: relative; width: 100%; max-width: 900px; }
-  ha-card { display: block; border-radius: 12px; background: var(--card-background-color, #fff); }
-  .preview.dark ha-card { --card-background-color: #1c1c1c; }
+// The editing layer's styles: the overlay over the card's drawing (selection, handles, guides, drafts), the ruler and
+// the name field. In the editor's own stage, or inside HA's preview card when the editor edits on it (`.lw-edit`).
+const OVERLAY_STYLE = `
+  .lw-edit { position: absolute; inset: 0; pointer-events: none; outline: none; --accent: var(--primary-color, #1e88e5); }
+  .lw-edit > * { pointer-events: auto; } .lw-edit > .ruler { pointer-events: none; }
   .overlay { position: absolute; left: 0; top: 0; cursor: default; overflow: visible; }
   .overlay * { pointer-events: none; fill: none; vector-effect: non-scaling-stroke; }
   .overlay .hover * { stroke: rgba(30, 136, 229, 0.6); stroke-width: 1.5; }
@@ -107,39 +108,85 @@ const STYLE = `
   .overlay .draft circle.point { fill: var(--accent); stroke: none; }
   .overlay .shadows * { stroke: #ef6c00; stroke-width: 1.5; stroke-dasharray: 3 3; }
   .overlay .inside .dim { fill: rgba(246, 246, 244, 0.6); fill-rule: evenodd; stroke: none; }
-  .preview.dark .overlay .inside .dim { fill: rgba(17, 17, 17, 0.6); }
-  .overlay .inside .piece { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 6 4; }
+  .preview.dark .overlay .inside .dim, :host([dark]) .lw-edit .overlay .inside .dim { fill: rgba(17, 17, 17, 0.6); }
+  .overlay .inside .piece, .overlay .inside .group * { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 6 4; fill: none; }
+  .overlay .inside mask > rect { fill: #fff; } .overlay .inside mask .hole * { fill: #000; stroke: #000; stroke-width: 6; }
+  .overlay .inside .pool { display: none; }
+  .preview.dark .overlay .inside .dim.all, :host([dark]) .lw-edit .overlay .inside .dim.all { fill: rgba(17, 17, 17, 0.6); }
   .overlay.drawing { cursor: crosshair !important; }
+  .overlay.drawing.grab { cursor: move !important; }
+  .overlay.drawing.grab-x { cursor: ew-resize !important; } .overlay.drawing.grab-y { cursor: ns-resize !important; }
+  .ruler { position: absolute; pointer-events: none; padding: 2px 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.75);
+    color: #fff; font: 12px ui-monospace, Menlo, Consolas, monospace; white-space: pre; }
+  .ruler:empty { display: none; }
+  .overlay .draft rect.cut { fill: var(--accent); fill-opacity: 0.5; stroke: none; }
+  input.name-edit { position: absolute; transform: translate(-50%, -50%); z-index: 3; font: 600 16px system-ui, sans-serif;
+    text-align: center; padding: 4px 8px; border: 2px solid var(--accent); border-radius: 6px; background: var(--lw-panel);
+    color: var(--lw-text); min-width: 8em; }
+  .overlay .draft rect.cut.grab { fill-opacity: 0.9; }
+  .overlay .draft .north * { stroke: #d81b60; stroke-width: 3; fill: none; }
+  .overlay .draft .north text { fill: #d81b60; stroke: none; font: bold 28px sans-serif; text-anchor: middle; vector-effect: none; }
+`;
+
+const STYLE = `${OVERLAY_STYLE}
+  :host { display: grid; grid-template-rows: auto 1fr auto; height: 100%; font: 14px system-ui, sans-serif;
+    --lw-bg: #f6f6f4; --lw-panel: #fff; --lw-text: #222; --lw-muted: #666; --lw-faint: #888; --lw-line: #ddd;
+    --lw-border: #ccc; --lw-button: #fafafa; --lw-button-hover: #eee; --lw-accent: #1e88e5; --lw-row-hover: #f2f6fb;
+    --lw-row-on: #e3f0fc; --lw-error: #b00020; --lw-error-bg: #fff3f3;
+    color: var(--lw-text); background: var(--lw-bg); --line: var(--lw-line); --accent: var(--lw-accent); }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 12px; background: var(--lw-panel);
+    border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 15px; margin: 0 10px 0 0; }
+  header .name { color: var(--lw-muted); margin-right: auto; }
+  header .name.unsaved::after { content: ' •'; color: #e65100; }
+  header .ha::before { content: '● '; color: var(--lw-faint); } header .ha.on::before { color: #2e7d32; } header .ha.off::before { color: #e65100; }
+  dialog.ha input[name=url] { width: 100%; box-sizing: border-box; font: inherit; padding: 4px 6px; margin: 4px 0 8px; }
+  dialog.ha .why { color: var(--lw-error); } dialog.ha .status { color: var(--lw-muted); }
+  button { font: inherit; padding: 4px 10px; border: 1px solid var(--lw-border); border-radius: 6px; background: var(--lw-button);
+    color: inherit; cursor: pointer; }
+  button:hover:not(:disabled) { background: var(--lw-button-hover); } button:disabled { opacity: 0.45; cursor: default; }
+  button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  main { display: grid; grid-template-columns: 300px minmax(320px, 1fr) minmax(320px, 0.75fr); min-height: 0; }
+  main > * { min-height: 0; }
+  .side { display: flex; flex-direction: column; background: var(--lw-panel); min-height: 0; }
+  .side.left { border-right: 1px solid var(--line); } .side.right { border-left: 1px solid var(--line); }
+  .tabs { display: flex; border-bottom: 1px solid var(--line); flex: none; }
+  .tabs button { flex: 1; border: 0; border-radius: 0; background: none; padding: 8px; color: var(--lw-muted); }
+  .tabs button[aria-selected="true"] { color: var(--lw-text); box-shadow: inset 0 -2px var(--accent); }
+  .pane { flex: 1; overflow: auto; min-height: 0; } .pane[hidden] { display: none; }
+  .controls { padding: 12px; } .controls form { width: auto; }
+  .preview { padding: 16px; display: flex; justify-content: center; align-items: flex-start; overflow: auto; outline: none; }
+  .preview.dark { background: #111; } .preview.dark .tools, .preview.dark .hint { color: #bbb; }
+  .stage { position: relative; width: 100%; max-width: 900px; }
+  ha-card { display: block; border-radius: 12px; background: var(--card-background-color, #fff); }
+  .preview.dark ha-card { --card-background-color: #1c1c1c; }
   .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 10px; font-size: 13px; }
   .tools button { padding: 3px 8px; }
-  .tools .options { display: flex; align-items: center; gap: 6px; margin-left: 6px; color: #555; }
+  .tools .options { display: flex; align-items: center; gap: 6px; margin-left: 6px; color: var(--lw-muted); }
   .tools select, .tools input { font: inherit; }
   dialog { border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; max-width: 460px; font: 14px system-ui, sans-serif; }
   dialog h2 { margin: 0 0 12px; font-size: 16px; }
   dialog .choice { display: grid; gap: 4px; margin: 0 0 14px; }
-  dialog .choice p { margin: 0; color: #666; font-size: 13px; }
+  dialog .choice p { margin: 0; color: var(--lw-muted); font-size: 13px; }
   dialog input[type=number] { width: 5em; font: inherit; }
   dialog .end { text-align: right; }
-  .ruler { position: absolute; pointer-events: none; padding: 2px 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.75);
-    color: #fff; font: 12px ui-monospace, Menlo, Consolas, monospace; white-space: pre; }
-  .ruler:empty { display: none; }
   .preview:focus-visible .stage { outline: 2px solid rgba(30, 136, 229, 0.4); outline-offset: 4px; border-radius: 12px; }
-  .hint { color: #888; font-size: 12px; margin: 8px 0 0; text-align: center; }
+  .hint { color: var(--lw-faint); font-size: 12px; margin: 8px 0 0; text-align: center; }
   .text { display: flex; height: 100%; }
   .text textarea { flex: 1; border: 0; padding: 10px 12px; resize: none; tab-size: 2; white-space: pre; outline: none;
-    font: 12.5px/1.5 ui-monospace, Menlo, Consolas, monospace; background: #fff; color: #222; }
+    font: 12.5px/1.5 ui-monospace, Menlo, Consolas, monospace; background: var(--lw-panel); color: var(--lw-text); }
   /* The list */
   .list { padding: 6px 0 12px; font-size: 13px; }
   .list summary { display: flex; align-items: center; gap: 6px; padding: 5px 10px; cursor: pointer; font-weight: 600; }
-  .list summary small { color: #999; font-weight: normal; margin-right: auto; }
+  .list summary small { color: var(--lw-faint); font-weight: normal; margin-right: auto; }
   .list summary .add { padding: 0 7px; line-height: 18px; font-weight: normal; }
   .items { list-style: none; margin: 0; padding: 0; }
   .item { padding: 3px 10px 3px 24px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .item.home { padding-left: 10px; font-weight: 600; }
-  .item:hover { background: #f2f6fb; } .item.on { background: #e3f0fc; box-shadow: inset 3px 0 var(--accent); }
+  .item:hover { background: var(--lw-row-hover); } .item.on { background: var(--lw-row-on); box-shadow: inset 3px 0 var(--accent); }
   .item.drop { box-shadow: inset 0 2px var(--accent); }
-  .item.extra { padding-left: 40px; color: #555; } .item.in { font-weight: 600; }
-  .item .fold { display: inline-block; width: 14px; margin-left: -14px; color: #888; }
+  .item.extra { padding-left: 40px; color: var(--lw-muted); } .item.in { font-weight: 600; }
+  .item .fold { display: inline-block; width: 14px; margin-left: -14px; color: var(--lw-faint); }
   .item { position: relative; }
   .item .add-child { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); padding: 0 6px; line-height: 16px;
     font-size: 12px; visibility: hidden; }
@@ -152,46 +199,46 @@ const STYLE = `
   .props .title { display: flex; align-items: center; gap: 8px; }
   .props h2 { font-size: 14px; margin: 4px 0; flex: 1; display: flex; align-items: center; gap: 4px; min-width: 0; }
   .props h2 input.name { font: inherit; flex: 1; min-width: 0; }
-  .props .help { color: #777; margin: 2px 0 8px; }
+  .props .help { color: var(--lw-muted); margin: 2px 0 8px; }
   .props .row { display: grid; grid-template-columns: 112px 1fr; align-items: center; gap: 8px; margin: 3px 0; }
   .props .row.absent { display: block; }
-  .props .key { color: #555; overflow: hidden; text-overflow: ellipsis; } .props .key.required::after { content: ' *'; color: #b00020; }
+  .props .key { color: var(--lw-muted); overflow: hidden; text-overflow: ellipsis; } .props .key.required::after { content: ' *'; color: var(--lw-error); }
   .props .value { display: flex; align-items: center; gap: 4px; min-width: 0; }
   .props input[type=text], .props input[type=number], .props select, .props textarea { font: inherit; padding: 3px 5px;
-    border: 1px solid #ccc; border-radius: 4px; min-width: 0; flex: 1; background: #fff; color: inherit; }
+    border: 1px solid var(--lw-border); border-radius: 4px; min-width: 0; flex: 1; background: var(--lw-panel); color: inherit; }
   .props textarea { font: 12px ui-monospace, Menlo, Consolas, monospace; resize: vertical; }
-  .props textarea.bad { border-color: #b00020; }
+  .props textarea.bad { border-color: var(--lw-error); } .props textarea.prose { font: inherit; }
   .props .numbers { display: flex; gap: 4px; flex: 1; min-width: 0; }
   .props .numbers label { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  .props .numbers small { color: #999; font-size: 10px; }
+  .props .numbers small { color: var(--lw-faint); font-size: 10px; }
   .props .checks { display: flex; flex-wrap: wrap; gap: 2px 10px; }
-  .props .unit { color: #888; min-width: 1em; }
-  .props .swatch { width: 18px; height: 18px; border-radius: 4px; border: 1px solid #ccc; flex: none; }
-  .props fieldset { border: 1px solid #e3e3e3; border-radius: 6px; margin: 8px 0; padding: 4px 8px 6px; }
+  .props .unit { color: var(--lw-faint); min-width: 1em; }
+  .props .swatch { width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--lw-border); flex: none; }
+  .props fieldset { border: 1px solid var(--lw-line); border-radius: 6px; margin: 8px 0; padding: 4px 8px 6px; }
   .props legend { display: flex; align-items: center; gap: 6px; padding: 0 4px; }
   .props button.clear { padding: 0 6px; line-height: 16px; }
   .props button.add-field { margin: 4px 0; font-size: 12px; padding: 2px 8px; }
-  .props button.delete { color: #b00020; }
+  .props button.delete { color: var(--lw-error); }
   .props .stack { display: flex; flex-direction: column; flex: 1; min-width: 0; position: relative; }
-  .props .note { color: #888; font-size: 11px; min-height: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .props .note { color: var(--lw-faint); font-size: 11px; min-height: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .props .entities { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
-  .props .icon { width: 20px; height: 20px; flex: none; background: #555; -webkit-mask: var(--icon) center/contain no-repeat;
+  .props .icon { width: 20px; height: 20px; flex: none; background: var(--lw-muted); -webkit-mask: var(--icon) center/contain no-repeat;
     mask: var(--icon) center/contain no-repeat; }
-  .props .found { position: absolute; top: 100%; left: 0; right: 0; z-index: 2; max-height: 260px; overflow: auto; background: #fff;
-    border: 1px solid #ccc; border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15); display: grid;
+  .props .found { position: absolute; top: 100%; left: 0; right: 0; z-index: 2; max-height: 260px; overflow: auto; background: var(--lw-panel);
+    border: 1px solid var(--lw-border); border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15); display: grid;
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
   .props .found[hidden] { display: none; }
   .props .found button { display: flex; align-items: center; gap: 6px; border: 0; border-radius: 0; background: none; padding: 4px 6px;
     font-size: 12px; text-align: left; overflow: hidden; }
   .props .found button span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .props .label-now { margin: 6px 0 2px; } .props .label-now.none { color: #888; }
+  .props .label-now { margin: 6px 0 2px; } .props .label-now.none { color: var(--lw-faint); }
   .props .step { margin: 2px 0; } .props .step input[type=number] { flex: 1; min-width: 3em; }
   .props .step input[type=color] { width: 36px; height: 24px; padding: 0 2px; flex: none; }
-  footer { max-height: 30vh; overflow: auto; border-top: 1px solid var(--line); background: #fff; }
+  footer { max-height: 30vh; overflow: auto; border-top: 1px solid var(--line); background: var(--lw-panel); }
   footer:empty { display: none; }
-  footer p { margin: 0; padding: 4px 12px; font: 12.5px ui-monospace, Menlo, Consolas, monospace; color: #b00020; }
-  footer p.link { cursor: pointer; } footer p.link:hover { background: #fff3f3; }
-  footer p.info { color: #555; font-family: inherit; }
+  footer p { margin: 0; padding: 4px 12px; font: 12.5px ui-monospace, Menlo, Consolas, monospace; color: var(--lw-error); }
+  footer p.link { cursor: pointer; } footer p.link:hover { background: var(--lw-error-bg); }
+  footer p.info { color: var(--lw-muted); font-family: inherit; }
   .drop { position: absolute; inset: 0; display: none; place-items: center; background: rgba(30, 136, 229, 0.12);
     border: 3px dashed var(--accent); font-size: 18px; pointer-events: none; }
   :host(.dragging) .drop { display: grid; }
@@ -200,11 +247,68 @@ const STYLE = `
     .pane { overflow: visible; }
     .text textarea { min-height: 50vh; }
   }
+  /* The views: Build's tools and tab, or Edit's. */
+  header .views { display: inline-flex; margin-right: 8px; }
+  header .views button { border-radius: 0; } header .views button:first-child { border-radius: 6px 0 0 6px; }
+  header .views button:last-child { border-radius: 0 6px 6px 0; border-left: 0; }
+  :host(:not([view=build])) .build-only, :host([view=build]) .edit-only { display: none; }
+  .preview > div { width: 100%; max-width: 900px; }
+  .build { margin: 0 auto 10px; padding: 10px 12px; font-size: 13px; line-height: 1.45; border: 1px solid var(--lw-line);
+    border-radius: 8px; background: var(--lw-panel); max-height: 200px; overflow: auto; position: relative; z-index: 2; }
+  .build p { margin: 0 0 8px; } .build p:last-child { margin-bottom: 0; } .build .muted { color: var(--lw-muted); }
+  .preview.dark .build { color: var(--lw-text); }
+  .build h3 { font-size: 11px; margin: 10px 0 4px; color: var(--lw-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .catalogue { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 4px; }
+  .catalogue button { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 2px; font-size: 11px;
+    line-height: 1.2; text-align: center; cursor: grab; }
+  .catalogue button[aria-pressed="true"] { background: var(--lw-row-on); color: inherit; border-color: var(--accent); }
+  .catalogue svg { width: 48px; height: 30px; overflow: visible; }
+  .catalogue svg * { stroke: #77704a; stroke-width: 0.02; fill: #fbf6d6; }
+  .catalogue svg .furn2 { fill: #e4dba2; } .catalogue svg .dev { fill: #3a3a3a; stroke: none; }
+  .catalogue svg .fix2 { fill: #b5b5b5; } .catalogue svg .line { fill: none; }
+  .catalogue svg .glow { fill: #ffd54f; stroke: none; opacity: 0.8; } .catalogue svg .glow-line { stroke: #ffb300; fill: none; stroke-width: 0.25; stroke-linecap: round; }
+  .build .adopt { background: var(--lw-row-on); padding: 6px 8px; border-radius: 6px; } .build .adopt button { margin-left: 4px; }
+  .build .lamp { display: flex; align-items: center; gap: 8px; } .build .lamp select { font: inherit; flex: 1; min-width: 0; }
+  .build input[type=search] { width: 100%; box-sizing: border-box; font: inherit; padding: 4px 8px; margin-bottom: 8px;
+    border: 1px solid var(--lw-border); border-radius: 6px; background: var(--lw-panel); color: inherit; }
+  .devices { display: flex; flex-direction: column; gap: 2px; }
+  .devices button { display: flex; align-items: center; gap: 8px; border: 0; border-radius: 4px; background: none; text-align: left;
+    padding: 4px 6px; cursor: grab; --mdc-icon-size: 18px; }
+  .devices button:hover { background: var(--lw-row-hover); } .devices button[aria-pressed="true"] { background: var(--lw-row-on); color: inherit; }
+  .devices .dn { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .devices .tick { color: var(--accent); }
+  /* The HA shell: Home Assistant's theme, light or dark, and a layout for its card editor's dialog (half of it, beside
+     HA's preview): the plan on top, then one row of tabs for the list, the properties, the YAML and the sun. */
+  :host([shell=ha]) { height: auto; grid-template-rows: auto auto auto;
+    font-family: var(--mdc-typography-font-family, var(--ha-font-family-body, Roboto, system-ui, sans-serif));
+    --lw-bg: transparent; --lw-panel: var(--card-background-color, #fff); --lw-text: var(--primary-text-color, #222);
+    --lw-muted: var(--secondary-text-color, #666); --lw-faint: var(--disabled-text-color, #888);
+    --lw-line: var(--divider-color, #ddd); --lw-border: var(--divider-color, #ccc);
+    --lw-button: var(--secondary-background-color, #fafafa); --lw-button-hover: var(--divider-color, #eee);
+    --lw-accent: var(--primary-color, #1e88e5); --lw-row-hover: var(--secondary-background-color, #f2f6fb);
+    --lw-row-on: rgba(var(--rgb-primary-color, 30, 136, 229), 0.18); --lw-error: var(--error-color, #b00020);
+    --lw-error-bg: rgba(var(--rgb-error-color, 219, 68, 55), 0.08); }
+  :host([shell=ha]) header { background: none; border: 0; padding: 0 0 8px; }
+  :host([shell=ha]) header :is(h1, .name, [data-act=new], [data-act=open], [data-act=save], [data-act=save-yaml], [data-act=save-json], [data-act=ha]) { display: none; }
+  :host([shell=ha]) main { grid-template-columns: 1fr; grid-template-areas: "preview" "left"; overflow: visible;
+    border: 1px solid var(--lw-line); border-radius: 8px; }
+  :host([shell=ha]) .tabs button { padding: 8px 4px; }
+  :host([hosted]) .stage, :host([hosted]) [data-act=dark], :host([hosted]) [data-tab=controls] { display: none; }
+  :host([hosted]) .preview { padding: 0; border: 0; }
+  :host([shell=ha]) .hint { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+  header .tip { flex-basis: 100%; margin: 4px 0 0; font-size: 12px; color: var(--lw-muted); }
+  header .tip button { padding: 0 6px; line-height: 16px; margin-left: 4px; }
+  :host([shell=ha]) .preview { grid-area: preview; padding: 8px; border-bottom: 1px solid var(--lw-line); }
+  :host([shell=ha]) .side { background: none; } :host([shell=ha]) .side.left { grid-area: left; border-right: 0; }
+  :host([shell=ha]) .side.right { grid-area: right; border-left: 0; }
+  :host([shell=ha]) .pane { max-height: 420px; overflow: auto; }
+  :host([shell=ha]) .text textarea { min-height: 300px; }
+  :host([shell=ha]) footer { background: none; border: 0; max-height: none; }
+  .preview:not(.dark) ha-card { --card-background-color: #fff; }
 `;
 
 const HTML = `
   <header>
-    <h1>Lightwell editor</h1><span class="name"></span>
+    <h1>Lightwell editor</h1><span class="views" role="tablist"><button data-view="build" title="Build a home step by step: rooms, windows and doors">Build</button><button data-view="edit" title="Every field and tool">Edit</button></span><span class="name"></span>
     <button data-act="new" title="Start again from the example home">New</button>
     <button data-act="open" title="Open a home file (YAML or JSON), or drop one on the page">Open…</button>
     <button data-act="save" title="Save (Ctrl+S)">Save</button>
@@ -225,16 +329,22 @@ const HTML = `
     <div class="preview" tabindex="0">
       <div><div class="tools" role="toolbar">
         <button data-tool="select" title="Select, move and reshape (V)">Select</button>
-        <button data-tool="wall" title="Walls (W)">Wall</button>
-        <button data-tool="room" title="Rooms (R)">Room</button>
-        <button data-tool="opening" title="Windows and doors (O)">Opening</button>
-        <button data-tool="piece" title="Furniture (F)">Furniture</button>
-        <button data-tool="light" title="Lamps (L)">Light</button>
-        <button data-tool="marker" title="Markers (M)">Marker</button>
-        <button data-tool="label" title="Labels (T)">Label</button>
-        <button data-tool="scale" title="Measure, or set the scale from a known length (S)">Scale</button>
+        <button data-tool="build-room" class="build-only" title="Rooms, with their walls">Rooms</button>
+        <button data-tool="build-cut" class="build-only" title="Windows and doors, clicked onto the walls">Windows and doors</button>
+        <button data-tool="build-piece" class="build-only" title="Furniture from the catalogue">Furniture</button>
+        <button data-tool="build-device" class="build-only" title="Lamps and devices from your Home Assistant">Lamps and devices</button>
+        <button data-tool="build-north" class="build-only" title="Which way north is">North</button>
+        <button data-tool="wall" class="edit-only" title="Walls (W)">Wall</button>
+        <button data-tool="room" class="edit-only" title="Rooms (R)">Room</button>
+        <button data-tool="opening" class="edit-only" title="Windows and doors (O)">Opening</button>
+        <button data-tool="piece" class="edit-only" title="Furniture (F)">Furniture</button>
+        <button data-tool="light" class="edit-only" title="Lamps (L)">Light</button>
+        <button data-tool="marker" class="edit-only" title="Markers (M)">Marker</button>
+        <button data-tool="label" class="edit-only" title="Labels (T)">Label</button>
+        <button data-tool="scale" class="edit-only" title="Measure, or set the scale from a known length (S)">Scale</button>
         <span class="options"></span>
       </div>
+      <div class="build build-only" aria-live="polite"></div>
       <div class="stage"><svg class="overlay"><g class="inside"></g><g class="grid"></g><g class="hover"></g><g class="shadows"></g><g class="sel"></g><g class="guides"></g><g class="handles"></g><g class="draft"></g><rect class="box" width="0" height="0"/></svg><div class="ruler"></div></div>
       <p class="hint"></p></div>
     </div>
@@ -300,31 +410,88 @@ export class LightwellEditor extends HTMLElement {
     this.example = '';
   }
 
+  // The home, as plain data (the HA shell's way in and out). Setting one that is the home already does nothing (HA
+  // hands each change back); another is a step in the history.
+  get value() {
+    return this.model ? this.model.data : this._value;
+  }
+
+  set value(home) {
+    if (!this.model) { this._value = home; return; }
+    const json = JSON.stringify(home);
+    if (json === JSON.stringify(this.model.data)) return;
+    clearTimeout(this._typing);
+    this._sent = json;
+    if (this.model.setText(yamlOf(home))) this._changed({text: true});
+  }
+
+  // Home Assistant's: its states (at most every 250 ms) and location for the controls and pickers, its theme's
+  // darkness for the preview at first.
+  set hass(hass) {
+    this._hass = hass;
+    if (!hass) return;
+    if (!this._controls) {
+      this.states = hass.states;
+      if (hass.config?.latitude !== undefined) this.location = {latitude: hass.config.latitude, longitude: hass.config.longitude};
+      return;
+    }
+    this._hassTimer ||= setTimeout(() => {
+      this._hassTimer = 0;
+      const h = this._hass, first = this._shown.states !== h.states && !this._hassSeen;
+      this._hassSeen = true;
+      this._controls.setStates(h.states);
+      if (!this._located && h.config?.latitude !== undefined) {
+        this._located = true;
+        this._controls.setLocation({latitude: h.config.latitude, longitude: h.config.longitude});
+      }
+      // The pickers list them; later changes only reach the card, so as not to redraw a form being typed in.
+      if (first) this._renderPanels();
+    }, 250);
+  }
+
+  get hass() {
+    return this._hass;
+  }
+
   connectedCallback() {
-    if (this._root) return;
+    if (this._root) {
+      if (!this._ha) window.addEventListener('keydown', this._keys);
+      if (this._offered) {
+        window.addEventListener('lightwell-preview', this._offered);
+        window.dispatchEvent(new CustomEvent('lightwell-editor-open'));
+      }
+      return;
+    }
+    this._ha = this.getAttribute('shell') === 'ha';
     const root = this._root = this.attachShadow({mode: 'open'});
     root.innerHTML = `<style>${STYLE}</style>${HTML}`;
+    if (this._ha) this._oneSide(root);
     this.style.position ||= 'relative';
     const $ = s => root.querySelector(s);
     this._el = {name: $('.name'), text: $('textarea'), footer: $('footer'), preview: $('.preview'), stage: $('.stage'),
       overlay: $('.overlay'), hover: $('.overlay .hover'), sel: $('.overlay .sel'), list: $('.list'), props: $('.props'),
       handles: $('.overlay .handles'), guides: $('.overlay .guides'), box: $('.overlay .box'), grid: $('.overlay .grid'), ruler: $('.ruler'),
       draft: $('.overlay .draft'), shadows: $('.overlay .shadows'), hint: $('.hint'), options: $('.tools .options'), start: $('dialog.start'),
-      ha: $('dialog.ha'), haButton: $('header .ha'), inside: $('.overlay .inside'),
+      ha: $('dialog.ha'), haButton: $('header .ha'), inside: $('.overlay .inside'), build: $('.preview .build'),
       buttons: Object.fromEntries([...root.querySelectorAll('[data-act]')].map(b => [b.dataset.act, b]))};
 
-    const draft = storage.get();
-    this.model = new HomeModel(draft?.text ?? this.example);
+    const draft = this._ha ? null : storage.get();
+    this.model = new HomeModel(this._value !== undefined ? yamlOf(this._value) : draft?.text ?? this.example);
+    this._sent = JSON.stringify(this.model.data);
     this._file = {name: draft?.name ?? 'home.yaml', handle: null, saved: draft?.saved ?? this.model.text};
-    this._dark = false;
+    this._dark = this._ha && !!this._hass?.themes?.darkMode;
+    this._el.preview.classList.toggle('dark', this._dark);
     this._sel = null;
     this._sels = [];
     // The piece of furniture whose insides are being edited (its name), or null.
     this._inside = null;
+    // The Build object being edited part by part (its id), or null.
+    this._group = null;
     this._showGrid = false;
     this._preview = null;
     this._pictures = {};
-    this._opts = {wall: 'auto', floor: true, kind: 'window', glass: true, piece: 'rect', extra: 'rect'};
+    this._opts = {wall: 'auto', floor: true, kind: 'window', glass: true, piece: 'rect', extra: 'rect',
+      roomName: '', outdoor: false, cut: 'window', cutWidth: 1.2, prefab: 'sofa_3', turn: 0, device: null, search: ''};
     this._shown = {states: this.states, north: undefined};
 
     this._card = document.createElement('lightwell-card');
@@ -342,6 +509,8 @@ export class LightwellEditor extends HTMLElement {
       if (tab) this._tab(tab.dataset.tab);
       const tool = e.target.closest?.('[data-tool]');
       if (tool) this.setTool(tool.dataset.tool);
+      const view = e.target.closest?.('[data-view]');
+      if (view) this.setView(view.dataset.view);
     });
     this._el.text.addEventListener('input', () => {
       clearTimeout(this._typing);
@@ -360,7 +529,30 @@ export class LightwellEditor extends HTMLElement {
     overlay.addEventListener('pointerup', e => this._up(e));
     overlay.addEventListener('pointercancel', () => this._cancelDrag());
     overlay.addEventListener('dblclick', e => this._dblclick(e));
-    overlay.addEventListener('pointerleave', () => { this._el.hover.innerHTML = ''; });
+    // A piece dragged from the Build view's catalogue.
+    overlay.addEventListener('dragover', e => {
+      const types = e.dataTransfer.types;
+      if (!types.includes('text/x-lightwell-prefab') && !types.includes('text/x-lightwell-device')) return;
+      e.preventDefault();
+      const at = this._at(e);
+      if (at && types.includes('text/x-lightwell-prefab')) this._prefabPreview(at.p);
+    });
+    overlay.addEventListener('drop', e => {
+      const id = e.dataTransfer.getData('text/x-lightwell-prefab'), device = e.dataTransfer.getData('text/x-lightwell-device'), at = this._at(e);
+      if (!(id || device) || !at) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (device) this._placeDevice(at.p, at.tol, device);
+      else {
+        this._opts.prefab = id;
+        this._placePrefab(at.p);
+      }
+      this._el.draft.innerHTML = '';
+    });
+    overlay.addEventListener('pointerleave', () => {
+      this._el.hover.innerHTML = '';
+      if (this._tool === 'build-cut' || this._tool === 'build-piece') this._el.draft.innerHTML = '';
+    });
     this._el.start.addEventListener('close', () => this._started());
     this._el.ha.addEventListener('close', () => this._haClosed());
     this._el.ha.querySelector('input').addEventListener('input', () => this._haCheck());
@@ -368,25 +560,34 @@ export class LightwellEditor extends HTMLElement {
       const path = e.target.closest('p')?.dataset.path;
       if (path) this.select(JSON.parse(path));
     });
-    this._keys = e => this._key(e);
-    window.addEventListener('keydown', this._keys);
-    this.addEventListener('dragover', e => {
-      if (!e.dataTransfer.types.includes('Files')) return;
-      e.preventDefault();
-      this.classList.add('dragging');
-    });
-    this.addEventListener('dragleave', e => { if (!this.contains(e.relatedTarget)) this.classList.remove('dragging'); });
-    this.addEventListener('drop', async e => {
-      if (!e.dataTransfer.types.includes('Files')) return;
-      e.preventDefault();
-      this.classList.remove('dragging');
-      const image = [...e.dataTransfer.items].find(i => i.kind === 'file' && i.type.startsWith('image/'))?.getAsFile();
-      if (image) return this._picture(image).catch(err => this._message(err.message));
-      const file = await droppedFile(e.dataTransfer);
-      if (file) this._open(file);
-    });
+    if (this._ha) {
+      // Keys reach it only from inside; those it uses (and all but an Esc it has no use for) stop here, so that HA's
+      // shortcuts don't fire as the plan is edited, and Esc still closes HA's dialog.
+      this.addEventListener('keydown', e => { if (this._key(e) || e.key !== 'Escape') e.stopPropagation(); });
+    } else {
+      this._keys = e => this._key(e);
+      window.addEventListener('keydown', this._keys);
+    }
+    // Files dropped on it: a home to open, or a picture of a plan (not in HA, where there are no files).
+    if (!this._ha) {
+      this.addEventListener('dragover', e => {
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        this.classList.add('dragging');
+      });
+      this.addEventListener('dragleave', e => { if (!this.contains(e.relatedTarget)) this.classList.remove('dragging'); });
+      this.addEventListener('drop', async e => {
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        this.classList.remove('dragging');
+        const image = [...e.dataTransfer.items].find(i => i.kind === 'file' && i.type.startsWith('image/'))?.getAsFile();
+        if (image) return this._picture(image).catch(err => this._message(err.message));
+        const file = await droppedFile(e.dataTransfer);
+        if (file) this._open(file);
+      });
+    }
     this._ctx = {
-      commit: (path, value) => this._edit(() => (value === undefined ? this.model.get(path) !== undefined && this.model.remove(path) : this.model.set(path, value))),
+      commit: (path, value) => this._commit(path, value),
       select: path => this.select(path),
       toggle: path => this._toggle(path),
       add: group => this._add(group),
@@ -399,13 +600,21 @@ export class LightwellEditor extends HTMLElement {
       enter: name => this._enter(name),
       shapeTemplate: (kind, old) => this._shapeTemplate(kind, old),
     };
-    this.setTool('select');
+    this.setView(this.getAttribute('view') || (this._ha ? 'build' : 'edit'));
     this._changed({text: true});
-    this._liveStart();
+    if (!this._ha) this._liveStart();
+    if (this._ha) {
+      // HA's preview of the card (card.js) offers itself; the editor then edits on it, rather than on a copy.
+      this._offered = e => this._adopt(e.detail);
+      window.addEventListener('lightwell-preview', this._offered);
+      window.dispatchEvent(new CustomEvent('lightwell-editor-open'));
+    }
   }
 
   disconnectedCallback() {
-    window.removeEventListener('keydown', this._keys);
+    if (this._keys) window.removeEventListener('keydown', this._keys);
+    if (this._offered) window.removeEventListener('lightwell-preview', this._offered);
+    if (this._hosted) { this._hosted.editLayer = null; this._hosted.style.width = ''; }
     this._live?.close();
   }
 
@@ -507,7 +716,22 @@ export class LightwellEditor extends HTMLElement {
     if (errors.length && this._data) this._message('The card shows the last version without mistakes.', 'info');
     this._renderPanels();
     this._updateButtons();
-    storage.set({text: this.model.text, name: this._file.name, saved: this._file.saved});
+    if (!this._ha) storage.set({text: this.model.text, name: this._file.name, saved: this._file.saved});
+    else if (home) {
+      const json = JSON.stringify(data);
+      if (json !== this._sent) {
+        this._sent = json;
+        this.dispatchEvent(new CustomEvent('value-changed', {detail: {value: data}}));
+      }
+    }
+  }
+
+  // A field set from the forms (undefined: removed). In the Build view, a lamp's entity set on one of its parts (its
+  // light, its marker) is set on all of them, so that its glow, its pool and its marker stay one lamp.
+  _commit(path, value) {
+    const lamp = this._view === 'build' && this.model.data && lampEntityOps(this.model.data, path, value);
+    if (lamp) return this._edit(() => this.model.batch(lamp));
+    this._edit(() => (value === undefined ? this.model.get(path) !== undefined && this.model.remove(path) : this.model.set(path, value)));
   }
 
   // Applies an edit (a function changing the model), and shows a failure as a message.
@@ -525,25 +749,93 @@ export class LightwellEditor extends HTMLElement {
     // A background picture kept in the browser stands in for the one the home names (/local/plan.png); while it's
     // being looked for there (null), the card goes without, rather than asking for a file that isn't there.
     const bg = data.drawing?.background;
-    if (bg && typeof bg.image === 'string' && !(bg.image in this._pictures)) this._loadPicture(bg.image);
+    if (!this._ha && bg && typeof bg.image === 'string' && !(bg.image in this._pictures)) this._loadPicture(bg.image);
     const url = bg && this._pictures[bg.image];
     if (url) data = {...data, drawing: {...data.drawing, background: {...bg, image: url}}};
     else if (bg && url === null) data = {...data, drawing: {...data.drawing, background: undefined}};
     try {
       this._card.setConfig({home: data, north: this._shown.north});
-      this._card.hass = {states: this._effectStates(), themes: {darkMode: this._dark}, callService: this._controls.callService};
+      // HA's preview shows HA's own states and theme (and taps on it act in HA, which the overlay keeps it from).
+      this._card.hass = this._hosted ? this._hass : {states: this._effectStates(), themes: {darkMode: this._dark}, callService: this._controls.callService};
     } catch (e) {
       this._message(e.message);
     }
     this._place();
   }
 
+  // HA's preview of the card (`card`, offering itself): the editing layer (the overlay, the ruler) moves into it, over
+  // its plan, and the editor's own copy of the card hides. The card then shows the home being edited with HA's own
+  // states and theme, so the simulated sun and time and the Dark button go. A newer preview (HA rebuilds it on every
+  // change) takes the layer over.
+  _adopt(card) {
+    if (!card) return;
+    if (card === this._hosted) { card.editLayer = this._layer; return; }
+    if (this._hosted) { this._hosted.editLayer = null; this._hosted.style.width = ''; }
+    if (!this._layer) {
+      // Focusable, so that a click on the plan there gives it the keys (the card has nothing else to focus), which it
+      // hands to the editor as its own.
+      this._layer = Object.assign(document.createElement('div'), {className: 'lw-edit', tabIndex: -1});
+      this._layer.innerHTML = `<style>${OVERLAY_STYLE}</style>`;
+      this._layer.addEventListener('keydown', e => { if (this._key(e) || e.key !== 'Escape') e.stopPropagation(); });
+    }
+    this._layer.append(this._el.overlay, this._el.ruler);
+    this._hosted = this._card = card;
+    card.editLayer = this._layer;
+    this.setAttribute('hosted', '');
+    this._hostObserver?.disconnect();
+    this._hostObserver = new ResizeObserver(() => { this._fitHosted(); this._place(); });
+    this._hostObserver.observe(card);
+    this._column = null;
+    this._renderCard();
+  }
+
+  // HA keeps its preview card to 500 px, also when its dialog is made large: our card, while it's edited on, widens
+  // itself to the column it's in (only itself: it reads the column's width, and changes nothing of HA's). When there's
+  // no wider column (or HA lays it out otherwise), it stays as it is.
+  _fitHosted() {
+    const card = this._hosted, column = card?.parentElement?.parentElement;
+    if (!card || !column) return;
+    // The column HA's preview is in (around the hui-card around our card), followed for its width once the card is
+    // in it (it offers itself before HA puts it there).
+    if (this._column !== column) { this._column = column; this._hostObserver.observe(column); }
+    card.style.width = '';
+    const k = card.offsetWidth ? card.getBoundingClientRect().width / card.offsetWidth || 1 : 1;
+    const pad = parseFloat(getComputedStyle(column).paddingRight) || 0;
+    const room = (column.getBoundingClientRect().right - card.getBoundingClientRect().left) / k - pad;
+    if (room > card.offsetWidth + 1) card.style.width = `${Math.floor(room)}px`;
+  }
+
+  // The element the editing layer is placed in: the editor's stage, or the layer in HA's preview card.
+  _frameEl() {
+    return this._hosted ? this._layer : this._el.stage;
+  }
+
+  // How much the frame is scaled on screen (HA's dialog zooms in as it opens): its width there over its own.
+  _frameScale() {
+    const f = this._frameEl(), w = f.offsetWidth;
+    return w ? f.getBoundingClientRect().width / w || 1 : 1;
+  }
+
+  // A point on the screen (client pixels) in the frame's own pixels, whatever scale it's shown at.
+  _inFrame(x, y) {
+    const s = this._frameEl().getBoundingClientRect(), k = this._frameScale();
+    return [(x - s.left) / k, (y - s.top) / k];
+  }
+
   // The overlay over the card's drawing, in the drawing's units.
   _place() {
     const svg = this._card.shadowRoot?.querySelector('.plan svg'), view = this._home?.view;
     if (!svg || !view) return;
-    const r = svg.getBoundingClientRect(), s = this._el.stage.getBoundingClientRect(), o = this._el.overlay;
-    Object.assign(o.style, {left: `${r.left - s.left}px`, top: `${r.top - s.top}px`, width: `${r.width}px`, height: `${r.height}px`});
+    const r = svg.getBoundingClientRect();
+    // Not laid out yet (HA's ha-card renders what's in it a moment after it's made, so just after the card rebuilds,
+    // as on every frame of a drag on HA's preview, its drawing has no size): the overlay stays as it is, and is
+    // placed again on the next frame.
+    if (!r.width || !r.height) {
+      this._placeAgain ||= requestAnimationFrame(() => { this._placeAgain = 0; this._place(); });
+      return;
+    }
+    const o = this._el.overlay, [x, y] = this._inFrame(r.left, r.top), k = this._frameScale();
+    Object.assign(o.style, {left: `${x}px`, top: `${y}px`, width: `${r.width / k}px`, height: `${r.height / k}px`});
     o.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
     this._renderOverlay();
   }
@@ -564,9 +856,17 @@ export class LightwellEditor extends HTMLElement {
   }
 
   // The handles of the selected item, if it's the only one and can be changed.
+  // In the Build view's Furniture and Lamps and devices, those of a selected piece, or lamp, too.
   _handles(data = this._data) {
-    if (this._tool !== 'select' || this._sels.length !== 1 || !this.model.home || !data) return [];
-    return handles(this._sel, itemAt(data, this._sel), this._withPiece(this._sel, data, {reach: 3 * HANDLE * this._px()}));
+    const own = this._tool === 'select' || (this._tool === 'build-piece' && ['furniture', 'lights'].includes(this._sel?.[0]))
+      || (this._tool === 'build-device' && this._sel?.[0] === 'lights');
+    // One item, or in the Build view a lamp (its light's handles: a strip's ends, its pool).
+    const one = this._sels.length === 1 || (this._view === 'build' && this._sel?.[0] === 'lights' && this._objectOf(this._sels));
+    if (!own || !one || !this.model.home || !data) return [];
+    const list = handles(this._sel, itemAt(data, this._sel), this._withPiece(this._sel, data, {reach: 3 * HANDLE * this._px()}));
+    // A whole lamp in the Build view: a press on its middle moves all of it, so its pool's centre isn't a handle there
+    // (inside it, it is).
+    return this._view === 'build' && this._group === null && this._sels.length > 1 ? list.filter(h => h.id !== 'pool') : list;
   }
 
   // Inside a piece: the rest of the plan dimmed, the piece outlined; the guides and the drawing in its frame.
@@ -574,13 +874,27 @@ export class LightwellEditor extends HTMLElement {
     const piece = home?.furniture?.[this._inside], v = home?.view;
     const turn = pieceTurn(piece);
     for (const g of [this._el.guides, this._el.draft]) turn ? g.setAttribute('transform', turn) : g.removeAttribute('transform');
-    if (!piece) { this._el.inside.innerHTML = ''; return; }
+    if (!piece) { this._el.inside.innerHTML = this._group !== null && home ? this._groupDim(home) : ''; return; }
     const o = pieceOutline(piece), f = v => +v.toFixed(1);
     const d = o.poly ? `M${o.poly.map(q => q.map(f).join(',')).join(' L')} Z`
       : `M${f(o.circle[0] - o.circle[2])},${o.circle[1]} a${o.circle[2]},${o.circle[2]} 0 1,0 ${f(2 * o.circle[2])},0 a${o.circle[2]},${o.circle[2]} 0 1,0 ${f(-2 * o.circle[2])},0 Z`;
     // Far beyond the view, so that the overlay's overflow is dimmed too.
     const [x0, y0, x1, y1] = [v.x - v.w, v.y - v.h, v.x + 2 * v.w, v.y + 2 * v.h];
     this._el.inside.innerHTML = `<path class="dim" d="M${x0},${y0} H${x1} V${y1} H${x0} Z ${d}"/><path class="piece" d="${d}"/>`;
+  }
+
+  // Inside a Build object: the rest of the plan dimmed (but where its parts are), its parts outlined.
+  _groupDim(home) {
+    const v = home.view, parts = partsOf(this.model.data, this._group).map(p => outlineSvg(home, p)).join('');
+    const [x, y, w, h] = [v.x, v.y, v.w, v.h];
+    return `<mask id="lw-group-hole" maskUnits="userSpaceOnUse" x="${x}" y="${y}" width="${w}" height="${h}"><rect x="${x}" y="${y}" width="${w}" height="${h}"/>`
+      + `<g class="hole">${parts}</g></mask><rect class="dim all" x="${x}" y="${y}" width="${w}" height="${h}" mask="url(#lw-group-hole)"/><g class="group">${parts}</g>`;
+  }
+
+  // What a Build object is called: a room's name (its label), the catalogue's name for what it was made from, or its id.
+  _groupName(id) {
+    const label = partsOf(this.model.data, id).find(p => p[1] === 'labels');
+    return (label && itemAt(this.model.data, label)?.text) || prefab(id.replace(/_\d+$/, ''))?.name || id.replace(/_(\d+)$/, ' $1').replace(/_/g, ' ');
   }
 
   // The options the manipulate functions take for the item at `path` (plus `rest`): an extra shape's piece.
@@ -607,7 +921,13 @@ export class LightwellEditor extends HTMLElement {
   _hitsAt(at) {
     const piece = this._home?.furniture?.[this._inside];
     if (piece && onPiece(piece, at.p, at.tol)) return {hits: hitInside(this._home, this._inside, at.p, at.tol), inside: true};
-    return {hits: hitTest(this._home, at.p, at.tol), inside: false};
+    const hits = hitTest(this._home, at.p, at.tol);
+    // Inside a Build object: its parts under the pointer, if any.
+    if (this._group !== null) {
+      const own = hits.filter(h => partOf(this.model.data, h) === this._group);
+      if (own.length) return {hits: own, inside: true};
+    }
+    return {hits, inside: false};
   }
 
   // Edits the insides of the piece `name`, selecting `paths` (its shapes).
@@ -622,14 +942,33 @@ export class LightwellEditor extends HTMLElement {
     this._renderTools();
   }
 
-  // Out of the piece, with nothing selected (before selecting what's outside it).
+  // Out of the piece (or the Build object), with nothing selected (before selecting what's outside it).
   _out() {
     this._inside = null;
+    this._group = null;
     this._hits = null;
     this._sels = [];
     this._sel = null;
     this._renderTools();
     this._renderOverlay();
+  }
+
+  // Edits the Build object `id` part by part, selecting `paths` (its parts), as a piece's insides are edited.
+  _enterGroup(id, paths = []) {
+    if (!partsOf(this.model.data, id).length) return;
+    this._group = id;
+    this._hits = null;
+    this._selectAll(paths);
+    this._renderTools();
+  }
+
+  // Back out of the Build object, selecting it whole.
+  _leaveGroup() {
+    const id = this._group;
+    this._group = null;
+    this._hits = null;
+    this._selectObject(id);
+    this._renderTools();
   }
 
   // Back out of the piece, selecting it.
@@ -666,11 +1005,12 @@ export class LightwellEditor extends HTMLElement {
         textContent: `${this._sels.length} items selected: they move together, and Delete deletes them all. The last one's properties:`}));
     }
     this._renderOverlay();
+    if (this._el.build) this._renderBuild();
   }
 
   // Selects the item at `path` (null: the home itself) in the list, on the plan and in the text.
   select(path) {
-    if (!path) this._inside = null;
+    if (!path) { this._inside = null; this._group = null; }
     this._selectAll(path ? [path] : []);
     if (this._sel && !this._el.text.closest('[hidden]')) this._showInText(this._sel);
   }
@@ -684,8 +1024,12 @@ export class LightwellEditor extends HTMLElement {
     if (extra) this._inside = extra[1];
     else if (this._sels.length) this._inside = null;
     if (this._inside !== null) this._sels = this._sels.filter(p => isExtra(p) && p[1] === this._inside);
+    const group = this._group;
+    if (group !== null && this._sels.some(p => partOf(this.model.data, p) !== group)) this._group = null;
     this._sel = this._sels.at(-1) || null;
-    if (was !== this._inside) this._renderTools();
+    if (was !== this._inside || group !== this._group) this._renderTools();
+    // In HA's dialog, the list and the properties share the tabs: what's selected shows its properties.
+    if (this._ha && this._sel && this._tabNow === 'list') this._tab('props');
     this._renderPanels();
   }
 
@@ -704,7 +1048,28 @@ export class LightwellEditor extends HTMLElement {
     ta.scrollTop = Math.max(0, line * parseFloat(getComputedStyle(ta).lineHeight) - ta.clientHeight / 3);
   }
 
+  // In HA's dialog (its editor gets half of it, beside HA's own preview of the card): the two sides as one, under the
+  // plan, with one row of tabs (Items, Properties, YAML, Sun and time), and a tip on making the dialog larger (HA's
+  // own: a click on its title).
+  _oneSide(root) {
+    const left = root.querySelector('.side.left'), right = root.querySelector('.side.right'), tabs = left.querySelector('.tabs');
+    tabs.querySelector('[data-tab="list"]').after(...right.querySelectorAll('.tabs [data-tab]'));
+    left.append(...right.querySelectorAll('.pane'));
+    right.remove();
+    let seen = false;
+    try { seen = localStorage.getItem('lightwell-editor:tip-large') === '1'; } catch { /* blocked */ }
+    if (seen) return;
+    const tip = Object.assign(document.createElement('p'), {className: 'tip'});
+    tip.innerHTML = 'Tip: click the dialog\'s title to make it larger. <button type="button" title="Got it">×</button>';
+    tip.querySelector('button').onclick = () => {
+      tip.remove();
+      try { localStorage.setItem('lightwell-editor:tip-large', '1'); } catch { /* blocked */ }
+    };
+    root.querySelector('header').append(tip);
+  }
+
   _tab(name) {
+    this._tabNow = name;
     for (const b of this._root.querySelectorAll('[data-tab]')) {
       const side = b.closest('.side');
       if (!side.querySelector(`[data-tab="${name}"]`)) continue;
@@ -749,6 +1114,28 @@ export class LightwellEditor extends HTMLElement {
     if (this._tool !== 'select') {
       this._el.hover.innerHTML = '';
       if (this._poly) this._drawDraft(this._snap(e, at, this._poly.points.at(-1)), null, e);
+      // Over a handle of what's selected: no preview of a new one.
+      if (this._handleAt(at)) {
+        this._el.hover.innerHTML = this._el.draft.innerHTML = '';
+        this._el.overlay.classList.add('grab');
+        return;
+      }
+      // Over something the step picks: it outlined (all its parts), and no preview of a new one.
+      const grab = this._buildGrab(at);
+      if (grab) {
+        const id = this._objectAt(grab), paths = id ? partsOf(this.model.data, id) : [grab];
+        this._el.hover.innerHTML = paths.filter(p => !this._sels.some(q => samePath(p, q))).map(p => outlineSvg(this._home, p)).join('');
+        this._el.draft.innerHTML = '';
+        this._el.overlay.classList.add('grab');
+        return;
+      }
+      this._el.overlay.classList.remove('grab');
+      if (this._tool === 'build-cut') this._cutPreview(at);
+      if (this._tool === 'build-piece') {
+        this._lastAt = at.p;
+        if (e.shiftKey) this._prefabPreview(at.p);
+        else this._el.draft.innerHTML = '';
+      }
       return;
     }
     const handle = this._handleAt(at), hit = !handle && this._hitsAt(at).hits[0];
@@ -756,15 +1143,111 @@ export class LightwellEditor extends HTMLElement {
     this._el.overlay.style.cursor = handle ? 'crosshair' : hit && this.model.home ? 'move' : 'default';
   }
 
+  // A room's name edited on the plan, from a double-click on its label (or, with `anywhere`, anywhere in the room): its
+  // label's text, in a field over the label (or the room's middle, adding one). Enter or leaving the field keeps it,
+  // Esc doesn't. The room's key stays as it is (the references to it use it). False when there's no room there.
+  _editRoomName(e, anywhere) {
+    const at = this._at(e), data = this.model.data, hits = at ? this._hitsAt(at).hits : [];
+    const isRoom = id => id && data.rooms?.[id] !== undefined;
+    const room = (anywhere ? hits : hits.filter(h => h[0] === 'drawing' && h[1] === 'labels')).map(h => this._objectAt(h)).find(isRoom);
+    if (!room) return false;
+    this._selectObject(room);
+    const label = partsOf(data, room).find(p => p[0] === 'drawing' && p[1] === 'labels'), shape = label && itemAt(data, label);
+    const r = data.rooms[room][0], spot = shape?.at || (Array.isArray(r?.[0]) ? r[0] : [r[0] + r[2] / 2, r[1] + r[3] / 2]);
+    const m = this._el.overlay.getScreenCTM(), q = new DOMPoint(...spot).matrixTransform(m), [qx, qy] = this._inFrame(q.x, q.y);
+    this._frameEl().querySelector('input.name-edit')?.remove();
+    const input = Object.assign(document.createElement('input'), {type: 'text', className: 'name-edit', value: shape?.text ?? '', placeholder: 'Its name', spellcheck: false});
+    Object.assign(input.style, {left: `${qx}px`, top: `${qy}px`});
+    let done = false;
+    const finish = keep => {
+      if (done) return;
+      done = true;
+      const text = input.value.trim();
+      input.remove();
+      if (!keep || !text || text === shape?.text) return;
+      this._edit(() => this.model.batch(label ? [{set: [...label, 'text'], value: text}]
+        : [{insert: ['drawing', 'labels'], value: {text, at: spot.map(tidy), class: 'room', part: room}}]));
+      this._selectObject(room);
+    };
+    input.addEventListener('keydown', ev => {
+      ev.stopPropagation();
+      if (ev.key === 'Enter') finish(true);
+      else if (ev.key === 'Escape') finish(false);
+    });
+    input.addEventListener('blur', () => finish(true));
+    this._frameEl().append(input);
+    input.focus();
+    input.select();
+    return true;
+  }
+
+  // What a Build step picks under the pointer (its own kind of thing): a window, door or doorway in Windows and doors,
+  // a piece in Furniture, a lamp or marker in Lamps and devices. Its path, or undefined. (A gap's end is grabbed
+  // before this, to resize it; a room is picked by a click in Rooms, as a drag there draws one.)
+  _buildGrab(at) {
+    const t = this._tool, data = this.model.data;
+    if (!['build-cut', 'build-piece', 'build-device'].includes(t) || !data || (t === 'build-cut' && gapEndAt(data, at.p, at.tol + HANDLE * this._px() / 2))) return undefined;
+    return this._hitsAt(at).hits.find(h => (t === 'build-piece' ? h[0] === 'furniture' && h.length === 2
+      : t === 'build-device' ? h[0] === 'lights' || h[0] === 'markers'
+      : this._isCut(this._objectAt(h))));
+  }
+
+  // Whether object `id` is a window or door: a gap of its own, or (adopted from a home not made in Build) an opening
+  // or glass.
+  _isCut(id) {
+    if (!id) return false;
+    const data = this.model.data;
+    return !!gapOf(data, id) || partsOf(data, id).some(p => p[0] === 'openings' || p[1] === 'glazing');
+  }
+
+  // Over a wall in the Build view's Windows and doors: the end of a gap the pointer would grab (outlined), or where a
+  // click would cut the wall.
+  _cutPreview(at) {
+    const data = this.model.data, f = v => +v.toFixed(1);
+    if (!data) return;
+    const grab = gapEndAt(data, at.p, at.tol + HANDLE * this._px() / 2);
+    if (grab) {
+      const {gap, end} = grab, w = 3 * this._px(), r = gap.axis === 0 ? [gap[end] - w, gap.band[0], 2 * w, gap.band[1] - gap.band[0]]
+        : [gap.band[0], gap[end] - w, gap.band[1] - gap.band[0], 2 * w];
+      this._el.overlay.classList.toggle('grab-x', gap.axis === 0);
+      this._el.overlay.classList.toggle('grab-y', gap.axis === 1);
+      this._el.draft.innerHTML = `<rect class="cut grab" x="${f(r[0])}" y="${f(r[1])}" width="${f(r[2])}" height="${f(r[3])}"/>`;
+      return;
+    }
+    this._el.overlay.classList.remove('grab-x', 'grab-y');
+    const r = this._cutRect(at)?.rect;
+    this._el.draft.innerHTML = r ? `<rect class="cut" x="${f(r[0])}" y="${f(r[1])}" width="${f(r[2])}" height="${f(r[3])}"/>` : '';
+  }
+
+  // The part of the wall under `at` a cut takes: the width chosen around it, or as far as `to` along the wall:
+  // {rect, length}, or null.
+  _cutRect(at, to) {
+    const data = this.model.data, wall = data && wallAt(data, at.p, at.tol);
+    if (!wall) return null;
+    const r = [...wall.rect], a = r[2] >= r[3] ? 0 : 1;
+    const span = to ? [Math.max(Math.min(at.p[a], to[a]), r[a]), Math.min(Math.max(at.p[a], to[a]), r[a] + r[a + 2])]
+      : cutSpan(r, at.p[a], this._opts.cutWidth * (data.units_per_metre || 100));
+    if (!span) return null;
+    r[a] = span[0];
+    r[a + 2] = span[1] - span[0];
+    return {rect: r, length: r[a + 2]};
+  }
+
   // A press on the plan: a click when the pointer doesn't move (_click), otherwise a drag (_startDrag).
   _down(e) {
     if (e.button !== 0 || !this._home) return;
     const at = this._at(e);
     if (!at) return;
-    this._el.preview.focus({preventScroll: true});
+    (this._hosted ? this._layer : this._el.preview).focus({preventScroll: true});
     try { this._el.overlay.setPointerCapture(e.pointerId); } catch { /* a pointer the browser doesn't track */ }
-    this._press = {x: e.clientX, y: e.clientY, at, handle: this._handleAt(at), shift: e.shiftKey, drag: null};
-    if (this._tool !== 'select') Object.assign(this._press, {create: true, start: this._snap(e, at, this._poly?.points.at(-1))});
+    this._press = {x: e.clientX, y: e.clientY, at, handle: this._handleAt(at), shift: e.shiftKey, turn: e.ctrlKey || e.metaKey, drag: null};
+    // In a Build step, a thing of its own kind under the pointer is selected and moved, rather than a new one made.
+    this._press.grab = !this._press.handle && this._buildGrab(at);
+    // Furniture, and lamps and devices, are placed by Shift+click (or dragged from the catalogue); a plain click
+    // selects, as Select does.
+    const placing = !['build-piece', 'build-device'].includes(this._tool) || e.shiftKey;
+    if (this._tool !== 'select' && !this._press.grab && !this._press.handle && placing) Object.assign(this._press, {create: true, start: this._snap(e, at, this._poly?.points.at(-1))});
+    if (this._tool === 'build-cut') this._press.gapEnd = gapEndAt(this.model.data, at.p, at.tol + HANDLE * this._px() / 2);
   }
 
   _up(e) {
@@ -780,7 +1263,8 @@ export class LightwellEditor extends HTMLElement {
   // Shift+click adds it to the selection (or takes it out). Alt+click taps the card underneath instead (lights toggle,
   // the weather changes). A click on a handle does nothing.
   _click(e, press) {
-    if (e.altKey) {
+    // Alt+click taps the card underneath (not HA's preview, where a tap would act on the house).
+    if (e.altKey && !this._hosted) {
       const marker = this._card.shadowRoot?.elementsFromPoint(e.clientX, e.clientY).find(x => x.classList?.contains('m'));
       marker?.click();
       return;
@@ -790,9 +1274,10 @@ export class LightwellEditor extends HTMLElement {
     if (!this._clicks || now - this._clicks.t > CLICKS) this._clicks = {sel: this._sel};
     this._clicks.t = now;
     if (press.handle) return;
-    const {hits, inside} = this._hitsAt(press.at);
-    // A click outside the piece being edited leaves it.
-    if (this._inside !== null && !inside) this._out();
+    const found = this._hitsAt(press.at), inside = found.inside;
+    const hits = press.grab ? [press.grab, ...found.hits.filter(h => !samePath(h, press.grab))] : found.hits;
+    // A click outside the piece (or Build object) being edited leaves it.
+    if ((this._inside !== null || this._group !== null) && !inside) this._out();
     if ((e.ctrlKey || e.metaKey) && this._toggleShadow(hits)) return;
     if (press.shift) {
       if (hits[0]) this._toggle(hits[0]);
@@ -802,7 +1287,27 @@ export class LightwellEditor extends HTMLElement {
     this._hits = hits;
     if (again) return this._cycle();
     if (inside) this._selectAll(hits.slice(0, 1));
+    else if (this._objectAt(hits[0])) this._selectObject(this._objectAt(hits[0]));
     else this.select(hits[0] || null);
+  }
+
+  // In the Build view, the object (made there) the item at `path` is part of: its id, or undefined.
+  _objectAt(path) {
+    if (this._view !== 'build' || !path) return undefined;
+    const id = partOf(this.model.data, path);
+    return id && id !== this._group && partsOf(this.model.data, id).length ? id : undefined;
+  }
+
+  // Selects all the parts of object `id`; the one whose properties show is the room, or the opening.
+  _selectObject(id) {
+    const paths = partsOf(this.model.data, id), main = paths.find(p => p[0] === 'rooms' || p[0] === 'openings' || p[0] === 'lights');
+    this._selectAll(main ? [...paths.filter(p => p !== main), main] : paths);
+  }
+
+  // The one object the paths are all part of, in the Build view, or undefined.
+  _objectOf(paths) {
+    const ids = new Set(paths.map(p => this._objectAt(p)));
+    return ids.size === 1 ? [...ids][0] : undefined;
   }
 
   // With a lamp with a pool selected: the piece among `hits` added to its shadows, or taken out. False when it isn't.
@@ -825,6 +1330,19 @@ export class LightwellEditor extends HTMLElement {
   // its two clicks (which step through what's under the pointer): a selected piece under it is the one entered, and in
   // a selected room the rectangle under it is selected.
   _dblclick(e) {
+    // In the Build view, a room's name is edited on the plan by a double-click on it; a double-click elsewhere on an
+    // object made there enters it (its parts then picked one by one), as a piece's insides are.
+    if (this._view === 'build' && this._group === null && !this._poly) {
+      if (this._editRoomName(e, false)) return;
+      const at = this._at(e), hits = at ? this._hitsAt(at).hits : [], before = this._clicks ? this._clicks.sel : this._sel;
+      // The object selected before the clicks, if it's under the pointer; otherwise the one on top there.
+      const id = (before && hits.some(h => samePath(h, before)) && this._objectAt(before)) || (hits[0] && this._objectAt(hits[0]));
+      if (id) {
+        this.setTool('select');
+        return this._enterGroup(id, hits.filter(h => partOf(this.model.data, h) === id).slice(0, 1));
+      }
+    }
+    if (this._tool === 'build-room') return;
     if (this._tool !== 'select') return this._poly && this._finishPoly();
     const at = this._at(e), handle = at && this._handleAt(at);
     if (at && !handle?.id.match(/(^|\/)v:\d+$/)) {
@@ -854,11 +1372,22 @@ export class LightwellEditor extends HTMLElement {
     let hits = [];
     if (!press.handle) {
       const found = this._hitsAt(at);
-      // A drag starting outside the piece being edited leaves it.
-      if (this._inside !== null && !found.inside) this._out();
-      hits = found.hits;
+      // A drag starting outside the piece (or Build object) being edited leaves it.
+      if ((this._inside !== null || this._group !== null) && !found.inside) this._out();
+      hits = press.grab ? [press.grab, ...found.hits.filter(h => !samePath(h, press.grab))] : found.hits;
     }
     if (press.shift || (!press.handle && !hits.length)) return {kind: 'box', from: at.p, add: press.shift};
+    // Ctrl (⌘) and a drag on a piece: it turns around its middle.
+    const turning = press.turn && !press.handle && hits.find(h => h[0] === 'furniture' && h.length === 2);
+    if (turning) {
+      const item = itemAt(this.model.data, turning), sh = item?.shape;
+      const pts = sh?.rect ? [[sh.rect[0], sh.rect[1]], [sh.rect[0] + sh.rect[2], sh.rect[1] + sh.rect[3]]] : sh?.poly || (sh?.circle ? [sh.circle.slice(0, 2)] : []);
+      if (pts.length && !sh.circle) {
+        this.select(turning);
+        const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]), centre = [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+        return {kind: 'turn', path: turning, item, centre, from: Math.atan2(at.p[1] - centre[1], at.p[0] - centre[0])};
+      }
+    }
     if (!this.model.home) {
       this._message('Fix the mistakes listed here first: the plan shows the last version without them.');
       return {kind: 'none'};
@@ -870,6 +1399,24 @@ export class LightwellEditor extends HTMLElement {
     if (press.handle) {
       const {item, id} = startHandle(this._sel, itemAt(data, this._sel), press.handle.id, this._withPiece(this._sel, data));
       return {kind: 'handle', path: this._sel, item, id, from: press.handle.at, frame, targets: targets([this._sel])};
+    }
+    // In the Build view: a window or door slides along its wall; a room stays (its walls are shared).
+    const object = this._objectAt(hits[0]);
+    if (object) {
+      this._selectObject(object);
+      const gap = gapOf(data, object);
+      if (gap) return {kind: 'slide', gap, from: at.p};
+      if (this._isCut(object)) {
+        this._message("This window or door isn't in a gap of its own in the wall (a window and a door side by side, as drawn by hand): move it in the Edit view.", 'info');
+        return {kind: 'none'};
+      }
+      if (data.rooms?.[object] !== undefined) {
+        if (!moveRoomOps(data, object, 0, 0)) {
+          this._message("A room of several rectangles or a polygon is moved in the Edit view (its walls weren't made with it).", 'info');
+          return {kind: 'none'};
+        }
+        return {kind: 'room', id: object, from: at.p};
+      }
     }
     if (!hits.some(h => this._sels.some(p => samePath(p, h)))) frame ? this._selectAll(hits.slice(0, 1)) : this.select(hits[0]);
     const paths = this._sels, items = paths.map(p => itemAt(data, p));
@@ -920,6 +1467,29 @@ export class LightwellEditor extends HTMLElement {
       const [o, d] = drag.frame ? [this._fromFrame([0, 0]), this._fromFrame([moved.dx, moved.dy])] : [[0, 0], [moved.dx, moved.dy]];
       drag.changes = drag.paths.map((p, i) => [p, moveItem(p, drag.items[i], d[0] - o[0], d[1] - o[1], this._withPiece(p, this._data))]);
       ruler = {move: [moved.dx, moved.dy]};
+    } else if (drag.kind === 'turn') {
+      // By its turn, in 15° steps (Alt: free).
+      const a = (Math.atan2(at.p[1] - drag.centre[1], at.p[0] - drag.centre[0]) - drag.from) * 180 / Math.PI;
+      const sh = drag.item.shape, step = e.altKey ? 1 : TURN_STEP, d = Math.round(a / step) * step;
+      const turn = (((sh.turn || 0) + d) % 360 + 360) % 360, {turn: _, ...rest} = sh;
+      const value = {...drag.item, shape: turn ? {...rest, turn} : rest};
+      drag.changes = [[drag.path, value]];
+      ruler = null;
+      this._el.ruler.dataset.text = `${((d % 360) + 360) % 360}°`;
+    } else if (drag.kind === 'room') {
+      // Moved by the grid (Alt: freely), snapped against the walls where it lands; its walls made there.
+      const g = e.altKey ? 0 : this._grid(), d = [0, 1].map(k => at.p[k] - drag.from[k]).map(v => (g ? Math.round(v / g) * g : v));
+      if (e.shiftKey) d[Math.abs(d[0]) < Math.abs(d[1]) ? 0 : 1] = 0;
+      if (drag.d?.[0] !== d[0] || drag.d?.[1] !== d[1]) {
+        drag.d = d;
+        drag.ops = moveRoomOps(this._data, drag.id, d[0], d[1], e.altKey ? 0 : 0.3 * (this._data.units_per_metre || 100))?.ops;
+        if (drag.ops) this._showPreview(null, drag.ops);
+      }
+      ruler = {move: d};
+    } else if (drag.kind === 'slide') {
+      const ax = drag.gap.axis, grid = e.altKey ? 0 : this._grid(), d = at.p[ax] - drag.from[ax];
+      drag.changes = slideOps(this._data, drag.gap, grid ? Math.round(d / grid) * grid : d).map(op => [op.set, op.value]);
+      ruler = {move: ax === 0 ? [d, 0] : [0, d]};
     } else if (drag.kind === 'handle') {
       let p = at.p;
       const piece = this._withPiece(drag.path, this._data);
@@ -933,9 +1503,9 @@ export class LightwellEditor extends HTMLElement {
       ruler = done.ruler;
     }
     this._showGuides(guides);
-    const s = this._el.stage.getBoundingClientRect();
-    Object.assign(this._el.ruler.style, {left: `${e.clientX - s.left + 16}px`, top: `${e.clientY - s.top + 16}px`});
-    this._el.ruler.textContent = rulerText(ruler, this._data.units_per_metre);
+    const [fx, fy] = this._inFrame(e.clientX, e.clientY);
+    Object.assign(this._el.ruler.style, {left: `${fx + 16}px`, top: `${fy + 16}px`});
+    this._el.ruler.textContent = drag.kind === 'turn' ? this._el.ruler.dataset.text : rulerText(ruler, this._data.units_per_metre);
     if (drag.changes) this._showPreview(drag.changes);
   }
 
@@ -950,13 +1520,13 @@ export class LightwellEditor extends HTMLElement {
 
   // The card and the overlay as they'd be with `changes` ([[path, value]]), drawn at most once a frame. A version
   // that doesn't pass the check isn't shown.
-  _showPreview(changes) {
-    this._pending = changes;
+  _showPreview(changes, ops) {
+    this._pending = ops ? {ops} : changes;
     this._frameRequest ||= requestAnimationFrame(() => {
       this._frameRequest = 0;
       if (!this._pending) return;
-      const data = structuredClone(this._data);
-      for (const [path, value] of this._pending) path.slice(0, -1).reduce((o, k) => o[k], data)[path.at(-1)] = value;
+      const data = this._pending.ops ? applyOps(this._data, this._pending.ops) : structuredClone(this._data);
+      if (!this._pending.ops) for (const [path, value] of this._pending) path.slice(0, -1).reduce((o, k) => o[k], data)[path.at(-1)] = value;
       this._pending = null;
       try {
         this._preview = {data, home: defineHome(data)};
@@ -978,8 +1548,15 @@ export class LightwellEditor extends HTMLElement {
         return pts.length && pts.every(([x, y]) => x >= x0 && x <= x1 && y >= y0 && y <= y1);
       }).map(([path]) => path);
       this._selectAll(drag.add ? [...this._sels, ...inside] : inside);
+    } else if (drag.kind === 'room' && drag.ops) {
+      this._edit(() => this.model.batch(drag.ops));
+      this._selectObject(drag.id);
+      this._renderCard();
     } else if (changes) {
-      this._edit(() => this.model.batch(changes.map(([path, value]) => ({set: path, value}))));
+      const ops = changes.map(([path, value]) => ({set: path, value}));
+      // In the Build view, what moved is in the room it's in now (a lamp's clip and shadows, a piece's room).
+      if (this._view === 'build' && drag.kind === 'move') ops.push(...regroupOps(applyOps(this._data, ops), drag.paths));
+      this._edit(() => this.model.batch(ops));
       this._renderCard();
     }
   }
@@ -1019,14 +1596,195 @@ export class LightwellEditor extends HTMLElement {
     return {...states, [fx.entity]: {...s, state: 'on', attributes: {...s.attributes, effect: fx.name}}};
   }
 
+  // The view: 'build' (a home step by step: rooms with their walls, windows and doors clicked onto them) or 'edit'
+  // (every tool and field). Both work on the same home and history.
+  setView(view) {
+    if (view !== 'build' && view !== 'edit') return;
+    this._view = view;
+    this.setAttribute('view', view);
+    for (const b of this._root.querySelectorAll('[data-view]')) b.setAttribute('aria-pressed', b.dataset.view === view);
+    if (view === 'build' && this._inside !== null) this._leave();
+    if (view !== 'build' && this._group !== null) this._out();
+    this._tab('list');
+    this.setTool('select');
+  }
+
+  // The Build view's panel, under its steps: what the step in use is about, and its catalogue or devices.
+  _renderBuild() {
+    const box = this._el.build, rooms = Object.keys(this.model?.data?.rooms || {}).length;
+    box.innerHTML = '';
+    const lamp = this._view === 'build' && this._sel?.[0] === 'lights' && this._objectOf(this._sels);
+    if (lamp) box.append(this._lampPicker(lamp));
+    box.append(Object.assign(document.createElement('p'), {textContent: BUILD_HELP[this._tool] || BUILD_HELP.select}));
+    // A home not made here: its objects found and tagged, so that Build picks them as one.
+    const adopt = this.model?.data && this.model.home ? adoptOps(this.model.data) : [];
+    if (adopt.length) {
+      const p = Object.assign(document.createElement('p'), {className: 'adopt'});
+      const b = Object.assign(document.createElement('button'), {type: 'button', textContent: 'Find them'});
+      b.onclick = () => this._edit(() => this.model.batch(adoptOps(this.model.data)));
+      p.append(`This home has rooms, windows, doors or lamps not made in Build (${adopt.length} parts): find them, so that Build picks each as one. `, b);
+      box.prepend(p);
+    }
+    if (this._tool === 'build-device') return this._renderDevices(box);
+    if (this._tool !== 'build-piece') {
+      box.append(Object.assign(document.createElement('p'), {className: 'muted', textContent: `${rooms} room${rooms === 1 ? '' : 's'}, ${(this.model?.data?.openings || []).length} windows and glass doors so far.`}));
+      return;
+    }
+    // The catalogue: each piece drawn, chosen by a click, or dragged onto the plan.
+    for (const group of Object.values(PREFABS)) {
+      box.append(Object.assign(document.createElement('h3'), {textContent: group.title}));
+      const grid = Object.assign(document.createElement('div'), {className: 'catalogue'});
+      for (const [id, item] of Object.entries(group.items)) {
+        const b = Object.assign(document.createElement('button'), {type: 'button', draggable: true, title: `${item.name}: ${item.w} × ${item.d} m${item.height ? `, ${item.height} m high` : ''}`});
+        b.innerHTML = `${prefabSvg(id)}<span></span>`;
+        b.querySelector('span').textContent = item.name;
+        b.setAttribute('aria-pressed', this._opts.prefab === id);
+        b.onclick = () => { this._opts.prefab = id; this._renderBuild(); this._renderOptions(); };
+        b.ondragstart = e => { this._opts.prefab = id; e.dataTransfer.setData('text/x-lightwell-prefab', id); e.dataTransfer.effectAllowed = 'copy'; };
+        grid.append(b);
+      }
+      box.append(grid);
+    }
+  }
+
+  // The prefab about to be placed turned a quarter.
+  _turnPrefab() {
+    this._opts.turn = (this._opts.turn + 90) % 360;
+    if (this._lastAt) this._prefabPreview(this._lastAt);
+  }
+
+  // Which light the selected lamp (object `id`) is: an entity of the states in use, or none (lit always, while the sun
+  // is down, or never). Its marker follows its entity; without one it has none.
+  _lampPicker(id) {
+    const data = this.model.data, paths = partsOf(data, id), lightPath = paths.find(p => p[0] === 'lights'), light = itemAt(data, lightPath);
+    const markers = paths.filter(p => p[0] === 'markers'), current = light?.entities?.[0] ?? `lit:${light?.lit || 'dark'}`;
+    const choices = devicesIn(this._shown.states).filter(d => ['light', 'switch', 'fan', 'media_player'].includes(d.domain));
+    const row = Object.assign(document.createElement('p'), {className: 'lamp'});
+    const select = document.createElement('select');
+    const option = (value, text) => Object.assign(document.createElement('option'), {value, textContent: text, selected: value === current});
+    const none = Object.assign(document.createElement('optgroup'), {label: 'Not in Home Assistant'});
+    none.append(option('lit:always', 'No entity: always lit'), option('lit:dark', 'No entity: lit after dark'), option('lit:never', 'No entity: never lit'));
+    const known = Object.assign(document.createElement('optgroup'), {label: 'Your devices'});
+    known.append(...choices.map(d => option(d.id, `${d.name} (${d.id})`)));
+    if (!current.startsWith('lit:') && !choices.some(d => d.id === current)) known.prepend(option(current, current));
+    select.append(known, none);
+    select.onchange = () => {
+      const v = select.value, x = light.pool?.x ?? lightCentre(light)[0], y = light.pool?.y ?? lightCentre(light)[1];
+      const ops = [];
+      if (v.startsWith('lit:')) {
+        const {entities: _, states: __, ...rest} = light;
+        ops.push({set: lightPath, value: {...rest, lit: v.slice(4)}});
+        for (const m of [...markers].reverse()) ops.push({remove: m});
+      } else {
+        const {lit: _, ...rest} = light;
+        ops.push({set: lightPath, value: {...rest, entities: [v]}});
+        if (markers.length) for (const m of markers) ops.push({set: [...m, 'entity'], value: v});
+        else ops.push({insert: ['markers'], value: {entity: v, x, y, icon: iconOf(v, this._shown.states?.[v]), tap: 'toggle', small: true, part: id}});
+      }
+      this._edit(() => this.model.batch(ops));
+      this._selectObject(id);
+    };
+    row.append(Object.assign(document.createElement('strong'), {textContent: 'This light is '}), select);
+    return row;
+  }
+
+  // The Build panel's devices: a search, and the entities in use by domain, those on the plan ticked.
+  _renderDevices(box) {
+    const search = Object.assign(document.createElement('input'), {type: 'search', placeholder: 'Search your devices', value: this._opts.search});
+    const list = Object.assign(document.createElement('div'), {className: 'devices'});
+    const fill = () => {
+      const placed = placedIn(this.model.data), found = devicesIn(this._shown.states, this._opts.search);
+      list.innerHTML = '';
+      if (!found.length) list.append(Object.assign(document.createElement('p'), {className: 'muted', textContent: Object.keys(this._shown.states || {}).length ? 'Nothing found.' : 'No devices: connect to Home Assistant for yours.'}));
+      for (const d of found.slice(0, 200)) {
+        const b = Object.assign(document.createElement('button'), {type: 'button', draggable: true, title: d.id});
+        b.innerHTML = `<ha-icon></ha-icon><span class="dn"></span><span class="tick">${placed.has(d.id) ? '✓' : ''}</span>`;
+        b.querySelector('ha-icon').setAttribute('icon', d.icon);
+        b.querySelector('.dn').textContent = d.name;
+        b.setAttribute('aria-pressed', this._opts.device === d.id);
+        b.onclick = () => { this._opts.device = d.id; fill(); };
+        b.ondragstart = e => { this._opts.device = d.id; e.dataTransfer.setData('text/x-lightwell-device', d.id); e.dataTransfer.effectAllowed = 'copy'; };
+        list.append(b);
+      }
+    };
+    search.oninput = () => { this._opts.search = search.value; fill(); };
+    fill();
+    box.append(search, list);
+  }
+
+  // Places the entity `id` (the one chosen) at `p`: a lamp, a shutter, or a marker; selects what it made.
+  _placeDevice(p, tol, id = this._opts.device) {
+    if (!id) return this._message('Choose a lamp or device above the plan first.', 'info');
+    if (!this.model.home) return this._message('Fix the mistakes listed here first: the plan shows the last version without them.');
+    const g = this._grid(), at = p.map(v => tidy(Math.round(v / g) * g));
+    const made = placeDevice(this.model.data, id, this._shown.states?.[id], at, Math.max(tol, 0.3 * (this._data?.units_per_metre || 100)));
+    this._edit(() => this.model.batch(made.ops));
+    this._selectObject(made.part);
+    if (made.what === 'shutter') this._message(`${id} is that window's shutter now: the window darkens as it closes.`, 'info');
+  }
+
+  // North: the bearing the top of the plan faces, from a click in north's direction (from the middle of the view).
+  _northFrom(p) {
+    const v = this._home.view, c = [v.x + v.w / 2, v.y + v.h / 2];
+    const towards = Math.atan2(p[0] - c[0], -(p[1] - c[1])) * 180 / Math.PI;
+    return Math.round(((360 - towards) % 360 + 360) % 360);
+  }
+
+  // An arrow from the middle of the view towards north, at `north` (the bearing the top faces).
+  _northArrow(north) {
+    const v = this._home?.view;
+    if (!v) return;
+    const c = [v.x + v.w / 2, v.y + v.h / 2], len = Math.min(v.w, v.h) * 0.35, a = (360 - north) * Math.PI / 180;
+    const tip = [c[0] + Math.sin(a) * len, c[1] - Math.cos(a) * len], f = q => q.map(n => +n.toFixed(1)).join(',');
+    const side = s => [tip[0] - Math.sin(a + s) * len * 0.12, tip[1] + Math.cos(a + s) * len * 0.12];
+    this._el.draft.innerHTML = `<g class="north"><line x1="${c[0]}" y1="${c[1]}" x2="${tip[0]}" y2="${tip[1]}"/><polyline points="${f(side(0.5))} ${f(tip)} ${f(side(-0.5))}"/>`
+      + `<text x="${tip[0]}" y="${tip[1]}" dy="-0.6em">N</text></g>`;
+  }
+
+  // The chosen prefab placed with its middle at `p` (snapped to the grid), as it would be: {ops, keys}.
+  _prefabAt(p, snap = true) {
+    const g = this._grid(), at = snap ? p.map(v => tidy(Math.round(v / g) * g)) : p;
+    return placePrefab(this.model.data, this._opts.prefab, at, this._opts.turn, {entity: this._freeLight()});
+  }
+
+  // The chosen prefab's outline under the pointer.
+  _prefabPreview(p) {
+    const made = this._prefabAt(p), f = v => +v.toFixed(1);
+    const svg = sh => (sh.poly ? `<polygon points="${sh.poly.map(q => q.map(f).join(',')).join(' ')}"/>`
+      : sh.circle ? `<circle cx="${f(sh.circle[0])}" cy="${f(sh.circle[1])}" r="${f(sh.circle[2])}"/>`
+      : sh.path ? `<path d="${sh.path}"/>`
+      : sh.rect ? `<rect x="${f(sh.rect[0])}" y="${f(sh.rect[1])}" width="${f(sh.rect[2])}" height="${f(sh.rect[3])}"${sh.rx ? ` rx="${sh.rx}"` : ''}/>` : '');
+    // A piece's outline; a lamp's glow.
+    this._el.draft.innerHTML = made ? made.ops.flatMap(({value: v}) => (v?.shape && !Array.isArray(v.shape) ? [v.shape] : Array.isArray(v?.shape) ? v.shape : []))
+      .map(svg).join('') : '';
+  }
+
+  // Places the chosen prefab at `p`, selecting what it made.
+  _placePrefab(p) {
+    if (!this.model.home) return this._message('Fix the mistakes listed here first: the plan shows the last version without them.');
+    const made = this._prefabAt(p);
+    if (!made) return;
+    this._edit(() => this.model.batch(made.ops));
+    if (made.part) this._selectObject(made.part);
+    else this._selectAll(made.keys.map(k => ['furniture', k]));
+  }
+
+  // A light for a new lamp: the first in the states in use that isn't on the plan yet.
+  _freeLight() {
+    const placed = placedIn(this.model.data);
+    return devicesIn(this._shown.states).find(d => d.domain === 'light' && !placed.has(d.id))?.id || 'light.new_light';
+  }
+
   // The tool in use: 'select', or one that draws (wall, room, opening, piece, light, marker, label, scale).
   // Inside a piece of furniture, only those that draw its insides (piece, label) and the scale.
   setTool(tool) {
     if (!HINTS[tool] || (this._inside !== null && !INSIDE_HINTS[tool])) return;
     this._tool = tool;
     this._poly = null;
+    this._el.overlay.classList.remove('grab', 'grab-x', 'grab-y');
     this._cancelDrag();
     this._el.draft.innerHTML = '';
+    if (tool === 'build-north') this._northArrow(this.model?.data?.sun?.north ?? 0);
     this._renderTools();
     this._renderOverlay();
   }
@@ -1042,8 +1800,26 @@ export class LightwellEditor extends HTMLElement {
     piece.textContent = inside ? 'Shapes' : 'Furniture';
     piece.title = inside ? `Shapes on ${this._inside} (F)` : 'Furniture (F)';
     this._el.overlay.classList.toggle('drawing', tool !== 'select');
-    this._el.hint.textContent = inside ? INSIDE_HINTS[tool].replace('{name}', this._inside) : HINTS[tool];
+    this._el.hint.textContent = this._el.hint.title = inside ? INSIDE_HINTS[tool].replace('{name}', this._inside)
+      : this._group !== null ? GROUP_HINT.replace('{name}', this._groupName(this._group)) : HINTS[tool];
     this._renderOptions();
+    this._renderBuild();
+  }
+
+  // The selected pieces turned by `deg` (a quarter): each around its middle, or a Build object's around the middle of
+  // them all, so that a table keeps its chairs round it.
+  _turnPieces(deg) {
+    const data = this.model.data, paths = this._sels.filter(p => p[0] === 'furniture' && p.length === 2);
+    const middle = it => { const sh = it.shape; return sh.circle?.slice(0, 2) || (sh.rect ? [sh.rect[0] + sh.rect[2] / 2, sh.rect[1] + sh.rect[3] / 2] : boundsOf(sh.poly).reduce((a, v, i) => (a[i % 2] += v / 2, a), [0, 0])); };
+    const whole = paths.length > 1 && this._objectOf(paths);
+    const [x0, y0, x1, y1] = whole ? boundsOf(paths.map(p => middle(itemAt(data, p)))) : [0, 0, 0, 0], c = [(x0 + x1) / 2, (y0 + y1) / 2];
+    const a = deg * Math.PI / 180, [cos, sin] = [Math.round(Math.cos(a)), Math.round(Math.sin(a))];
+    this._edit(() => this.model.batch(paths.map(p => {
+      const item = itemAt(data, p), turned = turnedPiece(item, deg);
+      if (!whole) return {set: p, value: turned};
+      const [mx, my] = middle(item), [dx, dy] = [mx - c[0], my - c[1]], to = [c[0] + dx * cos - dy * sin, c[1] + dx * sin + dy * cos];
+      return {set: p, value: moveItem(p, turned, tidy(to[0] - mx), tidy(to[1] - my))};
+    })));
   }
 
   // The tool's options, next to the tools.
@@ -1051,15 +1827,29 @@ export class LightwellEditor extends HTMLElement {
     const o = this._opts, box = this._el.options;
     const select = (key, values) => `<select data-opt="${key}">${Object.entries(values).map(([v, t]) => `<option value="${v}"${o[key] === v ? ' selected' : ''}>${t}</option>`).join('')}</select>`;
     const check = (key, text) => `<label><input type="checkbox" data-opt="${key}"${o[key] ? ' checked' : ''}> ${text}</label>`;
+    const esc = v => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     box.innerHTML = {
+      'build-room': `<label>Name <input type="text" data-opt="roomName" value="${esc(o.roomName)}" placeholder="none: no label" size="12"></label>`
+        + check('outdoor', 'outdoors (a terrace, a balcony)'),
+      'build-piece': `<span>${esc(prefab(o.prefab)?.name || '')}: Shift+click to place</span> <button type="button" data-turn title="Turn it a quarter (R)">Turn ↻</button>`,
+      'build-north': `<label>The top of the plan faces <input type="number" data-north value="${this.model?.data?.sun?.north ?? 0}" min="0" max="359" step="1" style="width: 4.5em">°</label>`,
+      'build-cut': select('cut', CUTS) + `<label><input type="number" data-opt="cutWidth" value="${o.cutWidth}" min="0.3" step="0.1" style="width: 4.5em"> m wide</label>`,
       wall: select('wall', {auto: 'Outer or inner, by where', outer: 'Outer wall', inner: 'Inner wall'}),
       room: check('floor', 'with its floor'),
       opening: select('kind', {window: 'Window', door: 'Door'}) + check('glass', 'with its glass'),
       piece: this._inside !== null ? select('extra', {rect: 'Rectangle', circle: 'Circle', line: 'Line'})
         : select('piece', {rect: 'Rectangle', circle: 'Circle', poly: 'Polygon'}),
     }[this._tool] || '';
+    const north = box.querySelector('[data-north]');
+    if (north) north.onchange = () => { const v = ((+north.value % 360) + 360) % 360; if (Number.isFinite(v)) this._edit(() => this.model.set(['sun', 'north'], v)); };
+    const turn = box.querySelector('[data-turn]');
+    if (turn) turn.onclick = () => this._turnPrefab();
     for (const input of box.querySelectorAll('[data-opt]')) {
-      input.onchange = () => { o[input.dataset.opt] = input.type === 'checkbox' ? input.checked : input.value; this._poly = null; this._el.draft.innerHTML = ''; };
+      input.onchange = () => {
+        o[input.dataset.opt] = input.type === 'checkbox' ? input.checked : input.type === 'number' ? (+input.value > 0 ? +input.value : o[input.dataset.opt]) : input.value;
+        this._poly = null;
+        this._el.draft.innerHTML = '';
+      };
     }
   }
 
@@ -1091,6 +1881,14 @@ export class LightwellEditor extends HTMLElement {
       const r = Math.hypot(p[0] - a[0], p[1] - a[1]);
       svg = `<circle cx="${f(a[0])}" cy="${f(a[1])}" r="${f(r)}"/>`;
       ruler = {radius: r};
+    } else if (press && tool === 'build-cut') {
+      const cut = this._cutRect(press.at, p), r = cut?.rect;
+      if (r) svg = `<rect class="cut" x="${f(r[0])}" y="${f(r[1])}" width="${f(r[2])}" height="${f(r[3])}"/>`;
+      if (r) ruler = {length: cut.length};
+    } else if (a && tool === 'build-room') {
+      const rect = this._buildRoomRect(a, p);
+      svg = `<rect x="${f(rect[0])}" y="${f(rect[1])}" width="${f(rect[2])}" height="${f(rect[3])}"/>`;
+      ruler = {size: [rect[2], rect[3]]};
     } else if (a && tool === 'wall') {
       const {rect} = wallFrom(this._data, a, p, this._wallOpts());
       svg = `<rect x="${rect[0]}" y="${rect[1]}" width="${rect[2]}" height="${rect[3]}"/>`;
@@ -1102,10 +1900,16 @@ export class LightwellEditor extends HTMLElement {
     }
     this._el.draft.innerHTML = svg;
     if (e) {
-      const s = this._el.stage.getBoundingClientRect();
-      Object.assign(this._el.ruler.style, {left: `${e.clientX - s.left + 16}px`, top: `${e.clientY - s.top + 16}px`});
+      const [fx, fy] = this._inFrame(e.clientX, e.clientY);
+      Object.assign(this._el.ruler.style, {left: `${fx + 16}px`, top: `${fy + 16}px`});
     }
     this._el.ruler.textContent = rulerText(ruler, m);
+  }
+
+  // A room dragged from `a` to `b` in the Build view: its rectangle, against the walls near its sides (30 cm).
+  _buildRoomRect(a, b) {
+    const [x0, y0, x1, y1] = boundsOf([a, b]);
+    return snapRoom(this.model.data, [x0, y0, x1 - x0, y1 - y0], 0.3 * (this._data?.units_per_metre || 100));
   }
 
   _wallOpts() {
@@ -1118,7 +1922,22 @@ export class LightwellEditor extends HTMLElement {
       press.drag = {kind: 'draw'};
     }
     const at = this._at(e);
-    if (at) this._drawDraft(this._snap(e, at, press.start), press, e);
+    if (at && press.gapEnd) this._resizeGap(e, at, press);
+    else if (at) this._drawDraft(this._snap(e, at, press.start), press, e);
+  }
+
+  // The end of a window, door or doorway dragged along its wall (to the grid; Alt: not): the card follows, with the
+  // wall, the glass and the opening.
+  _resizeGap(e, at, press) {
+    const data = this.model.data, {gap, end} = press.gapEnd, ax = gap.axis, grid = this._grid();
+    const [lo, hi] = gapRange(data, gap, end);
+    const v = Math.min(Math.max(e.altKey ? at.p[ax] : Math.round(at.p[ax] / grid) * grid, lo), hi);
+    const [from, to] = end === 'from' ? [v, gap.to] : [gap.from, v];
+    press.gapOps = resizeGapOps(data, gap, from, to);
+    this._showPreview(press.gapOps.map(op => [op.set, op.value]));
+    const [fx, fy] = this._inFrame(e.clientX, e.clientY);
+    Object.assign(this._el.ruler.style, {left: `${fx + 16}px`, top: `${fy + 16}px`});
+    this._el.ruler.textContent = rulerText({length: to - from}, data.units_per_metre || 100);
   }
 
   // The pointer was let go while drawing: the new item, from the drag (or the click).
@@ -1134,7 +1953,39 @@ export class LightwellEditor extends HTMLElement {
     const box = () => { const [x0, y0, x1, y1] = boundsOf([a, b]); return [x0, y0, x1 - x0, y1 - y0].map(r); };
     if (this._inside !== null && tool !== 'scale') return this._drawInside(a, b, moved);
     if ((tool === 'room' || (tool === 'piece' && this._opts.piece === 'poly')) && (!moved || this._poly)) return this._addCorner(moved ? b : a);
-    if (tool === 'wall') {
+    if (tool === 'build-room') {
+      if (!moved) {
+        // A click picks the room under it.
+        const room = this._hitsAt(press.at).hits.map(h => this._objectAt(h)).find(id => id && data.rooms?.[id] !== undefined);
+        return room ? this._selectObject(room) : this.select(null);
+      }
+      const rect = this._buildRoomRect(a, b);
+      if (rect[2] < 0.5 * m || rect[3] < 0.5 * m) return this._message('A room needs to be at least 50 cm each way: drag out its rectangle.', 'info');
+      // A room without a name has no label (a double-click on it names it later).
+      const {key, ops} = roomOps(data, this._opts.roomName, rect, {outdoor: this._opts.outdoor});
+      this._opts.roomName = '';
+      this._create(ops, ['rooms', key]);
+      this._renderOptions();
+    } else if (tool === 'build-piece') {
+      if (!moved) this._placePrefab(press.at.p);
+    } else if (tool === 'build-device') {
+      if (!moved) this._placeDevice(press.at.p, press.at.tol);
+    } else if (tool === 'build-north') {
+      const north = this._northFrom(press.at.p);
+      this._edit(() => this.model.set(['sun', 'north'], north));
+      this._northArrow(north);
+      this._renderOptions();
+    } else if (tool === 'build-cut') {
+      if (press.gapEnd) {
+        const ops = press.gapOps;
+        this._clearDrag();
+        if (ops) this._edit(() => this.model.batch(ops));
+        return;
+      }
+      const made = cutOps(data, press.at.p, {kind: this._opts.cut, metres: this._opts.cutWidth, tol: press.at.tol, until: moved ? at.p : undefined});
+      if (!made) return this._message(wallAt(data, press.at.p, press.at.tol) ? `That wall is shorter than ${this._opts.cutWidth} m.` : 'Click on a wall.', 'info');
+      this._create(made.ops, made.opening ? ['openings', (data.openings || []).length] : null);
+    } else if (tool === 'wall') {
       if (!moved) return;
       this._create([{insert: ['drawing', 'walls'], value: wallFrom(data, a, b, this._wallOpts())}], ['drawing', 'walls', (data.drawing?.walls || []).length]);
     } else if (tool === 'room') {
@@ -1387,6 +2238,13 @@ export class LightwellEditor extends HTMLElement {
 
   // Deletes items, as one edit; a piece of furniture leaves the lights' shadows too. A room keeps one rectangle.
   _remove(paths) {
+    // In the Build view, an object made there goes as one: a window's hole closes, a room keeps the walls others need.
+    const object = this._objectOf(paths);
+    if (object) {
+      this._edit(() => this.model.batch(deleteOps(this.model.data, object)));
+      this.select(null);
+      return;
+    }
     const parts = paths.filter(p => p[0] === 'rooms' && p.length === 3);
     for (const name of new Set(parts.map(p => p[1]))) {
       if (parts.filter(p => p[1] === name).length >= (this.model.get(['rooms', name]) || []).length) {
@@ -1497,7 +2355,9 @@ export class LightwellEditor extends HTMLElement {
         if (!(w > 0 && h > 0 && scale > 0)) throw new Error('An empty home needs a size and a scale above 0');
         this._open({name: 'home.yaml', text: emptyHome(w, h, scale), handle: null});
         this._opts.floor = true;
-        this.setTool('wall');
+        // A new home is built step by step: its rooms first.
+        this.setView('build');
+        this.setTool('build-room');
       }
     } catch (e) {
       this._message(e.message);
@@ -1578,11 +2438,12 @@ export class LightwellEditor extends HTMLElement {
     this._changed({text: false});
   }
 
+  // A key pressed: what it does, if anything (true when it did something).
   _key(e) {
     const target = e.composedPath()[0], typing = /^(INPUT|TEXTAREA|SELECT)$/.test(target?.tagName);
     if ((e.ctrlKey || e.metaKey) && !e.altKey) {
       const key = e.key.toLowerCase();
-      if (key === 's') {
+      if (key === 's' && !this._ha) {
         e.preventDefault();
         this._act(e.shiftKey ? 'save-yaml' : 'save');
       } else if ((key === 'z' || key === 'y') && !typing) {
@@ -1592,27 +2453,37 @@ export class LightwellEditor extends HTMLElement {
       } else if (key === 'd' && !typing && this._sels.length) {
         e.preventDefault();
         this._duplicate();
-      }
-      return;
+      } else return false;
+      return true;
     }
-    if (typing || !this._root.contains(target) && target !== this) return;
+    if (typing || !this._root.contains(target) && target !== this && !this._layer?.contains(target)) return false;
     const arrow = {ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1]}[e.key];
     if (this._poly && (e.key === 'Enter' || e.key === 'Backspace')) {
       e.preventDefault();
       if (e.key === 'Enter') this._finishPoly();
       else if (this._poly.points.pop() && !this._poly.points.length) { this._poly = null; this._el.draft.innerHTML = ''; }
-      return;
+      return true;
     }
     if (e.key === 'Escape') {
       if (this._press) this._cancelDrag();
       else if (this._poly) { this._poly = null; this._el.draft.innerHTML = ''; this._el.ruler.textContent = ''; }
       else if (this._tool !== 'select') this.setTool('select');
       else if (this._inside !== null) this._leave();
-      else this.select(null);
+      else if (this._group !== null) this._leaveGroup();
+      else if (this._sels.length) this.select(null);
+      else return false;
+    } else if (e.key === 'Enter' && this._view === 'build' && this._group === null && this._objectOf(this._sels)) {
+      e.preventDefault();
+      this._enterGroup(this._objectOf(this._sels), [this._sel]);
     } else if (e.key === 'Enter' && this._tool === 'select' && this._sels.length === 1 && this._sel[0] === 'furniture' && this._sel.length === 2) {
       e.preventDefault();
       this._enter(this._sel[1]);
-    } else if (!e.altKey && !e.shiftKey && TOOL_KEYS[e.key.toLowerCase()] && e.key.length === 1) this.setTool(TOOL_KEYS[e.key.toLowerCase()]);
+    } else if (this._tool === 'build-piece' && e.key.toLowerCase() === 'r' && !this._sels.some(p => p[0] === 'furniture')) {
+      this._turnPrefab();
+    } else if (this._view === 'build' && e.key.toLowerCase() === 'r' && this._sels.some(p => p[0] === 'furniture' && p.length === 2)) {
+      // The selected pieces turned a quarter (Shift: back).
+      this._turnPieces(e.shiftKey ? -90 : 90);
+    } else if (this._view !== 'build' && !e.altKey && !e.shiftKey && TOOL_KEYS[e.key.toLowerCase()] && e.key.length === 1) this.setTool(TOOL_KEYS[e.key.toLowerCase()]);
     else if ((e.key === 'Delete' || e.key === 'Backspace') && this._sels.length) {
       e.preventDefault();
       this._remove(this._sels);
@@ -1620,9 +2491,10 @@ export class LightwellEditor extends HTMLElement {
       e.preventDefault();
       const step = this._grid() * (e.shiftKey ? 10 : 1);
       this._moveBy(arrow[0] * step, arrow[1] * step);
-    } else if (e.key === 'Tab' && target === this._el.preview && this._hits?.length > 1) {
+    } else if (e.key === 'Tab' && (target === this._el.preview || target === this._layer) && this._hits?.length > 1) {
       e.preventDefault();
       this._cycle(e.shiftKey ? -1 : 1);
-    }
+    } else return false;
+    return true;
   }
 }

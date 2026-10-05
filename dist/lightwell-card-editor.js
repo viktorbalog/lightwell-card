@@ -1,992 +1,11 @@
-// Lightwell 0.2.0's editor for homes (MIT licence; includes the yaml library, ISC licence).
-// Built from src/editor/ by npm run build.
+// Lightwell 0.2.0's card editor for Home Assistant (MIT licence; includes the yaml library, ISC licence).
+// Built from src/editor/ by npm run build; the card loads it when its editor is opened.
 (() => {
   var __defProp = Object.defineProperty;
   var __export = (target, all) => {
     for (var name in all)
       __defProp(target, name, { get: all[name], enumerable: true });
   };
-
-  // src/geometry.js
-  var clamp = (v, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, v));
-  var box = (x, y, w, h, deg = 0) => {
-    const cx = x + w / 2, cy = y + h / 2, a = deg * Math.PI / 180;
-    return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]].map(([px, py]) => [cx + (px - cx) * Math.cos(a) - (py - cy) * Math.sin(a), cy + (px - cx) * Math.sin(a) + (py - cy) * Math.cos(a)]);
-  };
-  var turnPoly = (poly, deg = 0, c = polyMiddle(poly)) => {
-    if (!deg) return poly;
-    const a = deg * Math.PI / 180;
-    return poly.map(([px, py]) => [c[0] + (px - c[0]) * Math.cos(a) - (py - c[1]) * Math.sin(a), c[1] + (px - c[0]) * Math.sin(a) + (py - c[1]) * Math.cos(a)]);
-  };
-  var polyMiddle = (poly) => {
-    const xs = poly.map((p) => p[0]), ys = poly.map((p) => p[1]);
-    return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
-  };
-  var round = (cx, cy, r) => Array.from({ length: 12 }, (_, k) => [cx + r * Math.cos(k * Math.PI / 6), cy + r * Math.sin(k * Math.PI / 6)]);
-  var points = (ps) => ps.map((p) => p.map((v) => v.toFixed(1)).join(",")).join(" ");
-  var clipShapes = (region) => Array.isArray(region[0][0]) ? `<polygon points="${region[0].map((p) => p.join(",")).join(" ")}"/>` : region.map(([x, y, w, h]) => `<rect x="${x}" y="${y}" width="${w}" height="${h}"/>`).join("");
-  var sweep = (poly, move) => poly.map((a, k) => {
-    const b = poly[(k + 1) % poly.length];
-    return `<polygon points="${points([a, b, move(b), move(a)])}"/>`;
-  }).join("");
-  var shadowOf = (poly, x, y, k) => sweep(poly, ([px, py]) => [px + (px - x) * k, py + (py - y) * k]);
-  var castAlong = (poly, dx, dy) => sweep(poly, ([px, py]) => [px + dx, py + dy]);
-
-  // src/shapes.js
-  var esc = (v) => String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
-  var GEOMETRY = ["rect", "circle", "ellipse", "poly", "path", "text", "at", "svg", "repeat"];
-  var attrs = (shape) => Object.entries(shape).filter(([k, v]) => !GEOMETRY.includes(k) && k !== "description" && k !== "part" && v !== void 0).map(([k, v]) => ` ${k.replace(/_/g, "-")}="${esc(v)}"`).join("");
-  function shapeSvg(s) {
-    if (s.svg !== void 0) return s.svg;
-    if (s.repeat) return repeated(s);
-    const a = attrs(s);
-    if (s.rect) {
-      const [x, y, w, h] = s.rect;
-      return `<rect${a} x="${x}" y="${y}" width="${w}" height="${h}"/>`;
-    }
-    if (s.circle) {
-      const [cx, cy, r] = s.circle;
-      return `<circle${a} cx="${cx}" cy="${cy}" r="${r}"/>`;
-    }
-    if (s.ellipse) {
-      const [cx, cy, rx, ry] = s.ellipse;
-      return `<ellipse${a} cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}"/>`;
-    }
-    if (s.poly) return `<polygon${a} points="${s.poly.map((p) => p.join(",")).join(" ")}"/>`;
-    if (s.path !== void 0) return `<path${a} d="${esc(s.path)}"/>`;
-    if (s.text !== void 0) return `<text${a} x="${s.at[0]}" y="${s.at[1]}">${esc(s.text).replace(/>/g, "&gt;")}</text>`;
-    throw new Error(`not a shape: ${JSON.stringify(s)}`);
-  }
-  function repeated({ repeat: { count, step: [dx, dy] }, ...s }) {
-    const move = (v, i) => {
-      if (s.rect) return { rect: [s.rect[0] + dx * i, s.rect[1] + dy * i, s.rect[2], s.rect[3]] };
-      if (s.circle) return { circle: [s.circle[0] + dx * i, s.circle[1] + dy * i, s.circle[2]] };
-      if (s.ellipse) return { ellipse: [s.ellipse[0] + dx * i, s.ellipse[1] + dy * i, s.ellipse[2], s.ellipse[3]] };
-      if (s.poly) return { poly: s.poly.map(([x, y]) => [x + dx * i, y + dy * i]) };
-      if (s.text !== void 0) return { at: [s.at[0] + dx * i, s.at[1] + dy * i] };
-      return { transform: `translate(${dx * i} ${dy * i})` };
-    };
-    return Array.from({ length: count }, (_, i) => {
-      const copy = Object.fromEntries(Object.entries(s).map(([k, v]) => [k, Array.isArray(v) && !GEOMETRY.includes(k) ? v[i % v.length] : v]));
-      return shapeSvg({ ...copy, ...move(s, i) });
-    }).join("");
-  }
-  var shapesSvg = (list) => typeof list === "string" ? list : (list || []).map(shapeSvg).join("");
-  function shapeErrors(list) {
-    if (list === void 0 || typeof list === "string") return [];
-    if (!Array.isArray(list)) return ["needs a list of shapes"];
-    return list.flatMap((s, i) => {
-      const kinds = GEOMETRY.filter((k) => k !== "at" && k !== "repeat" && s?.[k] !== void 0);
-      if (kinds.length !== 1) return [`[${i}]: needs exactly one of rect, circle, ellipse, poly, path, text or svg`];
-      if (kinds[0] === "text" && !(Array.isArray(s.at) && s.at.length === 2)) return [`[${i}]: a text needs at: [x, y]`];
-      const r = s.repeat;
-      if (r && !(r.count > 0 && Array.isArray(r.step) && r.step.length === 2)) return [`[${i}]: repeat needs a count and step: [dx, dy]`];
-      for (const k of ["description", "part"]) if (s[k] !== void 0 && typeof s[k] !== "string") return [`[${i}].${k}: needs a text`];
-      return [];
-    });
-  }
-
-  // src/furniture.js
-  function outline({ shape: { rect, rx, circle, poly } }, attrs2 = "") {
-    if (rect) return `<rect${attrs2} x="${rect[0]}" y="${rect[1]}" width="${rect[2]}" height="${rect[3]}"${rx ? ` rx="${rx}"` : ""}/>`;
-    if (circle) return `<circle${attrs2} cx="${circle[0]}" cy="${circle[1]}" r="${circle[2]}"/>`;
-    return `<path${attrs2} d="M${poly.map((p) => p.join(",")).join(" L")} Z"/>`;
-  }
-  var pieceCentre = ({ rect, poly }) => rect ? [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2] : poly ? polyMiddle(poly) : null;
-  var turn = ({ shape }) => {
-    const c = shape.turn && pieceCentre(shape);
-    return c ? `rotate(${shape.turn} ${c[0]} ${c[1]})` : "";
-  };
-  var furnitureSvg = (furniture) => Object.values(furniture).map((p) => {
-    const svg = outline(p, ` class="${p.class || "furn"}"`) + shapesSvg(p.extra);
-    return turn(p) ? `<g transform="${turn(p)}">${svg}</g>` : svg;
-  }).join("\n");
-  var furnitureClip = (furniture) => Object.values(furniture).map((p) => outline(p, turn(p) ? ` transform="${turn(p)}"` : "")).join("");
-  function caster(furniture, name) {
-    const p = furniture[name];
-    if (!p?.height) throw new Error(`no furniture casting shadows called ${name}`);
-    const { rect, circle, poly, turn: turn2 = 0 } = p.shape;
-    return [rect ? box(...rect, turn2) : circle ? round(...circle) : turnPoly(poly, turn2), p.height];
-  }
-  var castersIn = (furniture, room) => Object.keys(furniture).filter((n2) => furniture[n2].shadow_room === room && furniture[n2].height).map((n2) => caster(furniture, n2));
-
-  // src/openings.js
-  var SIDES = { top: [0, -1], bottom: [0, 1], left: [-1, 0], right: [1, 0] };
-  var isHorizontal = (o) => o.wall === "top" || o.wall === "bottom";
-  var ends = (o) => isHorizontal(o) ? [[o.x, o.at], [o.x + o.w, o.at]] : [[o.at, o.y], [o.at, o.y + o.h]];
-  function shutterRect(o) {
-    const [dx, dy] = SIDES[o.wall], inner = o.at - o.depth * (dx || dy);
-    const lo = Math.min(o.at, inner);
-    return isHorizontal(o) ? [o.x, lo, o.w, o.depth] : [lo, o.y, o.depth, o.h];
-  }
-  var SKY = { inset: 28, along: 1e3, inward: 1450 };
-  function skyEllipse(o, unitsPerMetre) {
-    const k = (v) => Math.round(v * unitsPerMetre / 175 * 10) / 10, [dx, dy] = SIDES[o.wall];
-    const [[x0, y0], [x1, y1]] = ends(o), cx = (x0 + x1) / 2 - dx * k(SKY.inset), cy = (y0 + y1) / 2 - dy * k(SKY.inset);
-    return isHorizontal(o) ? [cx, cy, k(SKY.along), k(SKY.inward)] : [cx, cy, k(SKY.inward), k(SKY.along)];
-  }
-  function openingErrors(o) {
-    if (!SIDES[o.wall]) return ["needs wall: top, bottom, left or right"];
-    const keys = ["at", "depth", "lo", "hi", ...isHorizontal(o) ? ["x", "w"] : ["y", "h"]];
-    return keys.filter((k) => typeof o[k] !== "number").map((k) => `needs a number ${k}`);
-  }
-
-  // src/effects.js
-  var PRESETS = {
-    // A TV's flickering light: cool and restless, with quick fades.
-    flicker: { fade: 250, steps: [
-      [215, 25, 85, 700],
-      [225, 15, 100, 400],
-      [205, 35, 70, 900],
-      [220, 20, 95, 500],
-      [230, 30, 80, 1100],
-      [210, 10, 100, 350]
-    ] }
-  };
-  var TICK = 100;
-  function timeline(effect, color, effects = {}) {
-    const def = effects[effect] || PRESETS[effect], steps = def?.steps || def;
-    if (!steps) return { total: 3e3, points: [[0, color, 1, true], [1500, color, 0.35, true], [3e3, color, 1]] };
-    const fade = def.fade || 666, at = ([h, s, v]) => [hsvRgb(h, s), Math.max(v, 1) / 100];
-    const points2 = [[0, ...at(steps.at(-1))]];
-    let t = 0;
-    for (const st of steps) {
-      points2.push([t + fade, ...at(st)]);
-      t += fade + st[3];
-      points2.push([t, ...at(st)]);
-    }
-    return { total: t, points: points2 };
-  }
-  function frameAt({ total, points: points2 }, t) {
-    t %= total;
-    const k = points2.findIndex((p, i) => i + 1 < points2.length && points2[i + 1][0] > t);
-    const [t0, c0, o0, eased] = points2[k], [t1, c1, o1] = points2[k + 1];
-    const still = o0 === o1 && c0.every((v, i) => v === c1[i]);
-    if (still) return { color: c0, opacity: o0, next: t1 - t };
-    let f = (t - t0) / (t1 - t0);
-    if (eased) f = f * f * (3 - 2 * f);
-    return {
-      color: c0.map((v, i) => Math.round(v + (c1[i] - v) * f)),
-      opacity: +(o0 + (o1 - o0) * f).toFixed(3),
-      next: Math.min(TICK, t1 - t)
-    };
-  }
-  function hsvRgb(h, s) {
-    const f = (n2) => {
-      const k = (n2 + h / 60) % 6;
-      return Math.round(255 * (1 - s / 100 * Math.max(0, Math.min(k, 4 - k, 1))));
-    };
-    return [f(5), f(3), f(1)];
-  }
-  var lightRgb = (s) => s.attributes.rgb_color || [255, 214, 140];
-  var lightColor = (s) => `rgb(${lightRgb(s).join(", ")})`;
-  var rgb = (c) => `rgb(${c.join(", ")})`;
-
-  // src/markers.js
-  var WEATHER_ICONS = {
-    "clear-night": "weather-night",
-    cloudy: "weather-cloudy",
-    fog: "weather-fog",
-    hail: "weather-hail",
-    lightning: "weather-lightning",
-    "lightning-rainy": "weather-lightning-rainy",
-    partlycloudy: "weather-partly-cloudy",
-    pouring: "weather-pouring",
-    rainy: "weather-rainy",
-    snowy: "weather-snowy",
-    "snowy-rainy": "weather-snowy-rainy",
-    sunny: "weather-sunny",
-    windy: "weather-windy",
-    "windy-variant": "weather-windy-variant"
-  };
-  var OFF = ["off", "idle", "unavailable", "unknown", "closed", "standby"];
-  var LABEL_KEYS = ["entity", "attribute", "round", "unit", "when", "hide"];
-  function labelOf(m2, s, states) {
-    const l = m2.label;
-    if (!l || l.when && !l.when.includes(s.state)) return "";
-    const src = l.entity ? states[l.entity] : s;
-    let v = l.attribute ? src?.attributes[l.attribute] : src?.state;
-    if (v === void 0 || v === null || v === "" || l.hide?.includes(v)) return "";
-    if (l.round !== void 0) {
-      const n2 = Number(v);
-      if (typeof v === "boolean" || !Number.isFinite(n2)) return "";
-      v = n2.toFixed(l.round).replace(/^-(0(\.0+)?)$/, "$1");
-    }
-    return `${v}${l.unit ?? ""}`;
-  }
-  function iconOf(m2, s) {
-    if (m2.icons) return m2.icons[s.state] || m2.icon;
-    if (m2.entity.startsWith("weather.")) return `mdi:${WEATHER_ICONS[s.state] || "help-circle-outline"}`;
-    return m2.icon;
-  }
-  var isActive = (m2, s, powered) => m2.active ? m2.active.includes(s.state) : powered && !OFF.includes(s.state) && !m2.entity.startsWith("sensor.");
-
-  // src/home.js
-  var SLOTS = ["floors", "walls", "glazing", "fittings", "under_furniture", "on_furniture", "labels"];
-  var LIT = ["always", "dark", "never"];
-  function defineHome(home) {
-    const h = { ...home };
-    for (const [k, v] of Object.entries({ rooms: {}, openings: [], furniture: {}, lights: [], effects: {}, markers: [] })) h[k] ?? (h[k] = v);
-    const sun = h.sun = { ...home.sun }, drawing = h.drawing = { ...home.drawing };
-    for (const [k, v] of Object.entries({ entity: "sun.sun", weather: "weather.home", blockers: [], spill: [], trees: null, outdoor: [] })) sun[k] ?? (sun[k] = v);
-    h.palette = { light: {}, dark: {}, tinted: [], ...home.palette };
-    const errors = [];
-    const fail = (where, msg) => errors.push(`${where}: ${msg}`);
-    const room = (where, name) => {
-      if (name !== void 0 && !h.rooms[name]) fail(where, `no room called "${name}"`);
-    };
-    const entity = (where, id) => {
-      if (id !== void 0 && !/^[a-z_]+\.[a-z0-9_]+$/.test(id)) fail(where, `"${id}" isn't an entity id`);
-    };
-    const shapesFail = (where, list) => shapeErrors(list).forEach((e) => errors.push(e.startsWith("[") ? `${where}${e}` : `${where}: ${e}`));
-    const described = (where, item) => {
-      if (item?.description !== void 0 && typeof item.description !== "string") fail(where ? `${where}.description` : "description", "needs a text");
-      if (where && item?.part !== void 0 && typeof item.part !== "string") fail(`${where}.part`, "needs a text");
-    };
-    described("", h);
-    if (!["x", "y", "w", "h"].every((k) => typeof h.view?.[k] === "number")) fail("view", "needs numbers x, y, w and h");
-    if (!(h.units_per_metre > 0)) fail("units_per_metre", "needs a number above 0");
-    for (const k of Object.keys(drawing)) if (!SLOTS.includes(k) && k !== "background") fail(`drawing.${k}`, `isn't a slot (${SLOTS.join(", ")}, background)`);
-    for (const k of SLOTS) shapesFail(`drawing.${k}`, drawing[k]);
-    if (drawing.background && typeof drawing.background.image !== "string") fail("drawing.background", "needs an image URL");
-    for (const [name, p] of Object.entries(h.furniture)) {
-      const { rect, circle, poly } = p.shape || {};
-      if (!rect && !circle && !poly) fail(`furniture.${name}`, "needs a shape: rect, circle or poly");
-      room(`furniture.${name}.shadow_room`, p.shadow_room);
-      if (p.height !== void 0 && !(p.height > 0)) fail(`furniture.${name}.height`, "needs a number of metres above 0");
-      shapesFail(`furniture.${name}.extra`, p.extra);
-      described(`furniture.${name}`, p);
-    }
-    h.openings = h.openings.map((o) => ({ ...o, sky: o.sky ?? o.room }));
-    h.openings.forEach((o, i) => {
-      const where = `openings[${i}]`;
-      if (o.room === void 0) fail(where, "needs the room its sun falls in");
-      openingErrors(o).forEach((e) => fail(where, e));
-      room(`${where}.room`, o.room);
-      room(`${where}.sky`, o.sky);
-      entity(`${where}.shutter`, o.shutter);
-      described(where, o);
-    });
-    h.lights.forEach((g, i) => {
-      const where = `lights[${i}]`;
-      if (!g.entities?.length && !g.lit) fail(where, "needs entities, or lit: always, dark or never");
-      if (g.lit !== void 0 && !LIT.includes(g.lit)) fail(`${where}.lit`, `needs ${LIT.join(", ")}`);
-      g.entities?.forEach((e) => entity(`${where}.entities`, e));
-      if (!g.shape?.length) fail(where, "needs a shape");
-      shapesFail(`${where}.shape`, g.shape);
-      room(`${where}.clip`, g.clip);
-      if (g.pool) {
-        for (const k of ["x", "y", "r", "height"]) if (typeof g.pool[k] !== "number") fail(`${where}.pool`, `needs a number ${k}`);
-      }
-      for (const name of g.pool?.shadows || []) if (!h.furniture[name]?.height) fail(`${where}.pool.shadows`, `no furniture with a height called "${name}"`);
-      described(where, g);
-    });
-    h.markers.forEach((m2, i) => {
-      const where = `markers[${i}]`;
-      entity(`${where}.entity`, m2.entity);
-      if (!m2.entity) fail(where, "needs an entity");
-      for (const k of ["x", "y"]) if (typeof m2[k] !== "number") fail(where, `needs a number ${k}`);
-      if (!m2.icon) fail(where, "needs an icon");
-      for (const k of ["power", "wake"]) entity(`${where}.${k}`, m2[k]);
-      if (m2.label !== void 0) {
-        if (typeof m2.label !== "object") fail(`${where}.label`, "needs settings ({attribute, unit, \u2026}), not a function or text");
-        else {
-          for (const k of Object.keys(m2.label)) if (!LABEL_KEYS.includes(k)) fail(`${where}.label`, `unknown setting "${k}" (${LABEL_KEYS.join(", ")})`);
-          entity(`${where}.label.entity`, m2.label.entity);
-          for (const k of ["when", "hide"]) if (m2.label[k] !== void 0 && !Array.isArray(m2.label[k])) fail(`${where}.label.${k}`, "needs a list");
-        }
-      }
-      if (m2.active !== void 0 && !Array.isArray(m2.active)) fail(`${where}.active`, "needs a list of states");
-      if (m2.icons !== void 0 && typeof m2.icons !== "object") fail(`${where}.icons`, "needs {state: icon}");
-      described(where, m2);
-    });
-    if (typeof sun.north !== "number") fail("sun.north", "needs the compass bearing of the top of the drawing");
-    entity("sun.entity", sun.entity);
-    entity("sun.weather", sun.weather);
-    sun.spill.forEach((p, i) => {
-      room(`sun.spill[${i}].clip`, p.clip);
-      for (const k of p.from || []) if (!h.openings[k]) fail(`sun.spill[${i}].from`, `no opening ${k}`);
-      described(`sun.spill[${i}]`, p);
-    });
-    shapesFail("sun.outdoor", sun.outdoor);
-    sun.blockers.forEach((b, i) => {
-      if (!b.rect && !b.poly) fail(`sun.blockers[${i}]`, "needs a rect or a poly");
-      if (!(b.height > 0)) fail(`sun.blockers[${i}]`, "needs a height in metres");
-      described(`sun.blockers[${i}]`, b);
-    });
-    for (const mode of ["light", "dark"]) {
-      for (const [k, v] of Object.entries(h.palette[mode])) if (typeof v !== "string") fail(`palette.${mode}.${k}`, "needs a colour");
-    }
-    for (const k of h.palette.tinted) {
-      if (!/^#[0-9a-f]{6}$/i.test(h.palette.light[k] ?? "#000000") || !/^#[0-9a-f]{6}$/i.test(h.palette.dark[k] ?? "#000000")) {
-        fail(`palette.tinted`, `"${k}" needs #rrggbb colours to be tinted`);
-      }
-    }
-    for (const [name, sc] of Object.entries(h.simulator?.scenes || {})) {
-      if (typeof sc === "string") {
-        if (!h.simulator.scenes[sc]) fail(`simulator.scenes.${name}`, `no scene called "${sc}"`);
-        continue;
-      }
-      for (const k of ["lights", "media"]) if (sc[k] !== void 0 && !["on", "off"].includes(sc[k])) fail(`simulator.scenes.${name}.${k}`, "needs 'on' or 'off'");
-      for (const id of Object.keys(sc.shutters || {})) entity(`simulator.scenes.${name}.shutters`, id);
-    }
-    if (errors.length) throw new Error(`Invalid home:
-${errors.join("\n")}`);
-    return h;
-  }
-  var entitiesOf = (home) => [.../* @__PURE__ */ new Set([
-    ...home.lights.flatMap((g) => g.entities || []),
-    ...home.markers.flatMap((m2) => [m2.entity, m2.power, m2.wake, m2.label?.entity]).filter(Boolean),
-    ...home.openings.map((o) => o.shutter).filter(Boolean),
-    home.sun.entity,
-    home.sun.weather
-  ])];
-
-  // src/sun.js
-  var SUN_WEATHER = {
-    sunny: 1,
-    "clear-night": 0,
-    windy: 0.9,
-    "windy-variant": 0.6,
-    partlycloudy: 0.6,
-    cloudy: 0.15,
-    fog: 0.1,
-    rainy: 0.1,
-    pouring: 0.05,
-    snowy: 0.1,
-    "snowy-rainy": 0.05,
-    hail: 0.05,
-    lightning: 0.05,
-    "lightning-rainy": 0.05,
-    exceptional: 0.3
-  };
-  var DAYLIGHT = [
-    [-12, 15, 25, 70, 0.5],
-    [-5, 70, 60, 140, 0.35],
-    [0, 255, 130, 70, 0.22],
-    [8, 255, 185, 110, 0.12],
-    [20, 150, 140, 110, 0.14]
-  ];
-  var daylight = (elevation) => clamp((elevation + 4) / 14);
-  function floorTint(el2, clouds, dark) {
-    const k = DAYLIGHT.findIndex((st) => st[0] > el2);
-    const [a, b] = k < 0 ? [DAYLIGHT.at(-1), DAYLIGHT.at(-1)] : k === 0 ? [DAYLIGHT[0], DAYLIGHT[0]] : [DAYLIGHT[k - 1], DAYLIGHT[k]];
-    const t = b[0] === a[0] ? 0 : (el2 - a[0]) / (b[0] - a[0]), v = (n2) => a[n2] + (b[n2] - a[n2]) * t;
-    const day = clamp(el2 / 6), grey = 0.7 * clouds * day;
-    return {
-      color: [1, 2, 3].map((n2) => Math.round(v(n2) * (1 - grey) + 140 * grey)),
-      opacity: Math.max(v(4), 0.18 * clouds * day) * (dark ? 0.6 : 1)
-    };
-  }
-  function labelColors(under, [skyColor, skyOp]) {
-    const c = under.map((v, i) => Math.round(v * (1 - skyOp * 0.8) + skyColor[i] * skyOp * 0.8));
-    const light = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255 > 0.5;
-    return { fill: light ? "rgba(70, 62, 25, 0.7)" : "rgba(245, 240, 220, 0.8)", halo: `rgba(${c.join(", ")}, 0.6)` };
-  }
-  function sunScene(home, states, north = home.sun.north, dark = false) {
-    const { openings, sun: { trees, spill }, units_per_metre: u } = home;
-    const sun = states[home.sun.entity]?.attributes || {}, weather = states[home.sun.weather];
-    const el2 = sun.elevation ?? -90, azDeg = sun.azimuth ?? 0;
-    const rel = (azDeg - north) * Math.PI / 180;
-    const tx = -Math.sin(rel), ty = Math.cos(rel);
-    const cc = weather?.attributes.cloud_coverage;
-    const clear = typeof cc === "number" ? 1 - 0.85 * cc / 100 : SUN_WEATHER[weather?.state] ?? 0.5;
-    const tint = floorTint(el2, typeof cc === "number" ? cc / 100 : 1 - clear, dark);
-    const m2 = clamp(el2 / 25), mix = (a, b) => Math.round(a + (b - a) * m2);
-    const sky = { color: [mix(255, 236), mix(185, 243), mix(130, 255)], opacity: daylight(el2) * (dark ? 0.65 : 0.85) };
-    const position = (o) => states[o.shutter]?.attributes.current_position ?? 100;
-    const spills = spill.map((p) => p.k * p.from.reduce((t, i) => t + position(openings[i]), 0) / p.from.length / 100);
-    const facing = openings.map((o) => el2 > 0 ? clamp(-(tx * SIDES[o.wall][0] + ty * SIDES[o.wall][1] + 0.05) / 0.2) : 0);
-    const lit = facing.some((f) => f > 0);
-    const behind = trees ? clamp(Math.min((azDeg - trees.from) / 4, (trees.to - azDeg) / 4, (trees.top - el2) / 2)) : 0;
-    const leaves = 1 - behind * (1 - (trees?.through ?? 1));
-    const scene = {
-      el: el2,
-      tx,
-      ty,
-      tint,
-      sky,
-      spills,
-      lit,
-      skyThrough: openings.map((o) => position(o) / 100),
-      opacity: lit ? clear * leaves * Math.min(1, el2 / 6) : 0,
-      facing
-    };
-    if (!lit) return scene;
-    scene.fill = `rgb(255, ${mix(150, 248)}, ${mix(70, 220)})`;
-    scene.blur = (3 + 20 * (1 - clear) + 12 * behind).toFixed(1);
-    scene.patches = openings.map((o, k) => {
-      const hi = o.lo + (o.hi - o.lo) * position(o) / 100;
-      if (!facing[k] || hi - o.lo < 0.02) return "";
-      const [a, b] = ends(o), at = ([x, y], h) => [x + tx * run(el2, h, u), y + ty * run(el2, h, u)];
-      return points([at(a, o.lo), at(b, o.lo), at(b, hi), at(a, hi)]);
-    });
-    return scene;
-  }
-  var run = (el2, h, unitsPerMetre) => Math.min(h / Math.tan(el2 * Math.PI / 180), 20) * unitsPerMetre;
-  function sunShadows(home, { el: el2, tx, ty }) {
-    const u = home.units_per_metre, rooms = [...new Set(Object.values(home.furniture).map((p) => p.shadow_room).filter(Boolean))];
-    const cast = (pieces) => pieces.map(([p, h]) => castAlong(p, tx * run(el2, h, u), ty * run(el2, h, u))).join("");
-    const blockers = home.sun.blockers.map((b) => [b.rect ? box(...b.rect) : b.poly, b.height]);
-    return { walls: cast(blockers), rooms: rooms.map((room) => [room, cast(castersIn(home.furniture, room))]) };
-  }
-
-  // src/loader.js
-  var EDITOR = "lightwell-card-editor.js";
-  var VERSION = true ? "0.2.0" : void 0;
-  function scriptUrl(stack) {
-    const m2 = String(stack || "").match(/(https?:\/\/[^\s()'"@]+?\.js)(\?[^\s():'"]*)?/);
-    return m2 ? m2[1] + (m2[2] || "") : void 0;
-  }
-  function editorUrls(self, version) {
-    const urls = [];
-    if (self) {
-      const u = new URL(self);
-      u.pathname = u.pathname.replace(/[^/]*$/, EDITOR);
-      urls.push(u.href);
-    }
-    if (version) urls.push(`https://cdn.jsdelivr.net/gh/viktorbalog/lightwell-card@v${version}/dist/${EDITOR}`);
-    return urls;
-  }
-  var SELF = (() => {
-    try {
-      return document.currentScript?.src || scriptUrl(new Error().stack);
-    } catch {
-      return void 0;
-    }
-  })();
-  var script = (url) => new Promise((resolve, reject) => {
-    const s = Object.assign(document.createElement("script"), { src: url });
-    s.onload = resolve;
-    s.onerror = () => {
-      s.remove();
-      reject(new Error(`${url} didn't load`));
-    };
-    document.head.append(s);
-  });
-  var loading;
-  function loadEditor() {
-    if (customElements.get("lightwell-card-editor")) return Promise.resolve();
-    loading ?? (loading = editorUrls(SELF, VERSION).reduce((p, url) => p.catch(() => script(url)), Promise.reject(new Error("no address"))).then(() => customElements.whenDefined("lightwell-card-editor")).catch((e) => {
-      loading = null;
-      throw new Error(`Lightwell's editor couldn't be loaded (${e.message}): edit the card in YAML instead.`);
-    }));
-    return loading;
-  }
-
-  // src/stub.js
-  function stubHome(states = {}) {
-    const light = Object.keys(states).sort().find((id) => id.startsWith("light.")) || "light.living_room";
-    return {
-      description: "A new home: change it in the card editor, or describe yours as the README says.",
-      view: { x: -20, y: -20, w: 590, h: 490 },
-      units_per_metre: 100,
-      rooms: { room: [[25, 25, 500, 400]] },
-      drawing: {
-        floors: [{ rect: [25, 25, 500, 400], class: "floor", part: "room" }],
-        walls: [
-          { rect: [0, 0, 550, 25], class: "wall", part: "room" },
-          { rect: [0, 425, 175, 25], class: "wall", part: "room" },
-          { rect: [375, 425, 175, 25], class: "wall", part: "room" },
-          { rect: [0, 25, 25, 400], class: "wall", part: "room" },
-          { rect: [525, 25, 25, 400], class: "wall", part: "room" }
-        ],
-        glazing: [{ rect: [175, 432, 200, 10], class: "glass", part: "window_1" }],
-        labels: [{ text: "Room", at: [275, 90], class: "room", part: "room" }]
-      },
-      openings: [{ wall: "bottom", at: 450, depth: 25, x: 175, w: 200, lo: 0.9, hi: 2.2, room: "room", part: "window_1" }],
-      furniture: { sofa: { shape: { rect: [175, 300, 200, 85], rx: 8 }, height: 0.8, shadow_room: "room" } },
-      lights: [{
-        entities: [light],
-        shape: [{ circle: [275, 200, 60] }],
-        over: true,
-        clip: "room",
-        pool: { x: 275, y: 200, r: 350, height: 1.5, shadows: ["sofa"] },
-        part: "lamp_1"
-      }],
-      markers: [{ entity: light, x: 275, y: 200, icon: "mdi:ceiling-light", tap: "toggle", part: "lamp_1" }],
-      sun: { north: 0 }
-    };
-  }
-
-  // src/card.js
-  var NS = "http://www.w3.org/2000/svg";
-  var REDUCED = window.matchMedia?.("(prefers-reduced-motion: reduce)");
-  var PALETTE = {
-    light: {
-      floor: "#ece06a",
-      wall: "#000",
-      iwall: "#525252",
-      fix: "#b5b5b5",
-      fix2: "#808080",
-      glass: "#4dbdbd",
-      furn: "#fbf6d6",
-      furn2: "#e4dba2",
-      stroke: "#77704a",
-      dev: "#3a3a3a",
-      room: "rgba(110, 100, 40, 0.45)",
-      chip: "rgba(255, 255, 255, 0.85)",
-      "chip-text": "#333"
-    },
-    dark: {
-      floor: "#3d3a2a",
-      wall: "#0a0a0a",
-      iwall: "#1c1c1c",
-      fix: "#5a5a5a",
-      fix2: "#474747",
-      glass: "#4dbdbd",
-      furn: "#57533e",
-      furn2: "#6b6648",
-      stroke: "#26241a",
-      dev: "#111",
-      room: "rgba(230, 220, 170, 0.3)",
-      chip: "rgba(20, 20, 20, 0.75)",
-      "chip-text": "#eee"
-    },
-    tinted: ["floor", "furn", "furn2", "fix", "fix2"]
-  };
-  var OWN_RULES = ["stroke", "room", "chip", "chip-text", "furn", "furn2"];
-  var rgbOf = (hex) => [0, 2, 4].map((i) => parseInt(hex.slice(1 + i, 3 + i), 16));
-  var vars = (palette) => Object.entries(palette).map(([k, v]) => `--${k}: ${v};`).join(" ");
-  var paletteOf = (home) => ({
-    light: { ...PALETTE.light, ...home.palette.light },
-    dark: { ...PALETTE.dark, ...home.palette.dark },
-    tinted: [.../* @__PURE__ */ new Set([...PALETTE.tinted, ...home.palette.tinted])]
-  });
-  var style = (palette) => `
-  :host { ${vars(palette.light)} }
-  :host([dark]) { ${vars(palette.dark)} }
-  ha-card { overflow: hidden; }
-  .plan { position: relative; container-type: inline-size; }
-  svg { display: block; width: 100%; height: auto; }
-  /* A picture of the plan doesn't take the theme's colours: dimmed in the dark theme instead. */
-  :host([dark]) .background { filter: brightness(0.42) saturate(0.8); }
-  ${Object.keys(palette.light).filter((k) => !OWN_RULES.includes(k)).map((k) => `.${k} { fill: var(--${k}); }`).join(" ")}
-  /* Strokes and text in the drawing's units, scaled with the view's width (--k, set per home) so they look the same
-     on any drawing. */
-  .furn { fill: var(--furn); stroke: var(--stroke); stroke-width: calc(4px * var(--k, 1)); }
-  .furn2 { fill: var(--furn2); stroke: var(--stroke); stroke-width: calc(3px * var(--k, 1)); }
-  .line { stroke: var(--stroke); stroke-width: calc(3px * var(--k, 1)); fill: none; }
-  .lbl { font: calc(24px * var(--k, 1)) sans-serif; fill: var(--lbl, var(--stroke)); text-anchor: middle; }
-  .room { font: 600 calc(40px * var(--k, 1)) sans-serif; fill: var(--room); text-anchor: middle; }
-  .lbl, .room { stroke: var(--lbl-halo, transparent); stroke-width: calc(5px * var(--k, 1)); stroke-linejoin: round;
-                paint-order: stroke; transition: fill 1s, stroke 1s; }
-  .room { stroke: var(--room-halo, transparent); stroke-width: calc(9px * var(--k, 1)); }
-  #glows > *, #glows-top > *, #glows-over > * { filter: url(#blur); transition: opacity 0.4s, fill 0.4s, stroke 0.4s; }
-  #cast > g { fill: #000; filter: url(#penumbra); transition: opacity 0.4s; }
-  #sun, #sun-on-furn { transition: opacity 1s; }
-  #skylight { transition: opacity 1s; } #skylight > ellipse { transition: opacity 0.4s; }
-  #shutters > rect { fill: #202020; transition: opacity 0.4s; }
-  .m { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column;
-       align-items: center; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-  .m ha-icon { --mdc-icon-size: 4.6cqw; color: var(--state-inactive-color, #8a8a8a); padding: 0.6cqw;
-               border-radius: 50%; background: var(--chip); box-shadow: 0 0 0.6cqw rgba(0, 0, 0, 0.25);
-               transition: color 0.3s; }
-  .m.small ha-icon { --mdc-icon-size: 3.2cqw; padding: 0.4cqw; }
-  .m.on ha-icon { color: var(--marker-color, var(--state-active-color, #f9a825)); }
-  .m.unavailable { opacity: 0.45; }
-  .m span { font: 500 2.6cqw/1.2 sans-serif; color: var(--chip-text); background: var(--chip); margin-top: 0.3cqw;
-            padding: 0 0.6cqw; border-radius: 0.8cqw; white-space: nowrap; max-width: 22cqw;
-            overflow: hidden; text-overflow: ellipsis; }
-  .m span:empty { display: none; }
-  .m.side { flex-direction: row; transform: translate(-2cqw, -50%); }
-  .m.side span { margin: 0 0 0 0.4cqw; }
-`;
-  function planSvg(home) {
-    const d = home.drawing, slot = (k) => shapesSvg(d[k]), bg = d.background;
-    const [bx, by, bw, bh] = bg?.rect || [home.view.x, home.view.y, home.view.w, home.view.h];
-    return `
-  ${bg ? `<image class="background" href="${bg.image.replace(/"/g, "&quot;")}" x="${bx}" y="${by}" width="${bw}" height="${bh}" preserveAspectRatio="none"/>
-    <rect id="background-tint" x="${bx}" y="${by}" width="${bw}" height="${bh}" opacity="0"/>` : ""}
-  ${slot("floors")}
-  <g id="skylight"></g>
-  <g id="sun" mask="url(#sun-mask)" filter="url(#sunblur)"><g id="sun-light">${shapesSvg(home.sun.outdoor)}</g></g>
-  <g id="glows"></g>
-  ${slot("walls")}
-  ${slot("glazing")}
-  <g id="shutters"></g>
-  ${slot("fittings")}
-  <g id="glows-top"></g>
-  <g id="cast"></g>
-  ${slot("under_furniture")}
-  ${furnitureSvg(home.furniture)}
-  ${slot("on_furniture")}
-  <g clip-path="url(#furn-clip)" opacity="0.4"><use href="#skylight"/><use id="sun-on-furn" href="#sun-light" filter="url(#sunblur)" mask="url(#sun-mask-walls)"/></g>
-  <g id="glows-over"></g>
-  ${slot("labels")}
-`;
-  }
-  var overView = (v) => `filterUnits="userSpaceOnUse" x="${v.x}" y="${v.y}" width="${v.w}" height="${v.h}"`;
-  var blur = (v, id, sd) => `<filter id="${id}" ${overView(v)}><feGaussianBlur stdDeviation="${sd}"/></filter>`;
-  var maskOverView = (v, id) => `<mask id="${id}" ${overView(v).replace("filterUnits", "maskUnits")}>`;
-  var written = /* @__PURE__ */ new WeakMap();
-  function put(el2, key, value, write) {
-    let m2 = written.get(el2);
-    if (!m2) written.set(el2, m2 = /* @__PURE__ */ new Map());
-    if (m2.get(key) === value) return;
-    m2.set(key, value);
-    write();
-  }
-  var attr = (el2, name, v) => put(el2, name, String(v), () => el2.setAttribute(name, v));
-  var css = (el2, prop, v) => put(el2, `style:${prop}`, String(v), () => el2.style.setProperty(prop, String(v)));
-  var text = (el2, v) => put(el2, "text", v, () => {
-    el2.textContent = v;
-  });
-  var svgEl = (tag, attrs2 = {}, html = "") => {
-    const el2 = document.createElementNS(NS, tag);
-    Object.entries(attrs2).forEach(([k, v]) => el2.setAttribute(k, v));
-    el2.innerHTML = html;
-    return el2;
-  };
-  var paintProp = (sh) => sh.tagName === "path" ? "stroke" : "fill";
-  var previews = /* @__PURE__ */ new Set();
-  window.addEventListener("lightwell-editor-open", () => previews.forEach((card) => card._offer()));
-  var FloorplanCard = class extends HTMLElement {
-    set preview(on) {
-      this._isPreview = !!on;
-      if (on) {
-        previews.add(this);
-        this._offer();
-      } else previews.delete(this);
-    }
-    get preview() {
-      return !!this._isPreview;
-    }
-    _offer() {
-      window.dispatchEvent(new CustomEvent("lightwell-preview", { detail: this }));
-    }
-    // An editor's layer over the card (selection, handles, drawing), kept there through rebuilds; null removes it.
-    // While it's there, taps on the markers do nothing (they'd act on the house while the home is being edited).
-    set editLayer(layer) {
-      if (this._editLayer && this._editLayer !== layer) this._editLayer.remove();
-      this._editLayer = layer;
-      if (layer) Object.assign(this.style, { display: "block", position: "relative" });
-      if (layer && this.shadowRoot && layer.parentNode !== this.shadowRoot) this.shadowRoot.append(layer);
-    }
-    get editLayer() {
-      return this._editLayer;
-    }
-    setConfig(config) {
-      this._config = config;
-      this._seen = null;
-      const source = this.constructor.home || config.home || config.home_url;
-      if (!source) throw new Error("The card needs a home: home (the home itself) or home_url (a JSON file with it)");
-      if (source === this._source) return;
-      this._source = source;
-      if (typeof source === "string") this._load(source);
-      else this._build(source === this.constructor.home ? source : defineHome(source));
-    }
-    // A home from a JSON file; a failure shows in the card.
-    async _load(url) {
-      try {
-        const r = await fetch(url, { cache: "no-cache" });
-        if (!r.ok) throw new Error(`${url}: ${r.status} ${r.statusText}`);
-        const home = defineHome(await r.json());
-        if (this._source === url) this._build(home);
-      } catch (e) {
-        if (this._source === url) this._showError(e.message.includes(url) ? e.message : `${url}: ${e.message}`);
-      }
-    }
-    _showError(message) {
-      this._home = null;
-      clearTimeout(this._timer);
-      (this.shadowRoot || this.attachShadow({ mode: "open" })).innerHTML = `<ha-card><pre style="margin: 0; padding: 16px;
-      white-space: pre-wrap; color: var(--error-color, #db4437)"></pre></ha-card>`;
-      this.shadowRoot.querySelector("pre").textContent = message;
-    }
-    // Builds the plan for `home` (once per home); every `hass` update then only renders changes.
-    _build(home) {
-      this._home = home;
-      this._seen = null;
-      const VB = home.view;
-      const km = this._km = home.units_per_metre / 175;
-      clearTimeout(this._timer);
-      this._entities = entitiesOf(home);
-      this._palette = paletteOf(home);
-      if (!this.shadowRoot) this.attachShadow({ mode: "open" });
-      const pos = (x, y) => `left:${((x - VB.x) / VB.w * 100).toFixed(2)}%;top:${((y - VB.y) / VB.h * 100).toFixed(2)}%`;
-      const layer = this._editLayer?.parentNode === this.shadowRoot ? this._editLayer : null;
-      if (layer) {
-        for (const n2 of [...this.shadowRoot.childNodes]) if (n2 !== layer) n2.remove();
-      }
-      (layer ? (html) => layer.insertAdjacentHTML("beforebegin", html) : (html) => {
-        this.shadowRoot.innerHTML = html;
-      })(`<style>${style(this._palette)}</style>
-      <ha-card>
-        <div class="plan" style="--k: ${+(VB.w / 1145).toFixed(4)}">
-          <svg viewBox="${VB.x} ${VB.y} ${VB.w} ${VB.h}">
-            <defs>${blur(VB, "blur", 14 * km)}${blur(VB, "penumbra", 10 * km)}${blur(VB, "sunblur", 4 * km)}${blur(VB, "bounceblur", 55 * km)}
-              <radialGradient id="sky-fall"><stop offset="0" stop-color="currentColor"/>
-              <stop offset="0.6" stop-color="currentColor" stop-opacity="0.8"/>
-              <stop offset="1" stop-color="currentColor" stop-opacity="0"/></radialGradient>
-              ${["sun-mask", "sun-mask-walls"].map((id) => `${maskOverView(VB, id)}
-                <rect x="${VB.x}" y="${VB.y}" width="${VB.w}" height="${VB.h}" fill="#fff"/><g fill="#000"></g></mask>`).join("")}
-              ${Object.entries(home.rooms).map(([name, region]) => `<clipPath id="room-${name}">${clipShapes(region)}</clipPath>`).join("")}
-              <clipPath id="furn-clip">${furnitureClip(home.furniture)}</clipPath>
-            </defs>
-            ${planSvg(home)}
-          </svg>
-          ${home.markers.map((m2, i) => `<div class="m${m2.small ? " small" : ""}${m2.side ? " side" : ""}" data-i="${i}" style="${pos(m2.x, m2.y)}">
-            <ha-icon icon="${m2.icon}"></ha-icon><span></span></div>`).join("")}
-        </div>
-      </ha-card>`);
-      const $ = (id) => this.shadowRoot.getElementById(id);
-      this._el = {
-        plan: this.shadowRoot.querySelector(".plan"),
-        defs: this.shadowRoot.querySelector("defs"),
-        sun: $("sun"),
-        sunOnFurn: $("sun-on-furn"),
-        skylight: $("skylight"),
-        skyFall: $("sky-fall"),
-        sunBlur: this.shadowRoot.querySelector("#sunblur feGaussianBlur"),
-        sunMask: this.shadowRoot.querySelector("#sun-mask g"),
-        sunMaskWalls: this.shadowRoot.querySelector("#sun-mask-walls g")
-      };
-      this._glows = home.lights.map((g, i) => this._buildGlow(g, i));
-      this._fx = home.lights.map(() => null);
-      this._shutters = home.openings.map((o) => {
-        const [x, y, width, height] = shutterRect(o);
-        return $("shutters").appendChild(svgEl("rect", { x, y, width, height }));
-      });
-      this._buildDaylight();
-      this._markers = [...this.shadowRoot.querySelectorAll(".m")];
-      if (this._editLayer && !layer) this.shadowRoot.append(this._editLayer);
-      this._markers.forEach((el2) => el2.addEventListener("click", () => this._tap(home.markers[el2.dataset.i])));
-      if (this._io) {
-        this._io.disconnect();
-        this._io.observe(this._el.plan);
-      }
-      if (this._hass) this.hass = this._hass;
-    }
-    // A glow: its shape in its layer, and for a point light its pool on the floor and the furniture's shadows from it.
-    _buildGlow(g, i) {
-      const $ = (id) => this.shadowRoot.getElementById(id);
-      const clip = g.clip ? { "clip-path": `url(#room-${g.clip})` } : {};
-      const el2 = svgEl("g", clip, shapesSvg(g.shape));
-      const layer = $(g.over ? "glows-over" : g.top ? "glows-top" : "glows");
-      if (!g.pool) return { el: layer.appendChild(el2), shapes: [...el2.children] };
-      const { x, y, r, height: h, shadows } = g.pool;
-      const cast = shadows.map((n2) => caster(this._home.furniture, n2)).map(([p, ph]) => shadowOf(p, x, y, ph >= h ? 2.5 : Math.min(ph / (h - ph), 2.5))).join("");
-      const v = this._home.view;
-      this._el.defs.insertAdjacentHTML("beforeend", `${maskOverView(v, `pool-${i}`)}
-      <radialGradient id="falloff-${i}"><stop offset="0" stop-color="#fff"/>
-      <stop offset="0.45" stop-color="#999"/><stop offset="1" stop-color="#000"/></radialGradient>
-      <circle cx="${x}" cy="${y}" r="${r}" fill="url(#falloff-${i})"/>
-      <g fill="#000" filter="url(#penumbra)">${cast}</g></mask>
-      ${maskOverView(v, `fade-${i}`)}<circle cx="${x}" cy="${y}" r="${r}" fill="url(#falloff-${i})"/></mask>`);
-      const pool = $("glows").appendChild(svgEl(
-        "g",
-        clip,
-        `<circle cx="${x}" cy="${y}" r="${r}" fill-opacity="0.75" mask="url(#pool-${i})"/>`
-      ));
-      const shade = $("cast").appendChild(svgEl("g", clip, `<g mask="url(#fade-${i})">${cast}</g>`));
-      layer.appendChild(el2);
-      return { el: el2, pool, shade, shapes: [...el2.children, ...pool.children] };
-    }
-    // Per opening: the direct sun patch, its glow (the same patch, widely blurred) and the daylight pool through it;
-    // then the daylight spilling on through the doors.
-    _buildDaylight() {
-      const sun = this.shadowRoot.getElementById("sun-light");
-      const { openings, sun: { spill } } = this._home;
-      this._patches = openings.map((o) => ["patch", "bounce"].map((cls) => sun.appendChild(svgEl("polygon", {
-        // As attributes, not CSS, so the copy on the furniture (a <use>) gets them too.
-        class: cls,
-        "fill-opacity": cls === "patch" ? 0.85 : 0.55,
-        "clip-path": `url(#room-${o.room})`,
-        ...cls === "bounce" ? { filter: "url(#bounceblur)" } : {}
-      }))));
-      const ellipse = (cx, cy, rx, ry, clip) => this._el.skylight.appendChild(svgEl(
-        "ellipse",
-        { cx, cy, rx, ry, fill: "url(#sky-fall)", "clip-path": `url(#room-${clip})` }
-      ));
-      this._sky = openings.map((o) => ellipse(...skyEllipse(o, this._home.units_per_metre), o.sky));
-      this._spills = spill.map((p) => ellipse(p.cx, p.cy, p.rx, p.ry, p.clip));
-    }
-    set hass(hass) {
-      this._hass = hass;
-      if (!this._home) return;
-      const dark = !!hass.themes?.darkMode, states = this._entities.map((id) => hass.states[id]);
-      const seen = this._seen;
-      if (seen && seen.dark === dark && seen.config === this._config && states.every((s, i) => s === seen.states[i])) return;
-      this._seen = { dark, config: this._config, states };
-      this.toggleAttribute("dark", dark);
-      const home = this._home;
-      const scene = sunScene(home, hass.states, this._config?.north ?? home.sun.north, dark);
-      this._renderGlows(hass, scene);
-      this._renderDaylight(scene, dark);
-      this._renderSun(scene);
-      home.openings.forEach((o, i) => {
-        const pos = hass.states[o.shutter]?.attributes.current_position;
-        css(this._shutters[i], "opacity", pos === void 0 ? 0 : (100 - pos) / 100 * 0.85);
-      });
-      this._renderMarkers(hass);
-    }
-    _renderGlows(hass, scene) {
-      const outside = daylight(scene.el);
-      this._home.lights.forEach((g, i) => {
-        const s = g.entities?.length ? g.entities.map((e) => hass.states[e]).find((s2) => (g.states || ["on"]).includes(s2?.state)) : g.lit === "always" || g.lit === "dark" && scene.el < 0 ? { entity_id: `light ${i}`, state: "on", attributes: {} } : void 0;
-        const c = s && (g.color || lightRgb(s)), color = c && rgb(c);
-        const { el: el2, pool, shade, shapes } = this._glows[i];
-        if (!g.multi) shapes.forEach((sh) => attr(sh, paintProp(sh), color || "transparent"));
-        const level = (s?.attributes.brightness ?? 255) / 255;
-        const opacity = s ? (0.35 + 0.6 * level) * (g.outdoor ? 1 - 0.85 * outside : 1) : 0;
-        css(el2, "opacity", opacity);
-        if (pool) css(pool, "opacity", opacity);
-        if (shade) css(shade, "opacity", s ? 0.2 + 0.35 * level : 0);
-        const effect = s && g.effect ? g.effect : s && !g.multi && s.attributes.effect && !["Stop", "None", "none", "off"].includes(s.attributes.effect) && !!(s.attributes.flowing ?? true) ? s.attributes.effect : null;
-        const key = effect && `${s.entity_id}:${effect}:${color}`;
-        if (this._fx[i]?.key !== key) {
-          const playing = !!key;
-          shapes.forEach((sh) => {
-            css(sh, "will-change", playing ? "opacity" : "");
-            if (!playing) {
-              css(sh, paintProp(sh), "");
-              css(sh, `${paintProp(sh)}-opacity`, "");
-            }
-          });
-          this._fx[i] = key ? { key, tl: timeline(effect, c, this._home.effects), start: performance.now(), shapes } : null;
-        }
-      });
-      this._play();
-    }
-    // Plays the running effects, all on one timer: a redraw every TICK ms while one fades, none while they all hold.
-    // Not while the card is off-screen or the page hidden (the IntersectionObserver and visibilitychange call it again).
-    _play() {
-      clearTimeout(this._timer);
-      const running = this._fx?.filter(Boolean) || [];
-      if (!running.length || !this.isConnected || this._offscreen || document.hidden) return;
-      const now = performance.now(), still = !!REDUCED?.matches;
-      let next = Infinity;
-      for (const fx of running) {
-        const { color, opacity, next: wait } = frameAt(fx.tl, still ? 0 : now - fx.start);
-        fx.shapes.forEach((sh) => {
-          const prop = paintProp(sh), base = +(sh.getAttribute(`${prop}-opacity`) ?? 1);
-          css(sh, prop, rgb(color));
-          css(sh, `${prop}-opacity`, +(base * opacity).toFixed(3));
-        });
-        next = Math.min(next, wait);
-      }
-      if (!still) this._timer = setTimeout(() => this._play(), next);
-    }
-    connectedCallback() {
-      if (this._isPreview) {
-        previews.add(this);
-        this._offer();
-      }
-      this._replay || (this._replay = () => this._play());
-      document.addEventListener("visibilitychange", this._replay);
-      this._io || (this._io = new IntersectionObserver(([e]) => {
-        this._offscreen = !e.isIntersecting;
-        this._play();
-      }));
-      this._io.observe(this.shadowRoot?.querySelector(".plan") || this);
-      this._play();
-    }
-    disconnectedCallback() {
-      previews.delete(this);
-      document.removeEventListener("visibilitychange", this._replay);
-      this._io?.disconnect();
-      clearTimeout(this._timer);
-    }
-    // The floors tinted for the time of day, mixed into the theme's own colours (so floors, fittings and furniture all
-    // change together and the lamps' glows still show on top); the labels' colours to go with them; the daylight pools.
-    _renderDaylight({ tint, sky, skyThrough, spills }, dark) {
-      const tinted = {};
-      for (const name of this._palette.tinted) {
-        tinted[name] = rgbOf(this._palette[dark ? "dark" : "light"][name]).map((b, i) => Math.round(b * (1 - tint.opacity) + tint.color[i] * tint.opacity));
-        css(this._el.plan, `--${name}`, `rgb(${tinted[name].join(", ")})`);
-      }
-      const bgTint = this.shadowRoot.getElementById("background-tint");
-      if (bgTint) {
-        attr(bgTint, "fill", `rgb(${tint.color.join(", ")})`);
-        attr(bgTint, "opacity", tint.opacity.toFixed(3));
-      }
-      for (const [label, under] of [["room", "floor"], ["lbl", "furn2"]]) {
-        const { fill, halo } = labelColors(tinted[under], [sky.color, sky.opacity]);
-        css(this._el.plan, `--${label}`, fill);
-        css(this._el.plan, `--${label}-halo`, halo);
-      }
-      css(this._el.skyFall, "color", `rgb(${sky.color.join(", ")})`);
-      css(this._el.skylight, "opacity", sky.opacity.toFixed(3));
-      this._sky.forEach((el2, k) => css(el2, "opacity", skyThrough[k]));
-      this._spills.forEach((el2, k) => css(el2, "opacity", spills[k].toFixed(3)));
-    }
-    // Direct sunlight: patches on the floor behind the openings, with the shadows of the blockers and the furniture.
-    _renderSun(scene) {
-      const { sun, sunOnFurn } = this._el;
-      css(sun, "opacity", scene.opacity);
-      css(sunOnFurn, "opacity", scene.opacity);
-      if (!scene.lit) return;
-      css(sun, "fill", scene.fill);
-      css(sunOnFurn, "fill", scene.fill);
-      attr(this._el.sunBlur, "stdDeviation", (scene.blur * this._km).toFixed(1));
-      this._patches.forEach(([patch, glow], k) => {
-        attr(patch, "points", scene.patches[k]);
-        attr(glow, "points", scene.patches[k]);
-        attr(patch, "fill-opacity", +(0.85 * scene.facing[k]).toFixed(3));
-        attr(glow, "fill-opacity", +(0.55 * scene.facing[k]).toFixed(3));
-      });
-      const { walls, rooms } = sunShadows(this._home, scene);
-      const all = walls + rooms.map(([clip, svg]) => `<g clip-path="url(#room-${clip})">${svg}</g>`).join("");
-      put(this._el.sunMask, "html", all, () => {
-        this._el.sunMask.innerHTML = all;
-      });
-      put(this._el.sunMaskWalls, "html", walls, () => {
-        this._el.sunMaskWalls.innerHTML = walls;
-      });
-    }
-    _renderMarkers(hass) {
-      this._home.markers.forEach((m2, i) => {
-        const el2 = this._markers[i];
-        const s = hass.states[m2.entity];
-        if (!s) {
-          el2.classList.add("unavailable");
-          attr(el2, "title", `${m2.entity}: not found`);
-          return;
-        }
-        const power = m2.power ? hass.states[m2.power]?.state === "on" : true;
-        const on = isActive(m2, s, power);
-        el2.classList.toggle("on", !!on);
-        el2.classList.toggle("unavailable", s.state === "unavailable" || !!m2.power && !power);
-        attr(el2.firstElementChild, "icon", iconOf(m2, s));
-        const rgb2 = s.attributes.rgb_color;
-        css(el2, "--marker-color", rgb2 && Math.min(...rgb2) < 200 ? lightColor(s) : "");
-        text(el2.lastElementChild, labelOf(m2, s, hass.states));
-        const name = s.attributes.friendly_name || m2.entity;
-        attr(el2, "title", `${name}: ${hass.formatEntityState ? hass.formatEntityState(s) : s.state}`);
-      });
-    }
-    _tap(m2) {
-      if (this._editLayer) return;
-      if (m2.wake && this._hass.states[m2.power]?.state !== "on") this._hass.callService("button", "press", { entity_id: m2.wake });
-      else if (m2.tap === "toggle") this._hass.callService("homeassistant", "toggle", { entity_id: m2.entity });
-      else this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId: m2.entity }, bubbles: true, composed: true }));
-    }
-    getCardSize() {
-      return 9;
-    }
-    getGridOptions() {
-      return { columns: 12, min_columns: 6 };
-    }
-    // HA's visual editor: loaded on demand (loader.js), so the card's bundle stays small.
-    static async getConfigElement() {
-      await loadEditor();
-      return document.createElement("lightwell-card-editor");
-    }
-    // A new card from HA's card picker: a small home that works (stub.js), with a light of the house.
-    static getStubConfig(hass) {
-      return { home: stubHome(hass?.states) };
-    }
-  };
-  function defineFloorplanCard(tag, home, { name = tag, description = "" } = {}) {
-    const Card = class extends FloorplanCard {
-    };
-    Card.home = home;
-    customElements.define(tag, Card);
-    window.customCards = window.customCards || [];
-    window.customCards.push({ type: tag, name, description });
-    return Card;
-  }
 
   // node_modules/yaml/browser/dist/index.js
   var dist_exports = {};
@@ -1867,14 +886,14 @@ ${errors.join("\n")}`);
   var FOLD_FLOW = "flow";
   var FOLD_BLOCK = "block";
   var FOLD_QUOTED = "quoted";
-  function foldFlowLines(text2, indent, mode = "flow", { indentAtStart, lineWidth = 80, minContentWidth = 20, onFold, onOverflow } = {}) {
+  function foldFlowLines(text, indent, mode = "flow", { indentAtStart, lineWidth = 80, minContentWidth = 20, onFold, onOverflow } = {}) {
     if (!lineWidth || lineWidth < 0)
-      return text2;
+      return text;
     if (lineWidth < minContentWidth)
       minContentWidth = 0;
     const endStep = Math.max(1 + minContentWidth, 1 + lineWidth - indent.length);
-    if (text2.length <= endStep)
-      return text2;
+    if (text.length <= endStep)
+      return text;
     const folds = [];
     const escapedFolds = {};
     let end = lineWidth - indent.length;
@@ -1891,14 +910,14 @@ ${errors.join("\n")}`);
     let escStart = -1;
     let escEnd = -1;
     if (mode === FOLD_BLOCK) {
-      i = consumeMoreIndentedLines(text2, i, indent.length);
+      i = consumeMoreIndentedLines(text, i, indent.length);
       if (i !== -1)
         end = i + endStep;
     }
-    for (let ch; ch = text2[i += 1]; ) {
+    for (let ch; ch = text[i += 1]; ) {
       if (mode === FOLD_QUOTED && ch === "\\") {
         escStart = i;
-        switch (text2[i + 1]) {
+        switch (text[i + 1]) {
           case "x":
             i += 3;
             break;
@@ -1915,12 +934,12 @@ ${errors.join("\n")}`);
       }
       if (ch === "\n") {
         if (mode === FOLD_BLOCK)
-          i = consumeMoreIndentedLines(text2, i, indent.length);
+          i = consumeMoreIndentedLines(text, i, indent.length);
         end = i + indent.length + endStep;
         split = void 0;
       } else {
         if (ch === " " && prev && prev !== " " && prev !== "\n" && prev !== "	") {
-          const next = text2[i + 1];
+          const next = text[i + 1];
           if (next && next !== " " && next !== "\n" && next !== "	")
             split = i;
         }
@@ -1932,12 +951,12 @@ ${errors.join("\n")}`);
           } else if (mode === FOLD_QUOTED) {
             while (prev === " " || prev === "	") {
               prev = ch;
-              ch = text2[i += 1];
+              ch = text[i += 1];
               overflow = true;
             }
             const j = i > escEnd + 1 ? i - 2 : escStart - 1;
             if (escapedFolds[j])
-              return text2;
+              return text;
             folds.push(j);
             escapedFolds[j] = true;
             end = j + endStep;
@@ -1952,39 +971,39 @@ ${errors.join("\n")}`);
     if (overflow && onOverflow)
       onOverflow();
     if (folds.length === 0)
-      return text2;
+      return text;
     if (onFold)
       onFold();
-    let res = text2.slice(0, folds[0]);
+    let res = text.slice(0, folds[0]);
     for (let i2 = 0; i2 < folds.length; ++i2) {
       const fold = folds[i2];
-      const end2 = folds[i2 + 1] || text2.length;
+      const end2 = folds[i2 + 1] || text.length;
       if (fold === 0)
         res = `
-${indent}${text2.slice(0, end2)}`;
+${indent}${text.slice(0, end2)}`;
       else {
         if (mode === FOLD_QUOTED && escapedFolds[fold])
-          res += `${text2[fold]}\\`;
+          res += `${text[fold]}\\`;
         res += `
-${indent}${text2.slice(fold + 1, end2)}`;
+${indent}${text.slice(fold + 1, end2)}`;
       }
     }
     return res;
   }
-  function consumeMoreIndentedLines(text2, i, indent) {
+  function consumeMoreIndentedLines(text, i, indent) {
     let end = i;
     let start = i + 1;
-    let ch = text2[start];
+    let ch = text[start];
     while (ch === " " || ch === "	") {
       if (i < start + indent) {
-        ch = text2[++i];
+        ch = text[++i];
       } else {
         do {
-          ch = text2[++i];
+          ch = text[++i];
         } while (ch && ch !== "\n");
         end = i;
         start = i + 1;
-        ch = text2[start];
+        ch = text[start];
       }
     }
     return end;
@@ -7593,6 +6612,166 @@ ${end.comment}` : end.comment;
   // node_modules/yaml/browser/index.js
   var browser_default = dist_exports;
 
+  // src/openings.js
+  var SIDES = { top: [0, -1], bottom: [0, 1], left: [-1, 0], right: [1, 0] };
+  var isHorizontal = (o) => o.wall === "top" || o.wall === "bottom";
+  function shutterRect(o) {
+    const [dx, dy] = SIDES[o.wall], inner = o.at - o.depth * (dx || dy);
+    const lo = Math.min(o.at, inner);
+    return isHorizontal(o) ? [o.x, lo, o.w, o.depth] : [lo, o.y, o.depth, o.h];
+  }
+  function openingErrors(o) {
+    if (!SIDES[o.wall]) return ["needs wall: top, bottom, left or right"];
+    const keys = ["at", "depth", "lo", "hi", ...isHorizontal(o) ? ["x", "w"] : ["y", "h"]];
+    return keys.filter((k) => typeof o[k] !== "number").map((k) => `needs a number ${k}`);
+  }
+
+  // src/shapes.js
+  var GEOMETRY = ["rect", "circle", "ellipse", "poly", "path", "text", "at", "svg", "repeat"];
+  function shapeErrors(list) {
+    if (list === void 0 || typeof list === "string") return [];
+    if (!Array.isArray(list)) return ["needs a list of shapes"];
+    return list.flatMap((s, i) => {
+      const kinds = GEOMETRY.filter((k) => k !== "at" && k !== "repeat" && s?.[k] !== void 0);
+      if (kinds.length !== 1) return [`[${i}]: needs exactly one of rect, circle, ellipse, poly, path, text or svg`];
+      if (kinds[0] === "text" && !(Array.isArray(s.at) && s.at.length === 2)) return [`[${i}]: a text needs at: [x, y]`];
+      const r = s.repeat;
+      if (r && !(r.count > 0 && Array.isArray(r.step) && r.step.length === 2)) return [`[${i}]: repeat needs a count and step: [dx, dy]`];
+      for (const k of ["description", "part"]) if (s[k] !== void 0 && typeof s[k] !== "string") return [`[${i}].${k}: needs a text`];
+      return [];
+    });
+  }
+
+  // src/markers.js
+  var LABEL_KEYS = ["entity", "attribute", "round", "unit", "when", "hide"];
+  function labelOf(m2, s, states) {
+    const l = m2.label;
+    if (!l || l.when && !l.when.includes(s.state)) return "";
+    const src = l.entity ? states[l.entity] : s;
+    let v = l.attribute ? src?.attributes[l.attribute] : src?.state;
+    if (v === void 0 || v === null || v === "" || l.hide?.includes(v)) return "";
+    if (l.round !== void 0) {
+      const n2 = Number(v);
+      if (typeof v === "boolean" || !Number.isFinite(n2)) return "";
+      v = n2.toFixed(l.round).replace(/^-(0(\.0+)?)$/, "$1");
+    }
+    return `${v}${l.unit ?? ""}`;
+  }
+
+  // src/home.js
+  var SLOTS = ["floors", "walls", "glazing", "fittings", "under_furniture", "on_furniture", "labels"];
+  var LIT = ["always", "dark", "never"];
+  function defineHome(home) {
+    const h = { ...home };
+    for (const [k, v] of Object.entries({ rooms: {}, openings: [], furniture: {}, lights: [], effects: {}, markers: [] })) h[k] ?? (h[k] = v);
+    const sun = h.sun = { ...home.sun }, drawing = h.drawing = { ...home.drawing };
+    for (const [k, v] of Object.entries({ entity: "sun.sun", weather: "weather.home", blockers: [], spill: [], trees: null, outdoor: [] })) sun[k] ?? (sun[k] = v);
+    h.palette = { light: {}, dark: {}, tinted: [], ...home.palette };
+    const errors = [];
+    const fail = (where, msg) => errors.push(`${where}: ${msg}`);
+    const room = (where, name) => {
+      if (name !== void 0 && !h.rooms[name]) fail(where, `no room called "${name}"`);
+    };
+    const entity = (where, id) => {
+      if (id !== void 0 && !/^[a-z_]+\.[a-z0-9_]+$/.test(id)) fail(where, `"${id}" isn't an entity id`);
+    };
+    const shapesFail = (where, list) => shapeErrors(list).forEach((e) => errors.push(e.startsWith("[") ? `${where}${e}` : `${where}: ${e}`));
+    const described = (where, item) => {
+      if (item?.description !== void 0 && typeof item.description !== "string") fail(where ? `${where}.description` : "description", "needs a text");
+      if (where && item?.part !== void 0 && typeof item.part !== "string") fail(`${where}.part`, "needs a text");
+    };
+    described("", h);
+    if (!["x", "y", "w", "h"].every((k) => typeof h.view?.[k] === "number")) fail("view", "needs numbers x, y, w and h");
+    if (!(h.units_per_metre > 0)) fail("units_per_metre", "needs a number above 0");
+    for (const k of Object.keys(drawing)) if (!SLOTS.includes(k) && k !== "background") fail(`drawing.${k}`, `isn't a slot (${SLOTS.join(", ")}, background)`);
+    for (const k of SLOTS) shapesFail(`drawing.${k}`, drawing[k]);
+    if (drawing.background && typeof drawing.background.image !== "string") fail("drawing.background", "needs an image URL");
+    for (const [name, p] of Object.entries(h.furniture)) {
+      const { rect, circle, poly } = p.shape || {};
+      if (!rect && !circle && !poly) fail(`furniture.${name}`, "needs a shape: rect, circle or poly");
+      room(`furniture.${name}.shadow_room`, p.shadow_room);
+      if (p.height !== void 0 && !(p.height > 0)) fail(`furniture.${name}.height`, "needs a number of metres above 0");
+      shapesFail(`furniture.${name}.extra`, p.extra);
+      described(`furniture.${name}`, p);
+    }
+    h.openings = h.openings.map((o) => ({ ...o, sky: o.sky ?? o.room }));
+    h.openings.forEach((o, i) => {
+      const where = `openings[${i}]`;
+      if (o.room === void 0) fail(where, "needs the room its sun falls in");
+      openingErrors(o).forEach((e) => fail(where, e));
+      room(`${where}.room`, o.room);
+      room(`${where}.sky`, o.sky);
+      entity(`${where}.shutter`, o.shutter);
+      described(where, o);
+    });
+    h.lights.forEach((g, i) => {
+      const where = `lights[${i}]`;
+      if (!g.entities?.length && !g.lit) fail(where, "needs entities, or lit: always, dark or never");
+      if (g.lit !== void 0 && !LIT.includes(g.lit)) fail(`${where}.lit`, `needs ${LIT.join(", ")}`);
+      g.entities?.forEach((e) => entity(`${where}.entities`, e));
+      if (!g.shape?.length) fail(where, "needs a shape");
+      shapesFail(`${where}.shape`, g.shape);
+      room(`${where}.clip`, g.clip);
+      if (g.pool) {
+        for (const k of ["x", "y", "r", "height"]) if (typeof g.pool[k] !== "number") fail(`${where}.pool`, `needs a number ${k}`);
+      }
+      for (const name of g.pool?.shadows || []) if (!h.furniture[name]?.height) fail(`${where}.pool.shadows`, `no furniture with a height called "${name}"`);
+      described(where, g);
+    });
+    h.markers.forEach((m2, i) => {
+      const where = `markers[${i}]`;
+      entity(`${where}.entity`, m2.entity);
+      if (!m2.entity) fail(where, "needs an entity");
+      for (const k of ["x", "y"]) if (typeof m2[k] !== "number") fail(where, `needs a number ${k}`);
+      if (!m2.icon) fail(where, "needs an icon");
+      for (const k of ["power", "wake"]) entity(`${where}.${k}`, m2[k]);
+      if (m2.label !== void 0) {
+        if (typeof m2.label !== "object") fail(`${where}.label`, "needs settings ({attribute, unit, \u2026}), not a function or text");
+        else {
+          for (const k of Object.keys(m2.label)) if (!LABEL_KEYS.includes(k)) fail(`${where}.label`, `unknown setting "${k}" (${LABEL_KEYS.join(", ")})`);
+          entity(`${where}.label.entity`, m2.label.entity);
+          for (const k of ["when", "hide"]) if (m2.label[k] !== void 0 && !Array.isArray(m2.label[k])) fail(`${where}.label.${k}`, "needs a list");
+        }
+      }
+      if (m2.active !== void 0 && !Array.isArray(m2.active)) fail(`${where}.active`, "needs a list of states");
+      if (m2.icons !== void 0 && typeof m2.icons !== "object") fail(`${where}.icons`, "needs {state: icon}");
+      described(where, m2);
+    });
+    if (typeof sun.north !== "number") fail("sun.north", "needs the compass bearing of the top of the drawing");
+    entity("sun.entity", sun.entity);
+    entity("sun.weather", sun.weather);
+    sun.spill.forEach((p, i) => {
+      room(`sun.spill[${i}].clip`, p.clip);
+      for (const k of p.from || []) if (!h.openings[k]) fail(`sun.spill[${i}].from`, `no opening ${k}`);
+      described(`sun.spill[${i}]`, p);
+    });
+    shapesFail("sun.outdoor", sun.outdoor);
+    sun.blockers.forEach((b, i) => {
+      if (!b.rect && !b.poly) fail(`sun.blockers[${i}]`, "needs a rect or a poly");
+      if (!(b.height > 0)) fail(`sun.blockers[${i}]`, "needs a height in metres");
+      described(`sun.blockers[${i}]`, b);
+    });
+    for (const mode of ["light", "dark"]) {
+      for (const [k, v] of Object.entries(h.palette[mode])) if (typeof v !== "string") fail(`palette.${mode}.${k}`, "needs a colour");
+    }
+    for (const k of h.palette.tinted) {
+      if (!/^#[0-9a-f]{6}$/i.test(h.palette.light[k] ?? "#000000") || !/^#[0-9a-f]{6}$/i.test(h.palette.dark[k] ?? "#000000")) {
+        fail(`palette.tinted`, `"${k}" needs #rrggbb colours to be tinted`);
+      }
+    }
+    for (const [name, sc] of Object.entries(h.simulator?.scenes || {})) {
+      if (typeof sc === "string") {
+        if (!h.simulator.scenes[sc]) fail(`simulator.scenes.${name}`, `no scene called "${sc}"`);
+        continue;
+      }
+      for (const k of ["lights", "media"]) if (sc[k] !== void 0 && !["on", "off"].includes(sc[k])) fail(`simulator.scenes.${name}.${k}`, "needs 'on' or 'off'");
+      for (const id of Object.keys(sc.shutters || {})) entity(`simulator.scenes.${name}.shutters`, id);
+    }
+    if (errors.length) throw new Error(`Invalid home:
+${errors.join("\n")}`);
+    return h;
+  }
+
   // src/editor/model.js
   var TO_STRING = { lineWidth: 0, flowCollectionPadding: false };
   var HISTORY = 200;
@@ -7644,15 +6823,15 @@ ${end.comment}` : end.comment;
       }
     };
     const numbers = (n2) => browser_default.isSeq(n2) && n2.items.every((i) => browser_default.isScalar(i) && typeof i.value === "number" || numbers(i));
-    const style2 = (n2) => {
+    const style = (n2) => {
       if (!isCollection3(n2)) return;
-      children(n2).forEach(style2);
+      children(n2).forEach(style);
       const flat = n2.clone();
       flowAll(flat);
       if (numbers(n2) || new browser_default.Document(flat).toString(TO_STRING).trimEnd().length <= SHORT) flowAll(n2);
     };
     if (flow2) flowAll(node);
-    else style2(node);
+    else style(node);
     return node;
   }
   function unflowEmpty(doc, path) {
@@ -7696,18 +6875,18 @@ ${end.comment}` : end.comment;
     return doc.toString(TO_STRING);
   }
   var HomeModel = class {
-    constructor(text2 = "") {
-      this.open(text2);
+    constructor(text = "") {
+      this.open(text);
     }
     // A new file: its text, with an empty history.
-    open(text2) {
+    open(text) {
       this._past = [];
       this._future = [];
-      this._load(text2);
+      this._load(text);
     }
-    _load(text2) {
-      this._text = text2;
-      this.doc = browser_default.parseDocument(text2);
+    _load(text) {
+      this._text = text;
+      this.doc = browser_default.parseDocument(text);
       this.derived = deriveHome(this.doc);
     }
     get text() {
@@ -7729,10 +6908,10 @@ ${end.comment}` : end.comment;
       return this._future.length > 0;
     }
     // A new version of the text (the text view's): one step in the history.
-    setText(text2) {
-      if (text2 === this._text) return false;
+    setText(text) {
+      if (text === this._text) return false;
       this._push();
-      this._load(text2);
+      this._load(text);
       return true;
     }
     _push() {
@@ -7750,10 +6929,10 @@ ${end.comment}` : end.comment;
         this._load(this._text);
         throw e;
       }
-      const text2 = this.doc.toString(TO_STRING);
-      if (text2 === this._text) return false;
+      const text = this.doc.toString(TO_STRING);
+      if (text === this._text) return false;
       this._push();
-      this._load(text2);
+      this._load(text);
       return true;
     }
     // The value at `path` (plain), or undefined.
@@ -7894,9 +7073,9 @@ ${end.comment}` : end.comment;
   }) {
     const root = form.getRootNode();
     if (!root.querySelector?.("style[data-lw-controls]")) {
-      const style2 = Object.assign(document.createElement("style"), { textContent: STYLE });
-      style2.dataset.lwControls = "";
-      (root.head || root).appendChild(style2);
+      const style = Object.assign(document.createElement("style"), { textContent: STYLE });
+      style.dataset.lwControls = "";
+      (root.head || root).appendChild(style);
     }
     form.classList.add("lw-controls");
     form.innerHTML = FORM;
@@ -8128,18 +7307,18 @@ ${end.comment}` : end.comment;
     const file = handle?.kind === "file" ? await handle.getFile() : item.getAsFile();
     return file && { name: file.name, text: await file.text(), handle: handle?.kind === "file" ? handle : null };
   }
-  async function writeFile(handle, text2) {
+  async function writeFile(handle, text) {
     if (await handle.queryPermission?.({ mode: "readwrite" }) === "prompt") await handle.requestPermission({ mode: "readwrite" });
     const w = await handle.createWritable();
-    await w.write(text2);
+    await w.write(text);
     await w.close();
   }
-  async function saveFileAs(text2, format, name) {
+  async function saveFileAs(text, format, name) {
     const type = TYPES[format];
     if (typeof window.showSaveFilePicker === "function") {
       try {
         const handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: type.description, accept: type.accept }] });
-        await writeFile(handle, text2);
+        await writeFile(handle, text);
         return { name: handle.name, handle };
       } catch (e) {
         if (e.name === "AbortError") return null;
@@ -8148,7 +7327,7 @@ ${end.comment}` : end.comment;
     }
     const a = Object.assign(document.createElement("a"), {
       download: name,
-      href: URL.createObjectURL(new Blob([text2], { type: type.mime }))
+      href: URL.createObjectURL(new Blob([text], { type: type.mime }))
     });
     document.body.appendChild(a);
     a.click();
@@ -8340,6 +7519,24 @@ ${end.comment}` : end.comment;
     }
   };
 
+  // src/geometry.js
+  var box = (x, y, w, h, deg = 0) => {
+    const cx = x + w / 2, cy = y + h / 2, a = deg * Math.PI / 180;
+    return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]].map(([px, py]) => [cx + (px - cx) * Math.cos(a) - (py - cy) * Math.sin(a), cy + (px - cx) * Math.sin(a) + (py - cy) * Math.cos(a)]);
+  };
+  var turnPoly = (poly, deg = 0, c = polyMiddle(poly)) => {
+    if (!deg) return poly;
+    const a = deg * Math.PI / 180;
+    return poly.map(([px, py]) => [c[0] + (px - c[0]) * Math.cos(a) - (py - c[1]) * Math.sin(a), c[1] + (px - c[0]) * Math.sin(a) + (py - c[1]) * Math.cos(a)]);
+  };
+  var polyMiddle = (poly) => {
+    const xs = poly.map((p) => p[0]), ys = poly.map((p) => p[1]);
+    return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+  };
+
+  // src/furniture.js
+  var pieceCentre = ({ rect, poly }) => rect ? [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2] : poly ? polyMiddle(poly) : null;
+
   // src/editor/hit.js
   var MARKER = 0.03;
   var TEXT = { room: 40, lbl: 24 };
@@ -8462,10 +7659,10 @@ ${end.comment}` : end.comment;
   var inGeometry = (g, p, tol) => g.polys.some((poly) => inPoly(poly, p) || nearPoly(poly, p, tol)) || g.lines.some((l) => nearPoly(l, p, tol + g.width / 2, false)) || g.circles.some(([cx, cy, rx, ry]) => ((p[0] - cx) / (rx + tol)) ** 2 + ((p[1] - cy) / (ry + tol)) ** 2 <= 1);
   var blockerGeometry = (b) => ({ polys: b?.rect ? [box(...b.rect)] : Array.isArray(b?.poly) ? [b.poly] : [], lines: [], circles: [], width: 0 });
   var spillGeometry = (s) => ({ polys: [], lines: [], circles: [s].filter((x) => [x?.cx, x?.cy, x?.rx, x?.ry].every((v) => typeof v === "number")).map((x) => [x.cx, x.cy, x.rx, x.ry]), width: 0 });
-  function pieceOutline({ shape: { rect, turn: turn2 = 0, circle, poly } }) {
-    if (rect) return { poly: box(...rect, turn2) };
+  function pieceOutline({ shape: { rect, turn = 0, circle, poly } }) {
+    if (rect) return { poly: box(...rect, turn) };
     if (circle) return { circle };
-    return { poly: turnPoly(poly, turn2) };
+    return { poly: turnPoly(poly, turn) };
   }
   function onPiece(piece, p, tol = 0) {
     const o = pieceOutline(piece);
@@ -8916,12 +8113,12 @@ ${end.comment}` : end.comment;
     if (!m2 || part.s.poly.length <= 3) return null;
     return part.put({ ...part.s, poly: part.s.poly.filter((_, i) => i !== +m2[1]) });
   }
-  function resizeRect([x, y, w, h], turn2, ax, ay, p) {
-    const c = [x + w / 2, y + h / 2], q = turnBy([p[0] - c[0], p[1] - c[1]], -turn2);
+  function resizeRect([x, y, w, h], turn, ax, ay, p) {
+    const c = [x + w / 2, y + h / 2], q = turnBy([p[0] - c[0], p[1] - c[1]], -turn);
     const span = (a, half, v2) => a ? [Math.min(-a * half, v2), Math.max(-a * half, v2)] : [-half, half];
     const [x0, x1] = span(ax, w / 2, q[0]), [y0, y1] = span(ay, h / 2, q[1]);
     const nw = Math.max(x1 - x0, 1), nh = Math.max(y1 - y0, 1);
-    const [u, v] = turnBy([(x0 + x1) / 2, (y0 + y1) / 2], turn2), nc = [c[0] + u, c[1] + v];
+    const [u, v] = turnBy([(x0 + x1) / 2, (y0 + y1) / 2], turn), nc = [c[0] + u, c[1] + v];
     return [tidy(nc[0] - nw / 2), tidy(nc[1] - nh / 2), tidy(nw), tidy(nh)];
   }
   function dragShape(s, id, p, { turnStep }) {
@@ -8933,13 +8130,13 @@ ${end.comment}` : end.comment;
     if (id === "turn" && (s.rect || s.poly)) {
       const xs = s.rect ? [s.rect[0], s.rect[0] + s.rect[2]] : s.poly.map((q) => q[0]), ys = s.rect ? [s.rect[1], s.rect[1] + s.rect[3]] : s.poly.map((q) => q[1]);
       const c = [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
-      let turn2 = Math.atan2(p[0] - c[0], -(p[1] - c[1])) * 180 / Math.PI;
-      turn2 = turnStep ? Math.round(turn2 / turnStep) * turnStep : tidy(turn2);
-      if (turn2 <= -180) turn2 += 360;
-      if (turn2 > 180) turn2 -= 360;
-      turn2 || (turn2 = 0);
+      let turn = Math.atan2(p[0] - c[0], -(p[1] - c[1])) * 180 / Math.PI;
+      turn = turnStep ? Math.round(turn / turnStep) * turnStep : tidy(turn);
+      if (turn <= -180) turn += 360;
+      if (turn > 180) turn -= 360;
+      turn || (turn = 0);
       const { turn: _, ...rest } = s;
-      return { s: turn2 || s.turn !== void 0 ? { ...rest, turn: turn2 } : rest, ruler: { angle: turn2 } };
+      return { s: turn || s.turn !== void 0 ? { ...rest, turn } : rest, ruler: { angle: turn } };
     }
     if (id === "r" && s.circle) {
       const r = Math.max(tidy(dist(p, s.circle)), 1);
@@ -9272,12 +8469,12 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
   }
   function roomOps(data, name, rect, { outdoor = false } = {}) {
     rect = rect.map(tidy);
-    const text2 = String(name ?? "").trim(), key = roomKey(data, text2 || "room"), [x, y, w, h] = rect;
+    const text = String(name ?? "").trim(), key = roomKey(data, text || "room"), [x, y, w, h] = rect;
     const ops = [
       { set: ["rooms", key], value: [rect] },
       { insert: ["drawing", "floors"], value: { rect, class: outdoor ? "terrace" : "floor", part: key } }
     ];
-    if (text2) ops.push({ insert: ["drawing", "labels"], value: { text: text2, at: [tidy(x + w / 2), tidy(y + h / 2)], class: "room", part: key } });
+    if (text) ops.push({ insert: ["drawing", "labels"], value: { text, at: [tidy(x + w / 2), tidy(y + h / 2)], class: "room", part: key } });
     if (outdoor) {
       if (!data?.palette?.light?.terrace) ops.push({ set: ["palette", "light", "terrace"], value: TERRACE.light });
       if (!data?.palette?.dark?.terrace) ops.push({ set: ["palette", "dark", "terrace"], value: TERRACE.dark });
@@ -9781,16 +8978,16 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     chair: PREFABS.bedroom.items.chair
   };
   var prefab = (id) => Object.values(PREFABS).map((g) => g.items[id]).find(Boolean) || PARTS[id];
-  var turned = ([x, y], turn2) => {
-    const q = (Math.round(turn2 / 90) % 4 + 4) % 4;
+  var turned = ([x, y], turn) => {
+    const q = (Math.round(turn / 90) % 4 + 4) % 4;
     return [[x, y], [-y, x], [-x, -y], [y, -x]][q];
   };
-  function placeShape(s, { w, d }, at, turn2, u) {
+  function placeShape(s, { w, d }, at, turn, u) {
     const p = ([x, y]) => {
-      const [a, b] = turned([x - w / 2, y - d / 2], turn2);
+      const [a, b] = turned([x - w / 2, y - d / 2], turn);
       return [tidy(at[0] + a * u), tidy(at[1] + b * u)];
     };
-    const swap = Math.round(turn2 / 90) % 2 !== 0;
+    const swap = Math.round(turn / 90) % 2 !== 0;
     const { class: cls, rx } = s, rest = { ...cls ? { class: cls } : {}, ...rx ? { rx: tidy(rx * u) } : {} };
     if (s.rect) {
       const [x, y, rw, rh] = s.rect, [a, b] = [p([x, y]), p([x + rw, y + rh])];
@@ -9808,16 +9005,16 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     }
     throw new Error(`not a prefab shape: ${JSON.stringify(s)}`);
   }
-  function pieceOf(data, item, at, turn2 = 0) {
+  function pieceOf(data, item, at, turn = 0) {
     const u = data?.units_per_metre || 100;
-    const outline2 = placeShape(item.poly ? { poly: item.poly } : item.shape === "circle" ? { circle: [item.w / 2, item.d / 2, item.w / 2] } : { rect: [0, 0, item.w, item.d], rx: item.rx }, item, at, turn2, u);
+    const outline = placeShape(item.poly ? { poly: item.poly } : item.shape === "circle" ? { circle: [item.w / 2, item.d / 2, item.w / 2] } : { rect: [0, 0, item.w, item.d], rx: item.rx }, item, at, turn, u);
     const room = item.height ? roomAt(data, at) : void 0;
     return {
-      shape: outline2.poly ? { poly: outline2.poly } : outline2.circle ? { circle: outline2.circle } : { rect: outline2.rect, ...outline2.rx ? { rx: outline2.rx } : {} },
+      shape: outline.poly ? { poly: outline.poly } : outline.circle ? { circle: outline.circle } : { rect: outline.rect, ...outline.rx ? { rx: outline.rx } : {} },
       ...item.height ? { height: item.height } : {},
       ...room ? { shadow_room: room } : {},
       ...item.cls === "furn2" ? { class: "furn2" } : {},
-      ...item.extra?.length ? { extra: item.extra.map((s) => placeShape(s, item, at, turn2, u)) } : {}
+      ...item.extra?.length ? { extra: item.extra.map((s) => placeShape(s, item, at, turn, u)) } : {}
     };
   }
   function pieceKey(data, base, taken) {
@@ -9826,24 +9023,24 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     taken.add(key);
     return key;
   }
-  function placePrefab(data, id, at, turn2 = 0, { entity = "light.new_light" } = {}) {
+  function placePrefab(data, id, at, turn = 0, { entity = "light.new_light" } = {}) {
     const item = prefab(id), u = data?.units_per_metre || 100;
     if (!item) return null;
-    if (item.lamp) return placeLamp(data, item, id, at, turn2, entity);
+    if (item.lamp) return placeLamp(data, item, id, at, turn, entity);
     const taken = /* @__PURE__ */ new Set(), ops = [], keys = [], group = partKey(data, id);
     const parts = item.pieces || [{ of: id, at: [item.w / 2, item.d / 2] }];
     for (const part of parts) {
-      const piece = prefab(part.of), [a, b] = turned([part.at[0] - item.w / 2, part.at[1] - item.d / 2], turn2);
+      const piece = prefab(part.of), [a, b] = turned([part.at[0] - item.w / 2, part.at[1] - item.d / 2], turn);
       const key = pieceKey(data, part.of.replace(/^table_[sml]$/, "table"), taken);
-      ops.push({ set: ["furniture", key], value: { ...pieceOf(data, piece, [tidy(at[0] + a * u), tidy(at[1] + b * u)], turn2 + (part.turn || 0)), part: group } });
+      ops.push({ set: ["furniture", key], value: { ...pieceOf(data, piece, [tidy(at[0] + a * u), tidy(at[1] + b * u)], turn + (part.turn || 0)), part: group } });
       keys.push(key);
     }
     return { ops, keys, part: group };
   }
-  function placeLamp(data, item, id, at, turn2, entity) {
+  function placeLamp(data, item, id, at, turn, entity) {
     const u = data?.units_per_metre || 100, part = partKey(data, "lamp"), [x, y] = at.map(tidy), room = roomAt(data, at);
     const shape = item.lamp.glow.map((s) => {
-      const placed = placeShape({ ...s, class: void 0 }, item, at, turn2, u);
+      const placed = placeShape({ ...s, class: void 0 }, item, at, turn, u);
       return s.line ? { path: placed.path, stroke_width: tidy(s.width * u), fill: "none" } : placed;
     });
     const shadows = Object.entries(data?.furniture || {}).filter(([, p]) => p?.height && (!room || p.shadow_room === room)).map(([n2]) => n2);
@@ -9862,7 +9059,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     const keys = [];
     if (item.base) {
       const key = pieceKey(data, id, /* @__PURE__ */ new Set());
-      ops.push({ set: ["furniture", key], value: { ...pieceOf(data, item.base, at, turn2), part } });
+      ops.push({ set: ["furniture", key], value: { ...pieceOf(data, item.base, at, turn), part } });
       keys.push(key);
     }
     return { ops, keys, part };
@@ -9906,9 +9103,9 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     const s = piece?.shape;
     if (!s) return piece;
     if (s.rect || s.poly) {
-      const turn2 = (((s.turn || 0) + deg) % 360 + 360) % 360;
+      const turn = (((s.turn || 0) + deg) % 360 + 360) % 360;
       const { turn: _, ...rest } = s;
-      return { ...piece, shape: turn2 ? { ...rest, turn: turn2 } : rest };
+      return { ...piece, shape: turn ? { ...rest, turn } : rest };
     }
     const pts = s.poly || [s.circle.slice(0, 2)];
     const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]), c = [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
@@ -9975,10 +9172,10 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
   var domainOf = (id) => id.split(".")[0];
   function devicesIn(states, query = "") {
     const q = query.trim().toLowerCase();
-    return Object.entries(states || {}).filter(([id]) => DEVICE_DOMAINS.includes(domainOf(id))).map(([id, s]) => ({ id, name: s?.attributes?.friendly_name || id, icon: iconOf2(id, s), domain: domainOf(id) })).filter((d) => !q || d.name.toLowerCase().includes(q) || d.id.includes(q)).sort((a, b) => DEVICE_DOMAINS.indexOf(a.domain) - DEVICE_DOMAINS.indexOf(b.domain) || a.name.localeCompare(b.name));
+    return Object.entries(states || {}).filter(([id]) => DEVICE_DOMAINS.includes(domainOf(id))).map(([id, s]) => ({ id, name: s?.attributes?.friendly_name || id, icon: iconOf(id, s), domain: domainOf(id) })).filter((d) => !q || d.name.toLowerCase().includes(q) || d.id.includes(q)).sort((a, b) => DEVICE_DOMAINS.indexOf(a.domain) - DEVICE_DOMAINS.indexOf(b.domain) || a.name.localeCompare(b.name));
   }
   var UNIT_CLASSES = { "\xB0C": "temperature", "\xB0F": "temperature", "%": "humidity", lx: "illuminance", W: "power", kWh: "energy", ppm: "co2" };
-  function iconOf2(id, state) {
+  function iconOf(id, state) {
     const a = state?.attributes || {}, cls = a.device_class || (domainOf(id) === "sensor" ? UNIT_CLASSES[a.unit_of_measurement] : void 0);
     return a.icon || CLASS_ICONS[cls] || ICONS[domainOf(id)] || "mdi:help-circle-outline";
   }
@@ -10007,7 +9204,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       entity: id,
       x: at[0],
       y: at[1],
-      icon: iconOf2(id, state),
+      icon: iconOf(id, state),
       ...TOGGLES.includes(domain) ? { tap: "toggle" } : {},
       ...domain === "sensor" ? labelFor(state) : {},
       part
@@ -10214,6 +9411,26 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     return f;
   }
 
+  // src/effects.js
+  var PRESETS = {
+    // A TV's flickering light: cool and restless, with quick fades.
+    flicker: { fade: 250, steps: [
+      [215, 25, 85, 700],
+      [225, 15, 100, 400],
+      [205, 35, 70, 900],
+      [220, 20, 95, 500],
+      [230, 30, 80, 1100],
+      [210, 10, 100, 350]
+    ] }
+  };
+  function hsvRgb(h, s) {
+    const f = (n2) => {
+      const k = (n2 + h / 60) % 6;
+      return Math.round(255 * (1 - s / 100 * Math.max(0, Math.min(k, 4 - k, 1))));
+    };
+    return [f(5), f(3), f(1)];
+  }
+
   // src/editor/pickers.js
   var el = (tag, props = {}, ...children) => {
     const e = Object.assign(document.createElement(tag), props);
@@ -10239,8 +9456,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     const s = states?.[marker?.entity];
     if (!marker?.label) return { text: "", why: "no label" };
     if (!s) return { text: "", why: `${marker.entity || "its entity"} isn't in the states in use` };
-    const text2 = labelOf(marker, s, states);
-    if (text2) return { text: text2, why: "" };
+    const text = labelOf(marker, s, states);
+    if (text) return { text, why: "" };
     const l = marker.label;
     if (l.when && !l.when.includes(s.state)) return { text: "", why: `nothing now: only while ${marker.entity} is ${l.when.join(" or ")} (it's ${s.state})` };
     if (l.entity && !states[l.entity]) return { text: "", why: `${l.entity} isn't in the states in use` };
@@ -10323,8 +9540,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     return [swatch, el("span", { className: "stack search" }, i, found)];
   }
   function labelLine(marker, states) {
-    const { text: text2, why } = labelPreview(marker, states);
-    return el("p", { className: `label-now${text2 ? "" : " none"}` }, text2 ? ["Shows now: ", el("b", { textContent: text2 })] : why);
+    const { text, why } = labelPreview(marker, states);
+    return el("p", { className: `label-now${text ? "" : " none"}` }, text ? ["Shows now: ", el("b", { textContent: text })] : why);
   }
   function effectsEditor(effects, { commit, preview, previewing, lights }) {
     const all = effects && typeof effects === "object" ? effects : {};
@@ -10345,7 +9562,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         out.push(box2);
         continue;
       }
-      const put2 = (list) => set2(name2, Array.isArray(def) ? list : { ...def, steps: list });
+      const put = (list) => set2(name2, Array.isArray(def) ? list : { ...def, steps: list });
       const fade = el("input", { type: "number", min: 0, step: 50, value: Array.isArray(def) ? "" : def.fade ?? "", placeholder: "666" });
       fade.onchange = () => set2(name2, fade.value === "" ? steps : { ...Array.isArray(def) ? {} : def, fade: +fade.value, steps });
       box2.append(el(
@@ -10358,14 +9575,14 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         const [h, s, v, hold] = st, colour = el("input", { type: "color", value: hsHex(h, s), title: `hue ${h}, saturation ${s}` });
         const bright = el("input", { type: "number", min: 1, max: 100, value: v, title: "Brightness %" });
         const holdIn = el("input", { type: "number", min: 0, step: 100, value: hold, title: "Held this long (ms)" });
-        const change = () => put2(steps.map((x, j) => j === k ? [...hexHs(colour.value), +bright.value, +holdIn.value] : x));
+        const change = () => put(steps.map((x, j) => j === k ? [...hexHs(colour.value), +bright.value, +holdIn.value] : x));
         colour.onchange = bright.onchange = holdIn.onchange = change;
         const del = el("button", { type: "button", className: "clear", textContent: "\xD7", title: "Delete this step", disabled: steps.length < 2 });
-        del.onclick = () => put2(steps.filter((_, j) => j !== k));
+        del.onclick = () => put(steps.filter((_, j) => j !== k));
         box2.append(el("span", { className: "value step" }, colour, bright, el("span", { className: "unit", textContent: "%" }), holdIn, el("span", { className: "unit", textContent: "ms" }), del));
       });
       const add = el("button", { type: "button", className: "add-field", textContent: "+ step" });
-      add.onclick = () => put2([...steps, [...steps.at(-1) || [30, 80, 100, 2e3]]]);
+      add.onclick = () => put([...steps, [...steps.at(-1) || [30, 80, 100, 2e3]]]);
       const on = previewing?.name === name2;
       const lamp = el("select", { title: "The lamp it plays on" }, lights.map((id) => el("option", { value: id, textContent: id, selected: on && previewing.entity === id })));
       const play = el("button", { type: "button", className: "add-field", textContent: on ? "Stop" : "Preview on", disabled: !lights.length });
@@ -11509,19 +10726,19 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
           first = false;
         },
         onConfig: ({ latitude, longitude }) => this._controls.setLocation({ latitude, longitude }),
-        onStatus: (text2, ok) => {
-          this._haStatus(text2, ok);
-          if (!ok) this._message(text2);
+        onStatus: (text, ok) => {
+          this._haStatus(text, ok);
+          if (!ok) this._message(text);
         }
       });
     }
     // The header's Home Assistant button: connected (green), dropped or refused (orange), or not connected.
-    _haStatus(text2, ok) {
+    _haStatus(text, ok) {
       const b = this._el.haButton, on = !!this._live && !this._live.closed;
       b.classList.toggle("on", on && ok !== false);
       b.classList.toggle("off", on && ok === false);
-      b.title = text2 || (on ? "Connected to Home Assistant" : "Connect to your Home Assistant for its entities and live states");
-      this._haText = text2;
+      b.title = text || (on ? "Connected to Home Assistant" : "Connect to your Home Assistant for its entities and live states");
+      this._haText = text;
     }
     _haDialog() {
       const d = this._el.ha, on = !!this._live && !this._live.closed;
@@ -11569,8 +10786,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     }
     // After the model changed: the text view (unless it's where the change came from), the card, the panels, the
     // messages, the buttons and the draft.
-    _changed({ text: text2 }) {
-      if (text2) this._el.text.value = this.model.text;
+    _changed({ text }) {
+      if (text) this._el.text.value = this.model.text;
       const { home, data, errors } = this.model;
       if (home) {
         this._data = data;
@@ -11736,8 +10953,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     // Inside a piece: the rest of the plan dimmed, the piece outlined; the guides and the drawing in its frame.
     _renderInside(home) {
       const piece = home?.furniture?.[this._inside], v = home?.view;
-      const turn2 = pieceTurn(piece);
-      for (const g of [this._el.guides, this._el.draft]) turn2 ? g.setAttribute("transform", turn2) : g.removeAttribute("transform");
+      const turn = pieceTurn(piece);
+      for (const g of [this._el.guides, this._el.draft]) turn ? g.setAttribute("transform", turn) : g.removeAttribute("transform");
       if (!piece) {
         this._el.inside.innerHTML = this._group !== null && home ? this._groupDim(home) : "";
         return;
@@ -12014,10 +11231,10 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       const finish = (keep) => {
         if (done) return;
         done = true;
-        const text2 = input2.value.trim();
+        const text = input2.value.trim();
         input2.remove();
-        if (!keep || !text2 || text2 === shape?.text) return;
-        this._edit(() => this.model.batch(label ? [{ set: [...label, "text"], value: text2 }] : [{ insert: ["drawing", "labels"], value: { text: text2, at: spot.map(tidy), class: "room", part: room } }]));
+        if (!keep || !text || text === shape?.text) return;
+        this._edit(() => this.model.batch(label ? [{ set: [...label, "text"], value: text }] : [{ insert: ["drawing", "labels"], value: { text, at: spot.map(tidy), class: "room", part: room } }]));
         this._selectObject(room);
       };
       input2.addEventListener("keydown", (ev) => {
@@ -12297,8 +11514,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       } else if (drag.kind === "turn") {
         const a = (Math.atan2(at.p[1] - drag.centre[1], at.p[0] - drag.centre[0]) - drag.from) * 180 / Math.PI;
         const sh = drag.item.shape, step = e.altKey ? 1 : TURN_STEP, d = Math.round(a / step) * step;
-        const turn2 = (((sh.turn || 0) + d) % 360 + 360) % 360, { turn: _, ...rest } = sh;
-        const value = { ...drag.item, shape: turn2 ? { ...rest, turn: turn2 } : rest };
+        const turn = (((sh.turn || 0) + d) % 360 + 360) % 360, { turn: _, ...rest } = sh;
+        const value = { ...drag.item, shape: turn ? { ...rest, turn } : rest };
         drag.changes = [[drag.path, value]];
         ruler = null;
         this._el.ruler.dataset.text = `${(d % 360 + 360) % 360}\xB0`;
@@ -12479,7 +11696,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       const choices2 = devicesIn(this._shown.states).filter((d) => ["light", "switch", "fan", "media_player"].includes(d.domain));
       const row2 = Object.assign(document.createElement("p"), { className: "lamp" });
       const select = document.createElement("select");
-      const option = (value, text2) => Object.assign(document.createElement("option"), { value, textContent: text2, selected: value === current });
+      const option = (value, text) => Object.assign(document.createElement("option"), { value, textContent: text, selected: value === current });
       const none = Object.assign(document.createElement("optgroup"), { label: "Not in Home Assistant" });
       none.append(option("lit:always", "No entity: always lit"), option("lit:dark", "No entity: lit after dark"), option("lit:never", "No entity: never lit"));
       const known = Object.assign(document.createElement("optgroup"), { label: "Your devices" });
@@ -12497,7 +11714,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
           const { lit: _, ...rest } = light;
           ops.push({ set: lightPath, value: { ...rest, entities: [v] } });
           if (markers.length) for (const m2 of markers) ops.push({ set: [...m2, "entity"], value: v });
-          else ops.push({ insert: ["markers"], value: { entity: v, x, y, icon: iconOf2(v, this._shown.states?.[v]), tap: "toggle", small: true, part: id } });
+          else ops.push({ insert: ["markers"], value: { entity: v, x, y, icon: iconOf(v, this._shown.states?.[v]), tap: "toggle", small: true, part: id } });
         }
         this._edit(() => this.model.batch(ops));
         this._selectObject(id);
@@ -12638,11 +11855,11 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     _renderOptions() {
       const o = this._opts, box2 = this._el.options;
       const select = (key, values) => `<select data-opt="${key}">${Object.entries(values).map(([v, t]) => `<option value="${v}"${o[key] === v ? " selected" : ""}>${t}</option>`).join("")}</select>`;
-      const check = (key, text2) => `<label><input type="checkbox" data-opt="${key}"${o[key] ? " checked" : ""}> ${text2}</label>`;
-      const esc2 = (v) => String(v).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+      const check = (key, text) => `<label><input type="checkbox" data-opt="${key}"${o[key] ? " checked" : ""}> ${text}</label>`;
+      const esc = (v) => String(v).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
       box2.innerHTML = {
-        "build-room": `<label>Name <input type="text" data-opt="roomName" value="${esc2(o.roomName)}" placeholder="none: no label" size="12"></label>` + check("outdoor", "outdoors (a terrace, a balcony)"),
-        "build-piece": `<span>${esc2(prefab(o.prefab)?.name || "")}: Shift+click to place</span> <button type="button" data-turn title="Turn it a quarter (R)">Turn \u21BB</button>`,
+        "build-room": `<label>Name <input type="text" data-opt="roomName" value="${esc(o.roomName)}" placeholder="none: no label" size="12"></label>` + check("outdoor", "outdoors (a terrace, a balcony)"),
+        "build-piece": `<span>${esc(prefab(o.prefab)?.name || "")}: Shift+click to place</span> <button type="button" data-turn title="Turn it a quarter (R)">Turn \u21BB</button>`,
         "build-north": `<label>The top of the plan faces <input type="number" data-north value="${this.model?.data?.sun?.north ?? 0}" min="0" max="359" step="1" style="width: 4.5em">\xB0</label>`,
         "build-cut": select("cut", CUTS) + `<label><input type="number" data-opt="cutWidth" value="${o.cutWidth}" min="0.3" step="0.1" style="width: 4.5em"> m wide</label>`,
         wall: select("wall", { auto: "Outer or inner, by where", outer: "Outer wall", inner: "Inner wall" }),
@@ -12655,8 +11872,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         const v = (+north.value % 360 + 360) % 360;
         if (Number.isFinite(v)) this._edit(() => this.model.set(["sun", "north"], v));
       };
-      const turn2 = box2.querySelector("[data-turn]");
-      if (turn2) turn2.onclick = () => this._turnPrefab();
+      const turn = box2.querySelector("[data-turn]");
+      if (turn) turn.onclick = () => this._turnPrefab();
       for (const input2 of box2.querySelectorAll("[data-opt]")) {
         input2.onchange = () => {
           o[input2.dataset.opt] = input2.type === "checkbox" ? input2.checked : input2.type === "number" ? +input2.value > 0 ? +input2.value : o[input2.dataset.opt] : input2.value;
@@ -12819,9 +12036,9 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         this._create([{ insert: ["markers"], value: { entity: "light.new_light", x: r(a[0]), y: r(a[1]), icon: "mdi:lightbulb", tap: "toggle" } }], ["markers", (data.markers || []).length]);
       } else if (tool === "label") {
         if (moved) return;
-        const text2 = prompt("The label:", "Room")?.trim();
-        if (!text2) return;
-        this._create([{ insert: ["drawing", "labels"], value: { text: text2, at: [r(a[0]), r(a[1])], class: "room" } }], ["drawing", "labels", (data.drawing?.labels || []).length]);
+        const text = prompt("The label:", "Room")?.trim();
+        if (!text) return;
+        this._create([{ insert: ["drawing", "labels"], value: { text, at: [r(a[0]), r(a[1])], class: "room" } }], ["drawing", "labels", (data.drawing?.labels || []).length]);
       } else if (tool === "scale") {
         if (!moved) return;
         const now = `${(d / m2).toFixed(2)} m at the scale now`;
@@ -12843,9 +12060,9 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       let value;
       if (this._tool === "label") {
         if (moved) return;
-        const text2 = prompt("The label:", "Label")?.trim();
-        if (!text2) return;
-        value = { text: text2, at: [r(a[0]), r(a[1])], class: "lbl" };
+        const text = prompt("The label:", "Label")?.trim();
+        if (!text) return;
+        value = { text, at: [r(a[0]), r(a[1])], class: "lbl" };
       } else if (this._opts.extra === "circle") {
         value = { circle: [r(a[0]), r(a[1]), r(moved ? Math.hypot(b[0] - a[0], b[1] - a[1]) : 0.1 * m2)], class: "dev" };
       } else if (this._opts.extra === "line") {
@@ -12900,7 +12117,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     _duplicate() {
       if (!this._sels.length) return;
       if (!this.model.home) return this._message("Fix the mistakes listed here first: the plan shows the last version without them.");
-      const data = this.model.data, off = 4 * this._grid(), ops = [], made = [], ends2 = {};
+      const data = this.model.data, off = 4 * this._grid(), ops = [], made = [], ends = {};
       for (const path of this._sels) {
         const value = moveItem(path, structuredClone(itemAt(data, path)), off, off, this._withPiece(path, data));
         if (path.length === 2 && (path[0] === "furniture" || path[0] === "rooms")) {
@@ -12911,9 +12128,9 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
           made.push([path[0], `${base}${k}`]);
         } else {
           const list = path.slice(0, -1), key = pathKey(list);
-          ends2[key] ?? (ends2[key] = itemAt(data, list).length);
+          ends[key] ?? (ends[key] = itemAt(data, list).length);
           ops.push({ insert: list, value });
-          made.push([...list, ends2[key]++]);
+          made.push([...list, ends[key]++]);
         }
       }
       this._edit(() => this.model.batch(ops));
@@ -13073,8 +12290,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         this.select([...path, j]);
       }
     }
-    _message(text2, kind = "") {
-      return this._el.footer.appendChild(Object.assign(document.createElement("p"), { textContent: text2, className: kind }));
+    _message(text, kind = "") {
+      return this._el.footer.appendChild(Object.assign(document.createElement("p"), { textContent: text, className: kind }));
     }
     _updateButtons() {
       const b = this._el.buttons;
@@ -13182,16 +12399,16 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       return this.model.text !== this._file.saved;
     }
     // Opens a file ({name, text, handle}): a JSON file is edited as YAML, and saved back as JSON.
-    _open({ name, text: text2, handle }) {
+    _open({ name, text, handle }) {
       if (formatOf(name) === "json") {
         try {
-          text2 = yamlOf(JSON.parse(text2));
+          text = yamlOf(JSON.parse(text));
         } catch (e) {
           this._message(`${name}: ${e.message}`);
           return;
         }
       }
-      this.model.open(text2);
+      this.model.open(text);
       this._file = { name, handle, saved: this.model.text };
       this._inside = null;
       this._renderTools();
@@ -13206,13 +12423,13 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     async save({ as } = {}) {
       this._textChanged();
       const format = as || formatOf(this._file.name);
-      const text2 = format === "json" ? this.model.toJSON() : this.model.text;
+      const text = format === "json" ? this.model.toJSON() : this.model.text;
       let saved;
       if (!as && this._file.handle) {
-        await writeFile(this._file.handle, text2);
+        await writeFile(this._file.handle, text);
         saved = { name: this._file.name, handle: this._file.handle };
       } else {
-        saved = await saveFileAs(text2, format, renamed(this._file.name, format));
+        saved = await saveFileAs(text, format, renamed(this._file.name, format));
         if (!saved) return;
       }
       if (format === formatOf(this._file.name) || format === "yaml") this._file = { ...saved, saved: this.model.text };
@@ -13283,30 +12500,121 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     }
   };
 
-  // example/home.yaml
-  var home_default = "# An example home for Lightwell: a made-up flat with a living room (and a kitchen corner), a bedroom and a terrace.\n# Every field is described in the README; the engine checks them all (src/home.js).\n#\n# Units: 100 per metre, so the flat is 8.5 \xD7 6.5 m. x grows to the right, y downwards. The top of the plan faces\n# north, so the terrace door (bottom wall) faces south and the bedroom window (right wall) east.\n\nview: {x: -20, y: -20, w: 890, h: 840}\nunits_per_metre: 100\n\n# Light stays inside its room: rectangles [x, y, w, h], or one polygon.\nrooms:\n  living: [[25, 25, 475, 600]]\n  bedroom: [[515, 25, 310, 600]]\n  terrace: [[25, 650, 800, 150]]\n\n# The static drawing, slot by slot. Lightwell's own layers (daylight, lamps, shadows, shutters) go between the slots.\ndrawing:\n  floors:\n    - {rect: [25, 25, 800, 600], class: floor}\n    - {rect: [25, 650, 800, 150], class: terrace}\n    - {path: 'M25,790 H825', class: line}\n  walls:\n    - {rect: [0, 0, 850, 25], class: wall}\n    - {rect: [0, 0, 25, 650], class: wall}\n    # The bottom wall, with the terrace door (x 140\u2013360).\n    - {rect: [0, 625, 140, 25], class: wall}\n    - {rect: [360, 625, 490, 25], class: wall}\n    # The right wall, with the bedroom window (y 230\u2013410).\n    - {rect: [825, 0, 25, 230], class: wall}\n    - {rect: [825, 410, 25, 240], class: wall}\n    # Between the rooms, with a door (y 250\u2013340).\n    - {rect: [500, 25, 15, 225], class: iwall}\n    - {rect: [500, 340, 15, 285], class: iwall}\n  glazing:\n    - {rect: [140, 632, 220, 10], class: glass}\n    - {rect: [832, 230, 10, 180], class: glass}\n  # The kitchen counter, with the sink and the hob.\n  fittings:\n    - {rect: [25, 25, 260, 60], class: fix}\n    - {rect: [60, 35, 70, 40], class: fix2, rx: 6}\n    - {rect: [170, 35, 80, 40], class: fix2}\n  labels:\n    - {text: Living room, at: [300, 600], class: room}\n    - {text: Bedroom, at: [670, 300], class: room}\n    - {text: Terrace, at: [600, 735], class: room}\n\n# Windows and doors: where the sun and daylight come in. `at` is the wall's outer face, `depth` its thickness.\nopenings:\n  - {wall: bottom, at: 650, depth: 25, x: 140, w: 220, lo: 0, hi: 2.3, shutter: cover.living_room_blind, room: living, sky: living}\n  - {wall: right, at: 850, depth: 25, y: 230, h: 180, lo: 0.8, hi: 2.2, shutter: cover.bedroom_blind, room: bedroom, sky: bedroom}\n\n# Each piece once: its drawing, the shadows it casts (with a height, in metres) and the daylight on its top.\nfurniture:\n  sofa:\n    shape: {rect: [40, 380, 90, 200], rx: 8}\n    height: 0.8\n    shadow_room: living\n    extra:\n      - {rect: [40, 380, 25, 200], class: furn2, rx: 6}\n  coffeeTable: {shape: {rect: [190, 430, 90, 60], rx: 6, turn: 20}, height: 0.45, shadow_room: living}\n  tvStand:\n    shape: {rect: [440, 400, 50, 160]}\n    height: 0.5\n    shadow_room: living\n    extra:\n      - {rect: [478, 410, 8, 140], class: dev}\n  diningTable: {shape: {rect: [300, 150, 140, 90], rx: 8}, height: 0.75, shadow_room: living}\n  floorLamp: {shape: {circle: [70, 340, 15]}, class: furn2}\n  wardrobe:\n    shape: {rect: [530, 40, 60, 160]}\n    height: 2\n    shadow_room: bedroom\n    extra:\n      - {path: 'M530,120 h60', class: line}\n  desk: {shape: {rect: [700, 40, 120, 60]}, height: 0.75, shadow_room: bedroom}\n  deskChair: {shape: {circle: [760, 130, 25]}, class: furn2, height: 0.9, shadow_room: bedroom}\n  bed:\n    shape: {rect: [600, 420, 200, 180], rx: 10}\n    height: 0.55\n    shadow_room: bedroom\n    extra:\n      - {rect: [615, 560, 80, 30], class: furn2, rx: 10}\n      - {rect: [705, 560, 80, 30], class: furn2, rx: 10}\n  bedsideTable: {shape: {rect: [530, 540, 50, 50]}, class: furn2, height: 0.5, shadow_room: bedroom}\n\n# Lights glow in their entity's colour and brightness. A pool lights the floor around a lamp `height` metres up,\n# and the furniture named in `shadows` casts shadows away from it.\nlights:\n  - entities: [light.living_room_lamp]\n    shape: [{circle: [70, 340, 60]}]\n    over: true\n    clip: living\n    pool: {x: 70, y: 340, r: 380, height: 1.6, shadows: [sofa, coffeeTable, diningTable]}\n  # The TV only reports whether it's on: cool light that flickers while it is.\n  - entities: [media_player.tv]\n    states: ['on', playing, paused]\n    color: [170, 200, 255]\n    effect: flicker\n    shape: [{ellipse: [478, 480, 25, 70]}]\n    over: true\n    clip: living\n    pool: {x: 470, y: 480, r: 350, height: 1, shadows: [coffeeTable, sofa]}\n  - entities: [light.kitchen_strip]\n    shape: [{path: 'M35,90 H275', stroke_width: 20, fill: none}]\n    top: true\n    clip: living\n  - entities: [light.bedroom_lamp]\n    shape: [{circle: [555, 565, 50]}]\n    over: true\n    clip: bedroom\n    pool: {x: 555, y: 565, r: 330, height: 0.9, shadows: [bed, wardrobe, desk]}\n  # On/off string lights: bulbs in a repeating set of colours, each with a faint pool, fading out by day.\n  - entities: [light.terrace_lights]\n    multi: true\n    outdoor: true\n    clip: terrace\n    shape:\n      - {circle: [60, 775, 60], repeat: {count: 12, step: [65, 0]}, fill: ['#ff5a5a', '#ffd23b', '#5aff8a', '#5ac8ff'], fill_opacity: 0.08}\n      - {circle: [60, 775, 10], repeat: {count: 12, step: [65, 0]}, fill: ['#ff5a5a', '#ffd23b', '#5aff8a', '#5ac8ff']}\n\n# Effects by name, played while a light reports them: steps of [hue, saturation, brightness %, hold ms]. `flicker`\n# (the TV's) is built in.\neffects:\n  Sunset glow: [[25, 90, 90, 5000], [10, 85, 70, 5000], [40, 80, 100, 5000]]\n\nmarkers:\n  - {entity: light.living_room_lamp, x: 110, y: 330, icon: 'mdi:floor-lamp', tap: toggle}\n  - {entity: light.kitchen_strip, x: 150, y: 120, icon: 'mdi:led-strip-variant', tap: toggle}\n  - {entity: climate.living_room, x: 400, y: 60, icon: 'mdi:air-conditioner', label: {attribute: temperature, round: 0, unit: '\xB0'}}\n  - {entity: media_player.tv, x: 440, y: 480, icon: 'mdi:television', label: {attribute: source, when: ['on']}}\n  - {entity: light.bedroom_lamp, x: 555, y: 565, icon: 'mdi:lamp', tap: toggle}\n  - {entity: sensor.bedroom_temperature, x: 760, y: 200, icon: 'mdi:thermometer', small: true, side: true, label: {round: 1, unit: '\xB0'}}\n  - {entity: cover.bedroom_blind, x: 790, y: 320, icon: 'mdi:blinds', small: true, label: {attribute: current_position, unit: '%'}}\n  - {entity: cover.living_room_blind, x: 250, y: 690, icon: 'mdi:blinds', small: true, label: {attribute: current_position, unit: '%'}}\n  - {entity: weather.home, x: 100, y: 720, icon: 'mdi:weather-partly-cloudy', label: {attribute: temperature, round: 0, unit: '\xB0'}}\n  - {entity: light.terrace_lights, x: 760, y: 720, icon: 'mdi:string-lights', tap: toggle}\n\nsun:\n  # The compass bearing of the top of the plan.\n  north: 0\n  # A garden wall at the end of the terrace, 2 m high, that shades the door in the late afternoon.\n  blockers:\n    - {rect: [825, 650, 25, 150], height: 2}\n  # Trees to the west: they dim the sun behind them (azimuth 250\u2013290\xB0, up to 10\xB0 high) to 40%.\n  trees: {from: 250, to: 290, top: 10, through: 0.4}\n  # Daylight from the living room carrying on through the door into the bedroom, dimmed by the terrace door's blind.\n  spill:\n    - {cx: 507, cy: 295, rx: 200, ry: 160, clip: bedroom, from: [0], k: 0.4}\n  # Always in the sun when it's out.\n  outdoor:\n    - {rect: [25, 650, 800, 150], fill_opacity: 0.35}\n\n# The terrace's colour, on top of Lightwell's own; tinted with the time of day like the floors.\npalette:\n  light: {terrace: '#d9cfc0'}\n  dark: {terrace: '#3a352e'}\n  tinted: [terrace]\n\n# For the simulator's time presets (tools/simulator): what is on at that time of day; blinds not named are open.\nsimulator:\n  scenes:\n    Night: {lights: 'off', media: 'off', shutters: {cover.bedroom_blind: 0, cover.living_room_blind: 0}}\n    Dawn: Night\n    Sunrise: Night\n    Morning: {lights: 'off', media: 'off'}\n    Noon: Morning\n    Afternoon: Morning\n    Golden hour: {lights: 'off', media: 'on'}\n    Sunset: {lights: 'on', media: 'on', shutters: {cover.living_room_blind: 40}}\n    Dusk: Sunset\n    Evening: Sunset\n";
-
-  // src/editor/index.js
-  if (!customElements.get("ha-card")) customElements.define("ha-card", class extends HTMLElement {
-  });
-  if (!customElements.get("ha-icon")) {
-    customElements.define("ha-icon", class extends HTMLElement {
-      connectedCallback() {
-        const name = this.getAttribute("icon").replace("mdi:", "");
-        this.style.display = "inline-block";
-        const d = document.createElement("div");
-        d.style.cssText = `width: var(--mdc-icon-size); height: var(--mdc-icon-size); background: currentColor;
-        -webkit-mask: url(https://cdn.jsdelivr.net/npm/@mdi/svg/svg/${name}.svg) center/contain no-repeat`;
-        this.appendChild(d);
-      }
-    });
+  // src/stub.js
+  function stubHome(states = {}) {
+    const light = Object.keys(states).sort().find((id) => id.startsWith("light.")) || "light.living_room";
+    return {
+      description: "A new home: change it in the card editor, or describe yours as the README says.",
+      view: { x: -20, y: -20, w: 590, h: 490 },
+      units_per_metre: 100,
+      rooms: { room: [[25, 25, 500, 400]] },
+      drawing: {
+        floors: [{ rect: [25, 25, 500, 400], class: "floor", part: "room" }],
+        walls: [
+          { rect: [0, 0, 550, 25], class: "wall", part: "room" },
+          { rect: [0, 425, 175, 25], class: "wall", part: "room" },
+          { rect: [375, 425, 175, 25], class: "wall", part: "room" },
+          { rect: [0, 25, 25, 400], class: "wall", part: "room" },
+          { rect: [525, 25, 25, 400], class: "wall", part: "room" }
+        ],
+        glazing: [{ rect: [175, 432, 200, 10], class: "glass", part: "window_1" }],
+        labels: [{ text: "Room", at: [275, 90], class: "room", part: "room" }]
+      },
+      openings: [{ wall: "bottom", at: 450, depth: 25, x: 175, w: 200, lo: 0.9, hi: 2.2, room: "room", part: "window_1" }],
+      furniture: { sofa: { shape: { rect: [175, 300, 200, 85], rx: 8 }, height: 0.8, shadow_room: "room" } },
+      lights: [{
+        entities: [light],
+        shape: [{ circle: [275, 200, 60] }],
+        over: true,
+        clip: "room",
+        pool: { x: 275, y: 200, r: 350, height: 1.5, shadows: ["sofa"] },
+        part: "lamp_1"
+      }],
+      markers: [{ entity: light, x: 275, y: 200, icon: "mdi:ceiling-light", tap: "toggle", part: "lamp_1" }],
+      sun: { north: 0 }
+    };
   }
-  if (!customElements.get("lightwell-card")) defineFloorplanCard("lightwell-card", void 0, { name: "Lightwell" });
-  var Editor = class extends LightwellEditor {
+
+  // src/editor/ha.js
+  var HOSTED = "https://viktorbalog.github.io/lightwell-card/editor/";
+  if (!customElements.get("lightwell-editor")) customElements.define("lightwell-editor", LightwellEditor);
+  var STYLE3 = `
+  :host { display: block; }
+  .file p { margin: 0 0 12px; line-height: 1.5; }
+  .file code { font-size: 0.95em; }
+  .file .why { color: var(--error-color, #db4437); }
+  .file button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 0; cursor: pointer;
+    background: var(--primary-color, #03a9f4); color: var(--text-primary-color, #fff); }
+  .file a { color: var(--primary-color, #03a9f4); }
+`;
+  var LightwellCardEditor = class extends HTMLElement {
     constructor() {
       super();
-      this.example = home_default;
+      this.attachShadow({ mode: "open" }).innerHTML = `<style>${STYLE3}</style><div class="box"></div>`;
+      this._box = this.shadowRoot.querySelector(".box");
+    }
+    setConfig(config) {
+      this._config = config;
+      if (config.home_url && !config.home) this._showFile(config.home_url);
+      else this._showEditor(config.home);
+    }
+    set hass(hass) {
+      this._hass = hass;
+      if (this._editor) this._editor.hass = hass;
+    }
+    // The editor, with the card's home (or, without one, a small home to start from, which the card then gets).
+    _showEditor(home) {
+      if (!this._editor) {
+        this._box.textContent = "";
+        const editor = this._editor = document.createElement("lightwell-editor");
+        editor.setAttribute("shell", "ha");
+        if (this._hass) editor.hass = this._hass;
+        editor.addEventListener("value-changed", (e) => this._send({ ...this._config, home: e.detail.value }));
+        this._box.append(editor);
+      }
+      if (home && typeof home === "object") this._editor.value = home;
+      else {
+        this._editor.value = stubHome(this._hass?.states);
+        this._send({ ...this._config, home: this._editor.value });
+      }
+    }
+    // A home kept in a file: what can be done with it.
+    _showFile(url) {
+      if (this._shown === url) return;
+      this._shown = url;
+      this._editor = null;
+      const file = url.replace(/^\/local\//, "/config/www/"), name = url.split("/").pop().split("?")[0];
+      this._box.innerHTML = `<div class="file">
+      <p>This card's home is kept in a file, <code class="url"></code>, and Home Assistant's card editor can't save files.</p>
+      <p><button type="button">Edit it here</button> moves the home into the card: the dashboard keeps it from then on, and
+        the file stays as it is, no longer used.</p>
+      <p>Or keep the file, and edit it in the <a class="hosted" target="_blank" rel="noopener">Lightwell editor</a>:
+        <a class="download">download it</a>, open it there (connect the editor to this Home Assistant for your devices),
+        save it as JSON, and put it back as <code class="path"></code>.</p>
+      <p class="why"></p></div>`;
+      const $ = (s) => this._box.querySelector(s);
+      $(".url").textContent = url;
+      $(".path").textContent = file;
+      $(".hosted").href = HOSTED;
+      Object.assign($(".download"), { href: url, download: name });
+      $("button").onclick = async () => {
+        try {
+          const r = await fetch(url, { cache: "no-cache" });
+          if (!r.ok) throw new Error(`${url}: ${r.status} ${r.statusText}`);
+          const home = await r.json(), { home_url: _, ...rest } = this._config;
+          this._shown = null;
+          this._config = { ...rest, home };
+          this._showEditor(home);
+          this._send(this._config);
+        } catch (e) {
+          $(".why").textContent = `Couldn't read it: ${e.message}`;
+        }
+      };
+    }
+    _send(config) {
+      this._config = config;
+      this.dispatchEvent(new CustomEvent("config-changed", { detail: { config }, bubbles: true, composed: true }));
     }
   };
-  if (!customElements.get("lightwell-editor")) customElements.define("lightwell-editor", Editor);
+  if (!customElements.get("lightwell-card-editor")) customElements.define("lightwell-card-editor", LightwellCardEditor);
 })();

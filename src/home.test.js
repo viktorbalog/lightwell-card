@@ -47,7 +47,8 @@ test('every name must refer to something that exists', () => {
   invalid(h => { h.openings[0].sky = 'attic'; }, 'openings[0].sky: no room called "attic"');
   invalid(h => { delete h.openings[0].room; delete h.openings[0].sky; }, 'openings[0]: needs the room its sun falls in');
   invalid(h => { h.openings[0].shutter = 'Blind'; }, 'openings[0].shutter: "Blind" isn\'t an entity id');
-  invalid(h => { h.lights[0].entities = []; }, 'lights[0]: needs entities');
+  invalid(h => { h.lights[0].entities = []; }, 'lights[0]: needs entities, or lit');
+  invalid(h => { h.lights[0].lit = 'sometimes'; }, 'lights[0].lit: needs always, dark, never');
   invalid(h => { h.lights[0].shape = undefined; }, 'lights[0]: needs a shape');
   invalid(h => { h.lights[0].shape = [{}]; }, 'lights[0].shape[0]: needs exactly one of');
   invalid(h => { delete h.lights[0].pool.height; }, 'lights[0].pool: needs a number height');
@@ -73,6 +74,29 @@ test('every name must refer to something that exists', () => {
   invalid(h => { h.sun.spill[0].from = [3]; }, 'sun.spill[0].from: no opening 3');
 });
 
+test('descriptions are notes: any text, on the home and its items, and nothing else', () => {
+  const h = base();
+  h.description = 'A test flat';
+  for (const item of [h.openings[0], h.furniture.table, h.lights[0], h.markers[0], h.sun.spill[0], h.drawing.walls[0]]) item.description = 'A note';
+  assert.doesNotThrow(() => defineHome(h));
+  invalid(h => { h.description = 42; }, 'description: needs a text');
+  invalid(h => { h.openings[0].description = ['a']; }, 'openings[0].description: needs a text');
+  invalid(h => { h.furniture.table.description = 1; }, 'furniture.table.description: needs a text');
+  invalid(h => { h.lights[0].description = true; }, 'lights[0].description: needs a text');
+  invalid(h => { h.markers[0].description = {}; }, 'markers[0].description: needs a text');
+  invalid(h => { h.sun.spill[0].description = 0; }, 'sun.spill[0].description: needs a text');
+  invalid(h => { h.sun.blockers = [{rect: [0, 0, 1, 1], height: 2, description: 2}]; }, 'sun.blockers[0].description: needs a text');
+  invalid(h => { h.drawing.walls[0].description = 3; }, 'drawing.walls[0].description: needs a text');
+});
+
+test('parts name the Build object an item was made as: any text', () => {
+  const h = base();
+  for (const item of [h.openings[0], h.furniture.table, h.lights[0], h.markers[0], h.drawing.walls[0]]) item.part = 'window_1';
+  assert.doesNotThrow(() => defineHome(h));
+  invalid(h => { h.openings[0].part = 1; }, 'openings[0].part: needs a text');
+  invalid(h => { h.drawing.walls[0].part = ['a']; }, 'drawing.walls[0].part: needs a text');
+});
+
 test('all the errors are listed at once', () => {
   const h = base();
   h.lights[0].clip = 'attic';
@@ -85,4 +109,12 @@ test('the entities: lights, markers with what they read, shutters, the sun and w
   const h = base();
   h.sun.weather = 'weather.forecast_home';
   assert.equal(entitiesOf(defineHome(h)).at(-1), 'weather.forecast_home');
+});
+
+test('a light without entities is lit always, while the sun is down, or never', () => {
+  const h = base();
+  h.lights.push({lit: 'dark', shape: [{circle: [50, 50, 5]}], color: [255, 200, 120]});
+  const home = defineHome(h);
+  assert.equal(home.lights[1].lit, 'dark');
+  assert.ok(!entitiesOf(home).includes(undefined));
 });

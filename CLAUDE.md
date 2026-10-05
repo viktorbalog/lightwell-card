@@ -9,11 +9,17 @@ HACS. The README describes it for users; read it first.
 - `src/`: the card, plain ES modules. `home.js` describes and checks a home (`defineHome`); `card.js` is the custom
   element; `sun.js`, `effects.js`, `markers.js`, `openings.js`, `furniture.js`, `shapes.js`, `geometry.js` are pure
   and tested (`*.test.js` next to them). `index.js` registers `lightwell-card`. `schema.js` describes every field
-  of a home (for the editor's forms); its test checks it against `defineHome`.
-- `src/editor/`: the editor for homes (`<lightwell-editor>`, bundled on its own into `dist/lightwell-editor.js`, so the
-  card's bundle doesn't grow): `model.js` keeps the home as a `yaml` Document (comments survive edits), `controls.js`
+  of a home (for the editor's forms); its test checks it against `defineHome`. `loader.js` loads the card's editor in
+  HA on demand; `stub.js` is the home a new card starts with (`getStubConfig`).
+- `src/editor/`: the editor for homes (`<lightwell-editor>`, bundled on its own into `dist/lightwell-editor.js` for the
+  standalone page, and with `ha.js`, HA's config element `<lightwell-card-editor>`, into `dist/lightwell-card-editor.js`,
+  so the card's bundle doesn't grow). It has two shells (`standalone`, `ha`) and two views (`edit`, `build`): `model.js` keeps the home as a `yaml` Document (comments survive edits), `controls.js`
   the simulator's controls (also built into `tools/simulator/controls.js` for the simulator), `files.js` opening and
-  saving, `hit.js` what's under the pointer (from the home's geometry), `manipulate.js` moving, resizing and snapping, `create.js` new items and new homes, `pickers.js` entities, labels, icons and effects, `live.js` the connection to HA (its login, its websocket), `panels.js` the item list and the forms. The page is `tools/editor/index.html`. Plan: `docs/plans/2026-10-03-home-editor/`.
+  saving, `hit.js` what's under the pointer (from the home's geometry), `manipulate.js` moving, resizing and snapping, `create.js` new items and new homes, `pickers.js` entities, labels, icons and effects, `live.js` the connection to HA (its login, its websocket), `panels.js` the item list and the forms; the Build view's
+  `build.js` (rooms with their walls, cuts, objects tagged by `part`), `prefabs.js` (the furniture catalogue),
+  `devices.js` (lamps and markers from entities). The pages are `tools/editor/index.html` and `tools/editor/ha.html`
+  (the HA config element with a made-up hass). Plans: `docs/plans/2026-10-03-home-editor/`,
+  `docs/plans/2026-10-04-ha-card-editor/`.
 - `dist/lightwell-card.js`: the bundle, built by `npm run build` and committed (HACS installs it from the repo). Never
   edit it by hand; rebuild and commit it with the source change.
 - `example/`: the example homes (YAML, plus the `home.js` the build makes for the tools) and made-up states.

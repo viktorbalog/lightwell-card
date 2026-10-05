@@ -9,6 +9,18 @@ export const box = (x, y, w, h, deg = 0) => {
     [cx + (px - cx) * Math.cos(a) - (py - cy) * Math.sin(a), cy + (px - cx) * Math.sin(a) + (py - cy) * Math.cos(a)]);
 };
 
+// A polygon's points turned by `deg` around `c` (default: the middle of its bounding box, as a turned piece is).
+export const turnPoly = (poly, deg = 0, c = polyMiddle(poly)) => {
+  if (!deg) return poly;
+  const a = deg * Math.PI / 180;
+  return poly.map(([px, py]) => [c[0] + (px - c[0]) * Math.cos(a) - (py - c[1]) * Math.sin(a), c[1] + (px - c[0]) * Math.sin(a) + (py - c[1]) * Math.cos(a)]);
+};
+// The middle of a polygon's bounding box.
+export const polyMiddle = poly => {
+  const xs = poly.map(p => p[0]), ys = poly.map(p => p[1]);
+  return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+};
+
 // A circle as a 12-sided polygon.
 export const round = (cx, cy, r) =>
   Array.from({length: 12}, (_, k) => [cx + r * Math.cos(k * Math.PI / 6), cy + r * Math.sin(k * Math.PI / 6)]);

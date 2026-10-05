@@ -16,6 +16,8 @@ marker you can tap.</p>
 <sub>A spring day in the example flat, hour by hour: the morning sun through the east window, noon through the
 terrace door, the garden wall's shadow in the evening, then the lamps.</sub></p>
 
+<p align="center"><sub>Written 100% with <a href="https://claude.com/claude-code">Claude Code</a>.</sub></p>
+
 ## What it does
 
 - **Lights** glow in the colour and brightness their entity reports, kept inside their room. A lamp lights a pool on
@@ -38,11 +40,16 @@ terrace door, the garden wall's shadow in the evening, then the lamps.</sub></p>
 **Lightwell**. HACS adds the resource for you.
 
 **By hand:** copy `dist/lightwell-card.js` to `/config/www/`, then add it as a resource (Settings → Dashboards → ⋮ →
-Resources → Add): URL `/local/lightwell-card.js`, type JavaScript module.
+Resources → Add): URL `/local/lightwell-card.js`, type JavaScript module. Copy `dist/lightwell-card-editor.js` next to
+it for the card's editor in Home Assistant (it's loaded only when the editor is opened).
 
 ## Use it
 
-Add a card to a dashboard, with your home in it:
+**From the card picker:** edit a dashboard, Add card → *Lightwell*. The card starts with a small room, with a lamp
+for one of your lights, and opens in its editor: build your home there (see [the editor](#the-editor)), and save. The
+dashboard keeps the home in the card's config.
+
+**In YAML:** add a card with your home in it:
 
 ```yaml
 type: custom:lightwell-card
@@ -67,8 +74,28 @@ converter, or paste it under `home:`.
 
 ## The editor
 
-**[Open the editor](https://viktorbalog.github.io/lightwell-card/editor/)**: it runs in your browser, nothing to
-install, and your home stays on your computer.
+The same editor works in two places: **in Home Assistant**, as the card's editor (Edit card), for a home kept in the
+card; and **[online](https://viktorbalog.github.io/lightwell-card/editor/)**, in your browser, for a home kept in a file
+(`home_url`): nothing to install, and your home stays on your computer.
+
+It has two views:
+
+- **Build:** a home step by step, without knowing its format. *Rooms*: name a room and drag its rectangle; it comes
+  with its floor, its name and its walls, and a room drawn against another's wall shares it (rooms outdoors, a terrace
+  or a balcony, get no walls). *Windows and doors*: click on a wall (or drag along it for the width); windows and
+  glass doors let the sun in, a door between rooms is a doorway; drag one's end to resize it, or the whole of it to
+  slide it along the wall. *Furniture*: a catalogue of real sizes (living room, bedroom, kitchen and dining,
+  bathroom, and lights: ceiling, pendant, floor and table lamps, light strips): drag one onto the plan, or choose it
+  and Shift+click where it goes; R turns it. A light asks which of your lights it is, or, for a lamp that isn't
+  smart, whether it's lit always, after dark or never. *Lamps and devices*: your lights, blinds, sensors and the rest,
+  dragged where they are (or Shift+clicked): a light becomes a lamp glowing in its colour with a marker that switches
+  it, a blind dropped on a window darkens it. *North*: click in its direction. What Build makes is selected, moved and
+  deleted as one thing (a window with its glass; a room with its walls), and each step picks its own kind.
+- **Edit:** every item and field, drawn and changed precisely, as below.
+
+Both work on the same home at any time, with one undo. In Home Assistant the editor opens in Build; online, a new
+empty home does. A card whose home is a file (`home_url`) can't be saved from Home Assistant: its editor offers to
+move the home into the card (*Edit it here*), or to edit the file online and put it back.
 
 <p align="center"><img src="docs/editor.png" width="800" alt="The editor: the example flat with its living room lamp selected, its pool of light and the furniture casting shadows from it, and the lamp's properties"></p>
 
@@ -210,7 +237,7 @@ furniture:
 
 | Field | |
 | --- | --- |
-| `shape` | `{rect: [x, y, w, h], rx, turn}` (turned by `turn` degrees around its centre), `{circle: [cx, cy, r]}` or `{poly: [[x, y], ...]}` |
+| `shape` | `{rect: [x, y, w, h], rx, turn}` (turned by `turn` degrees around its centre), `{circle: [cx, cy, r]}` or `{poly: [[x, y], ...], turn}` (turned around the middle of its bounding box) |
 | `height` | in metres; only pieces with one cast shadows |
 | `shadow_room` | the room its shadow in the sun stays in; without one, it casts none in the sun |
 | `class` | `furn` (the default) or `furn2`, for smaller, darker pieces |
@@ -235,6 +262,7 @@ lights:
 | Field | |
 | --- | --- |
 | `entities` | the first of them that is on lights it, in its colour (lights without a colour glow warm white) |
+| `lit` | for a light without `entities` (a lamp that isn't smart): `always`, `dark` (while the sun is down) or `never` |
 | `states` | what counts as on (default `['on']`) |
 | `color` | `[r, g, b]`, for entities without a colour of their own |
 | `shape` | shapes, blurred into a glow |
@@ -299,6 +327,22 @@ sun:
 | `spill` | ellipses of daylight carried on through doors into rooms without windows, dimmed by the shutters of the openings in `from` (their positions in the list), `k` of the daylight getting through |
 | `outdoor` | shapes in the sun whenever it's out (a terrace) |
 
+### Notes and parts
+
+Any item that is a map (an opening, a piece, a light, a marker, a shape, a spill, a blocker) and the home itself can
+have a `description`: a note for whoever edits the home. Unlike a YAML comment, it survives in a dashboard, which keeps
+its cards as JSON. The editor shows it in the item's form and as its tooltip in the list.
+
+`part` names the object the editor's Build view made an item as: a room's walls, floor and label carry the room's
+name, a window's glass and opening `window_1`, a lamp's light and marker `lamp_1`. Build selects, moves and deletes
+them together. The card ignores both.
+
+```yaml
+openings:
+  - {wall: bottom, at: 650, depth: 25, x: 140, w: 220, lo: 0, hi: 2.3, room: living, part: glass_door_1,
+     description: The terrace door; its blind closes at sunset}
+```
+
 ### Palette
 
 Colours for your own classes, or new ones for Lightwell's, in light and dark; `tinted` classes take the time of day's
@@ -346,6 +390,10 @@ path only (`states.js`, `../../my/home.js`), never from another site.
 simulator with the example homes.
 
 ## Development
+
+Lightwell is written 100% with [Claude Code](https://claude.com/claude-code), Anthropic's coding agent: the card, the
+editor, the tools, the tests and these docs. Its instructions for working on the project are in
+[CLAUDE.md](CLAUDE.md), and the plans it worked from in [docs/plans/](docs/plans/).
 
 ```sh
 npm install

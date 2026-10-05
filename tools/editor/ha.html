@@ -1,0 +1,95 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lightwell editor in HA (test)</title><link rel="icon" href="../../docs/logo.svg">
+<!-- For working on the card's editor in HA without Home Assistant: <lightwell-card-editor> (dist/lightwell-card-editor.js)
+     in a box as wide as HA's card editor dialog, under HA's theme variables (light or dark), with a made-up hass from
+     the example's states (or ?states=<script>, as the editor's page takes it). It starts as a new card (the stub HA's
+     card picker would give), with the example home, or as a card with home_url; what it sends HA (config-changed) is
+     counted and shown below. The standalone bundle comes first, for its stand-ins for HA's ha-card and ha-icon.
+     Beside it, as HA has, a preview of the card (rebuilt on every change, marked preview), which the editor edits on;
+     without it, the editor shows a plan of its own. -->
+<style>
+  body { margin: 0; padding: 16px; font: 14px system-ui, sans-serif; background: #e9e9e9; color: #222; }
+  .bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 12px; }
+  .dialog { display: flex; gap: 16px; align-items: flex-start; margin: 0 auto; padding: 16px 24px; border-radius: 12px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+    background: var(--card-background-color); color: var(--primary-text-color); }
+  .light { --primary-background-color: #fafafa; --primary-color: #03a9f4; --rgb-primary-color: 3, 169, 244; --primary-text-color: #212121; --secondary-text-color: #727272;
+    --disabled-text-color: #bdbdbd; --divider-color: rgba(0, 0, 0, 0.12); --card-background-color: #fff;
+    --secondary-background-color: #e5e5e5; --error-color: #db4437; --rgb-error-color: 219, 68, 55; }
+  .dark { --primary-background-color: #111; --primary-color: #03a9f4; --rgb-primary-color: 3, 169, 244; --primary-text-color: #e1e1e1; --secondary-text-color: #9b9b9b;
+    --disabled-text-color: #6f6f6f; --divider-color: rgba(225, 225, 225, 0.12); --card-background-color: #1c1c1c;
+    --secondary-background-color: #282828; --error-color: #db4437; --rgb-error-color: 219, 68, 55; color-scheme: dark; }
+  body:has(.dark) { background: #111; color: #ddd; }
+  .dialog > * { flex: 1 1 0; min-width: 0; } .ha-preview { background: var(--primary-background-color, #fafafa); padding: 4px; border-radius: 4px; }
+  .ha-preview:empty { display: none; } .ha-preview { position: relative; height: max-content; }
+  .hui-card { display: block; padding: 8px 10px; max-width: 500px; box-sizing: border-box; }
+  pre { max-height: 200px; overflow: auto; background: rgba(127, 127, 127, 0.12); padding: 8px; font-size: 12px; }
+</style>
+<script>
+  const Q = new URLSearchParams(location.search), states = Q.get('states');
+  document.write(`<script src="${states && /^(?!\/\/)[\w ./%~-]+\.js$/.test(states) ? states : '../../example/states.js'}"><\/script>`);
+</script>
+<script src="../../example/home.js"></script>
+<script src="../../dist/lightwell-editor.js"></script>
+<script src="../../dist/lightwell-card-editor.js"></script>
+<body>
+<div class="bar">
+  <label>Width <input type="range" min="360" max="1400" value="1000" id="width"> <span id="px"></span></label>
+  <label><input type="checkbox" id="dark"> HA in dark</label>
+  <label><input type="checkbox" id="haPreview" checked> HA's preview</label>
+  <label>The card <select id="start"><option value="stub">new, from the picker</option><option value="example">with the example home</option>
+    <option value="url">with home_url</option></select></label>
+  <span id="count">Nothing sent yet.</span>
+</div>
+<div class="dialog light" id="dialog"></div>
+<pre id="out"></pre>
+<script>
+  const dialog = document.getElementById('dialog'), width = document.getElementById('width');
+  const hass = dark => ({states: window.STATES || {}, config: {latitude: window.HOME?.latitude ?? 47.5, longitude: window.HOME?.longitude ?? 19.05},
+    themes: {darkMode: dark}});
+  const sizeIt = () => { dialog.style.width = `${width.value}px`; document.getElementById('px').textContent = `${width.value} px`; };
+  width.oninput = sizeIt;
+  sizeIt();
+  document.getElementById('dark').onchange = e => {
+    dialog.className = `dialog ${e.target.checked ? 'dark' : 'light'}`;
+    start();
+  };
+  // The card's editor, as HA makes it: the class's getConfigElement, then hass and the config; HA hands every
+  // config-changed back through setConfig.
+  let editor, n = 0;
+  // HA's preview of the card: a new element for every change, marked preview (as HA's hui-card does in its editor).
+  const preview = config => {
+    const box = dialog.querySelector('.ha-preview');
+    if (!box || !document.getElementById('haPreview').checked) return;
+    const card = document.createElement('lightwell-card');
+    try { card.setConfig(config); } catch (e) { box.textContent = e.message; return; }
+    card.hass = hass(document.getElementById('dark').checked);
+    card.preview = true;
+    // As HA's dialog has it: the card in a hui-card capped at 500 px, in the preview column.
+    const hui = Object.assign(document.createElement('div'), {className: 'hui-card'});
+    hui.append(card);
+    box.replaceChildren(hui);
+  };
+  const start = async () => {
+    dialog.innerHTML = '<div class="ha-editor"></div><div class="ha-preview"></div>';
+    n = 0;
+    const Card = customElements.get('lightwell-card'), how = document.getElementById('start').value;
+    editor = document.createElement('lightwell-card-editor');
+    editor.hass = hass(document.getElementById('dark').checked);
+    const config = how === 'stub' ? {type: 'custom:lightwell-card', ...Card.getStubConfig(editor.hass)}
+      : how === 'url' ? {type: 'custom:lightwell-card', home_url: FILE} : {type: 'custom:lightwell-card', home: structuredClone(window.FLOORPLAN_HOME)};
+    editor.setConfig(config);
+    editor.addEventListener('config-changed', e => {
+      document.getElementById('count').textContent = `Sent ${++n} time${n > 1 ? 's' : ''}.`;
+      document.getElementById('out').textContent = JSON.stringify(e.detail.config, null, 1).slice(0, 4000);
+      editor.setConfig(e.detail.config);
+      preview(e.detail.config);
+    });
+    dialog.querySelector('.ha-editor').appendChild(editor);
+    preview(config);
+  };
+  document.getElementById('start').onchange = start;
+  document.getElementById('haPreview').onchange = start;
+  // The example home as a file, for a card with home_url.
+  const FILE = URL.createObjectURL(new Blob([JSON.stringify(window.FLOORPLAN_HOME)], {type: 'application/json'}));
+  start();
+</script>

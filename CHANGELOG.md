@@ -7,6 +7,34 @@ versions [Semantic Versioning](https://semver.org/). Changes not released yet ar
 
 ### Added
 
+- **The card's editor in Home Assistant:** Edit card shows the editor, and a new card from the card picker starts
+  with a small room and a lamp for one of your lights. The dashboard keeps the home in the card. The editor is a file
+  of its own (`lightwell-card-editor.js`, installed by HACS next to the card), loaded only when it's opened. A card
+  with `home_url` offers to move its home into the card, or to edit the file in the online editor.
+- **The editor's Build view:** a home step by step. Rooms come with their floor, name and walls (shared between rooms
+  drawn side by side); windows, glass doors and doors are clicked onto the walls, resized by their ends and slid along
+  them; furniture from a catalogue of real sizes, turned with R; lamps and devices from Home Assistant dragged where
+  they are (a light becomes a lamp with its marker, a blind on a window its shutter); north by a click. What it makes
+  is picked, moved and deleted as one. It opens first in Home Assistant, and for a new empty home online.
+- **`description`** on the home and its items: a note that survives where YAML comments don't (a dashboard keeps its
+  cards as JSON). The editor shows it in the forms and as the list's tooltips.
+- **`part`** on shapes, openings, lights, markers and furniture: the Build object it was made as. The card ignores it.
+- **The editor's Build view** adopts a home not made in it (*Find them*): its lamps, windows and doors (with their
+  glass and shutters) and its rooms' names are found and tagged, so that Build picks each as one.
+- Lights without an entity (lamps that aren't smart): `lit: always`, `dark` (while the sun is down) or `never`.
+- The Build view's catalogue has lights: ceiling, pendant, floor and table lamps, light strips; each asks which of
+  your lights it is, or has none.
+- **The editor's Build view:** furniture and devices are placed by Shift+click or dragged from the catalogue (a plain
+  click selects); a room's name is edited on the plan by a double-click; a room drawn without a name has no label.
+- **The editor's Build view:** what it makes behaves as one thing, as a piece of furniture with its insides does. A
+  click selects it, a drag moves it, a double-click (or Enter) goes inside it to change its parts one by one, and Esc
+  comes back out. A room moves too: its walls are made again where it lands, and its windows and doors go with it. A
+  lamp or a piece moved into another room belongs to that room: its light stays in it, and its shadows follow. A table
+  from the catalogue keeps its chairs, and turns with them. A lamp's entity changed on its light or on its marker
+  changes both.
+- A piece of furniture that is a polygon can be turned (`turn`, around the middle of its bounding box), as a
+  rectangle can; in the editor by its turn handle, Ctrl (⌘) and a drag, or R in the Build view.
+
 - **The editor:** a piece of furniture's insides (its `extra`: cushions, devices on it, lines) are edited on the plan.
   Double-click a piece (or Enter) to enter it: the rest of the plan dims, its shapes are selected, moved, resized and
   drawn (a rectangle, a circle, a line, a label) in the piece's own frame, turned with it, snapping to its edges and
@@ -26,6 +54,10 @@ versions [Semantic Versioning](https://semver.org/). Changes not released yet ar
 ### Changed
 
 - **The editor:** resizing a piece scales its insides with it (Alt leaves them where they are).
+
+### Fixed
+
+- **The editor:** selecting or changing an item no longer scrolls the page (or Home Assistant's dialog) to the list.
 
 ## 0.2.0 (2026-10-04)
 

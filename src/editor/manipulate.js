@@ -270,6 +270,13 @@ function shapeHandles(s, {turnable, reach = 20} = {}) {
   }
   if (s.circle) return [{id: 'r', at: [s.circle[0] + s.circle[2], s.circle[1]]}];
   if (s.ellipse) return [{id: 'rx', at: [s.ellipse[0] + s.ellipse[2], s.ellipse[1]]}, {id: 'ry', at: [s.ellipse[0], s.ellipse[1] + s.ellipse[3]]}];
+  if (Array.isArray(s.poly) && turnable) {
+    // A piece's polygon: its turn handle above it; its corners while it isn't turned (a turned one is reshaped
+    // unturned: moving a corner would move its middle, and the whole of it with it).
+    const xs = s.poly.map(q => q[0]), ys = s.poly.map(q => q[1]), c = [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+    const [u, v] = turnBy([0, -(Math.max(...ys) - Math.min(...ys)) / 2 - reach], s.turn || 0);
+    return [...(s.turn ? [] : shapeHandles({poly: s.poly})), {id: 'turn', at: [c[0] + u, c[1] + v], turn: true}];
+  }
   if (Array.isArray(s.poly)) {
     const p = s.poly;
     return [...p.map((q, i) => ({id: `v:${i}`, at: q})),
@@ -290,7 +297,7 @@ function partOf(path, item, id, piece) {
       if (item.transform === undefined) delete out.transform;
       return out;
     }, id};
-    case 'piece': return {s: item.shape, put: s => ({...item, shape: s}), id, turnable: !!item.shape?.rect};
+    case 'piece': return {s: item.shape, put: s => ({...item, shape: s}), id, turnable: !!(item.shape?.rect || item.shape?.poly)};
     case 'light': {
       const i = +head?.slice(1);
       if (!/^s\d+$/.test(head || '') || !item.shape?.[i]) return null;
@@ -316,7 +323,7 @@ export function handles(path, item, {reach, piece} = {}) {
   switch (kindOf(path)) {
     case 'shape': return shapeHandles(item);
     case 'extra': return shapeHandles(drawnExtra(piece, item));
-    case 'piece': return shapeHandles(item.shape, {turnable: !!item.shape?.rect, reach});
+    case 'piece': return shapeHandles(item.shape, {turnable: !!(item.shape?.rect || item.shape?.poly), reach});
     case 'light': return [
       ...(item.pool ? [{id: 'pool', at: [item.pool.x, item.pool.y]}, {id: 'pool-r', at: [item.pool.x + item.pool.r, item.pool.y]}] : []),
       ...(Array.isArray(item.shape) ? item.shape.flatMap((s, i) => prefixed(`s${i}`, shapeHandles(s))) : [])];
@@ -336,7 +343,7 @@ export function handles(path, item, {reach, piece} = {}) {
 // Whether the pointer is snapped while a handle is dragged: not when turning, nor for the corners of a turned piece.
 export function snapsHandle(path, item, id, {piece} = {}) {
   const part = partOf(path, item, id, piece);
-  return !(part && (part.id === 'turn' || (part.s?.rect && part.s.turn)));
+  return !(part && (part.id === 'turn' || ((part.s?.rect || part.s?.poly) && part.s.turn)));
 }
 
 // Before a drag starts from a handle: dragging the middle of a polygon's side adds a corner there, and goes on with
@@ -374,9 +381,10 @@ function dragShape(s, id, p, {turnStep}) {
     const rect = resizeRect(s.rect, s.turn || 0, +m[1], +m[2], p);
     return {s: {...s, rect}, ruler: {size: [rect[2], rect[3]]}};
   }
-  if (id === 'turn' && s.rect) {
-    const [x, y, w, h] = s.rect;
-    let turn = Math.atan2(p[0] - x - w / 2, -(p[1] - y - h / 2)) * 180 / Math.PI;
+  if (id === 'turn' && (s.rect || s.poly)) {
+    const xs = s.rect ? [s.rect[0], s.rect[0] + s.rect[2]] : s.poly.map(q => q[0]), ys = s.rect ? [s.rect[1], s.rect[1] + s.rect[3]] : s.poly.map(q => q[1]);
+    const c = [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+    let turn = Math.atan2(p[0] - c[0], -(p[1] - c[1])) * 180 / Math.PI;
     turn = turnStep ? Math.round(turn / turnStep) * turnStep : tidy(turn);
     if (turn <= -180) turn += 360;
     if (turn > 180) turn -= 360;

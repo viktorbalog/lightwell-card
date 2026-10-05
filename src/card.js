@@ -4,7 +4,7 @@
 // opens the details of everything else. `defineFloorplanCard(tag, home)` registers it as a custom element.
 // Card config: `home` (the home itself, as YAML in the dashboard) or `home_url` (a JSON file with it, e.g. under
 // /local/), unless the element was registered with a home of its own; optional `north`, the compass bearing of the
-// top of the drawing, overriding the home's `sun.north`.
+// top of the drawing, overriding the home's `sun.north`. Its visual editor in HA is loaded when it's opened.
 //
 // HA sets `hass` whenever anything in the house changes, and every write to the SVG can repaint all of it, with its
 // many blurs. So the card renders only when one of its home's entities changed, and writes only values that differ
@@ -17,6 +17,8 @@ import {frameAt, lightColor, lightRgb, rgb, timeline} from './effects.js';
 import {defineHome, entitiesOf} from './home.js';
 import {daylight, labelColors, sunScene, sunShadows} from './sun.js';
 import {iconOf, isActive, labelOf} from './markers.js';
+import {loadEditor} from './loader.js';
+import {stubHome} from './stub.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 // Effects hold still (on their first colour) for people who ask for less motion.
@@ -134,8 +136,39 @@ const svgEl = (tag, attrs = {}, html = '') => {
 // Glows fill their shapes, except lines, which are stroked.
 const paintProp = sh => (sh.tagName === 'path' ? 'stroke' : 'fill');
 
+// In HA's card editor, the card HA shows as the preview offers itself to the editor (src/editor/ha.js), which then
+// edits the home on it rather than on a copy of its own: `lightwell-preview` events on window, with the card, when it
+// becomes a preview and whenever an editor opens (`lightwell-editor-open`). The editor gives it `editLayer`, an
+// element the card keeps over its plan, also when it rebuilds. HA rebuilds a preview card on every change, so each
+// new one offers itself again.
+const previews = new Set();
+window.addEventListener('lightwell-editor-open', () => previews.forEach(card => card._offer()));
+
 // The card, for the home on its class (`home`, set by defineFloorplanCard) or in its config.
 class FloorplanCard extends HTMLElement {
+  set preview(on) {
+    this._isPreview = !!on;
+    if (on) { previews.add(this); this._offer(); } else previews.delete(this);
+  }
+
+  get preview() { return !!this._isPreview; }
+
+  _offer() {
+    window.dispatchEvent(new CustomEvent('lightwell-preview', {detail: this}));
+  }
+
+  // An editor's layer over the card (selection, handles, drawing), kept there through rebuilds; null removes it.
+  // While it's there, taps on the markers do nothing (they'd act on the house while the home is being edited).
+  set editLayer(layer) {
+    if (this._editLayer && this._editLayer !== layer) this._editLayer.remove();
+    this._editLayer = layer;
+    // Over the card's own box: a block (an element is inline otherwise), positioned.
+    if (layer) Object.assign(this.style, {display: 'block', position: 'relative'});
+    if (layer && this.shadowRoot && layer.parentNode !== this.shadowRoot) this.shadowRoot.append(layer);
+  }
+
+  get editLayer() { return this._editLayer; }
+
   setConfig(config) {
     this._config = config;
     this._seen = null;
@@ -181,7 +214,10 @@ class FloorplanCard extends HTMLElement {
     this._palette = paletteOf(home);
     if (!this.shadowRoot) this.attachShadow({mode: 'open'});
     const pos = (x, y) => `left:${((x - VB.x) / VB.w * 100).toFixed(2)}%;top:${((y - VB.y) / VB.h * 100).toFixed(2)}%`;
-    this.shadowRoot.innerHTML = `<style>${style(this._palette)}</style>
+    // An editor's layer stays where it is through the rebuild (taking it out would drop the pointer it's dragging).
+    const layer = this._editLayer?.parentNode === this.shadowRoot ? this._editLayer : null;
+    if (layer) for (const n of [...this.shadowRoot.childNodes]) if (n !== layer) n.remove();
+    (layer ? html => layer.insertAdjacentHTML('beforebegin', html) : html => { this.shadowRoot.innerHTML = html; })(`<style>${style(this._palette)}</style>
       <ha-card>
         <div class="plan" style="--k: ${+(VB.w / 1145).toFixed(4)}">
           <svg viewBox="${VB.x} ${VB.y} ${VB.w} ${VB.h}">
@@ -199,7 +235,7 @@ class FloorplanCard extends HTMLElement {
           ${home.markers.map((m, i) => `<div class="m${m.small ? ' small' : ''}${m.side ? ' side' : ''}" data-i="${i}" style="${pos(m.x, m.y)}">
             <ha-icon icon="${m.icon}"></ha-icon><span></span></div>`).join('')}
         </div>
-      </ha-card>`;
+      </ha-card>`);
     const $ = id => this.shadowRoot.getElementById(id);
     this._el = {plan: this.shadowRoot.querySelector('.plan'), defs: this.shadowRoot.querySelector('defs'),
       sun: $('sun'), sunOnFurn: $('sun-on-furn'), skylight: $('skylight'), skyFall: $('sky-fall'),
@@ -213,6 +249,7 @@ class FloorplanCard extends HTMLElement {
     });
     this._buildDaylight();
     this._markers = [...this.shadowRoot.querySelectorAll('.m')];
+    if (this._editLayer && !layer) this.shadowRoot.append(this._editLayer);
     this._markers.forEach(el => el.addEventListener('click', () => this._tap(home.markers[el.dataset.i])));
     if (this._io) { this._io.disconnect(); this._io.observe(this._el.plan); }
     if (this._hass) this.hass = this._hass;
@@ -282,7 +319,9 @@ class FloorplanCard extends HTMLElement {
   _renderGlows(hass, scene) {
     const outside = daylight(scene.el);
     this._home.lights.forEach((g, i) => {
-      const s = g.entities.map(e => hass.states[e]).find(s => (g.states || ['on']).includes(s?.state));
+      // A light without entities: lit always, while the sun is down, or never, as a state of its own.
+      const s = g.entities?.length ? g.entities.map(e => hass.states[e]).find(s => (g.states || ['on']).includes(s?.state))
+        : g.lit === 'always' || (g.lit === 'dark' && scene.el < 0) ? {entity_id: `light ${i}`, state: 'on', attributes: {}} : undefined;
       const c = s && (g.color || lightRgb(s)), color = c && rgb(c);
       const {el, pool, shade, shapes} = this._glows[i];
       if (!g.multi) shapes.forEach(sh => attr(sh, paintProp(sh), color || 'transparent'));
@@ -333,6 +372,7 @@ class FloorplanCard extends HTMLElement {
   }
 
   connectedCallback() {
+    if (this._isPreview) { previews.add(this); this._offer(); }
     this._replay ||= () => this._play();
     document.addEventListener('visibilitychange', this._replay);
     this._io ||= new IntersectionObserver(([e]) => { this._offscreen = !e.isIntersecting; this._play(); });
@@ -341,6 +381,7 @@ class FloorplanCard extends HTMLElement {
   }
 
   disconnectedCallback() {
+    previews.delete(this);
     document.removeEventListener('visibilitychange', this._replay);
     this._io?.disconnect();
     clearTimeout(this._timer);
@@ -416,6 +457,7 @@ class FloorplanCard extends HTMLElement {
   }
 
   _tap(m) {
+    if (this._editLayer) return;
     // A device that is off is woken (Wake-on-LAN) instead of showing its details, which are unavailable then.
     if (m.wake && this._hass.states[m.power]?.state !== 'on') this._hass.callService('button', 'press', {entity_id: m.wake});
     else if (m.tap === 'toggle') this._hass.callService('homeassistant', 'toggle', {entity_id: m.entity});
@@ -424,6 +466,17 @@ class FloorplanCard extends HTMLElement {
 
   getCardSize() { return 9; }
   getGridOptions() { return {columns: 12, min_columns: 6}; }
+
+  // HA's visual editor: loaded on demand (loader.js), so the card's bundle stays small.
+  static async getConfigElement() {
+    await loadEditor();
+    return document.createElement('lightwell-card-editor');
+  }
+
+  // A new card from HA's card picker: a small home that works (stub.js), with a light of the house.
+  static getStubConfig(hass) {
+    return {home: stubHome(hass?.states)};
+  }
 }
 
 // Registers the card for `home` (from defineHome) as the element `tag`, and in HA's card picker as `name`. The home is

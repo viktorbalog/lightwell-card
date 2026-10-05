@@ -61,6 +61,12 @@ export function itemGroups(data) {
       title: `from openings ${(s?.from || []).join(', ') || 'none'}, ${s?.k ?? '?'} through`}))});
   groups.push({title: 'Sun blockers', path: ['sun', 'blockers'], add: 'blocker',
     items: (Array.isArray(d.sun?.blockers) ? d.sun.blockers : []).map((b, i) => ({path: ['sun', 'blockers', i], label: `${b?.rect ? 'rect' : 'poly'}, ${b?.height ?? '?'} m`}))});
+  // An item's description leads its tooltip.
+  const described = it => {
+    const note = it.path.reduce((o, k) => o?.[k], d)?.description;
+    return typeof note === 'string' && note ? {...it, title: [note, it.title].filter(Boolean).join('\n')} : it;
+  };
+  for (const g of groups) g.items = g.items.map(it => ({...described(it), children: it.children?.map(described)}));
   return groups;
 }
 
@@ -112,7 +118,13 @@ export function renderList(box, data, selected, ctx, also = []) {
     details.append(ul);
     box.append(details);
   }
-  box.querySelector('.item.on')?.scrollIntoView({block: 'nearest'});
+  // The selected item in view, scrolling the list alone (scrollIntoView would scroll the page, or HA's dialog, too).
+  const on = box.querySelector('.item.on');
+  if (on) {
+    const b = box.getBoundingClientRect(), r = on.getBoundingClientRect();
+    if (r.top < b.top) box.scrollTop += r.top - b.top;
+    else if (r.bottom > b.bottom) box.scrollTop += r.bottom - b.bottom;
+  }
 
   // A piece's insides or a room's rectangles, under its line `li` (with the fold that shows them): selecting one of a
   // piece's enters it. They unfold by themselves while one of them is selected.
@@ -130,7 +142,7 @@ export function renderList(box, data, selected, ctx, also = []) {
     if (!shown) return [];
     const list = it.childList;
     return it.children.map((c, i) => {
-      const cli = el('li', {className: `item extra${isOn(c.path) ? ' on' : ''}`, textContent: c.label});
+      const cli = el('li', {className: `item extra${isOn(c.path) ? ' on' : ''}`, textContent: c.label, title: c.title || ''});
       cli.dataset.path = pathKey(c.path);
       cli.onclick = e => (e.shiftKey && ctx.toggle ? ctx.toggle(c.path) : ctx.select(c.path));
       cli.draggable = true;
@@ -216,6 +228,11 @@ function input(field, value, path, ctx) {
         textContent: `${n}: ${JSON.stringify(ctx.states?.[id]?.attributes?.[n] ?? '?')}`.slice(0, 60)})));
     s.onchange = () => commit(s.value === '' ? undefined : s.value);
     return [s];
+  }
+  if (t === 'text') {
+    const a = el('textarea', {value: value ?? '', className: 'prose', rows: Math.min(6, Math.max(2, String(value ?? '').split('\n').length))});
+    a.onchange = () => commit(a.value.trim() === '' ? undefined : a.value);
+    return [a];
   }
   if (['string', 'effect'].includes(t)) {
     const i = el('input', {type: 'text', value: value ?? '', placeholder: field.default ?? '', spellcheck: false});
@@ -371,6 +388,7 @@ export function renderProperties(box, data, selected, ctx) {
   const d = data && typeof data === 'object' ? data : {};
   if (!selected) {
     box.append(el('h2', {textContent: 'The home'}));
+    box.append(row('description', SCHEMA.fields.description, d.description, ['description'], ctx));
     for (const key of ['view', 'units_per_metre', 'sun']) box.append(row(key, SCHEMA.fields[key], d[key], [key], ctx));
     box.append(row('background', SCHEMA.fields.drawing.fields.background, d.drawing?.background, ['drawing', 'background'], ctx));
     const lights = [...new Set((d.lights || []).map(g => g?.entities?.[0]).filter(Boolean))];
@@ -411,5 +429,5 @@ export function renderProperties(box, data, selected, ctx) {
     else if (field?.type === 'object') box.append(...fields(field, value, selected, ctx));
     else if (field) box.append(row(String(selected.at(-1)), field, value, selected, ctx));
   }
-  if (focused) box.querySelector(`[data-path='${focused}'] input, [data-path='${focused}'] select, [data-path='${focused}'] textarea`)?.focus();
+  if (focused) box.querySelector(`[data-path='${focused}'] input, [data-path='${focused}'] select, [data-path='${focused}'] textarea`)?.focus({preventScroll: true});
 }

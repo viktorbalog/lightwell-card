@@ -3,14 +3,15 @@
 // A shape is one of `rect: [x, y, w, h]`, `circle: [cx, cy, r]`, `ellipse: [cx, cy, rx, ry]`, `poly: [[x, y], ...]`,
 // `path: 'M…'` or `text: 'Kitchen'` with `at: [x, y]`, plus any SVG attributes: `class`, `rx`, `fill`, `opacity`,
 // `transform`, `style`… (snake_case names are written kebab-case: `stroke_width` → stroke-width). `svg: '<…>'` is
-// raw SVG, for anything else. A string instead of a list is raw SVG too.
+// raw SVG, for anything else. A string instead of a list is raw SVG too. `description` (a note) and `part` (the Build
+// object it's part of) aren't attributes (home.js).
 //
 // `repeat: {count, step: [dx, dy]}` draws a shape `count` times, each copy moved on by `step`; an attribute given as a
 // list takes its values in turn, copy by copy (`fill: ['#f00', '#0f0']`).
 
 const esc = v => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 const GEOMETRY = ['rect', 'circle', 'ellipse', 'poly', 'path', 'text', 'at', 'svg', 'repeat'];
-const attrs = shape => Object.entries(shape).filter(([k, v]) => !GEOMETRY.includes(k) && v !== undefined)
+const attrs = shape => Object.entries(shape).filter(([k, v]) => !GEOMETRY.includes(k) && k !== 'description' && k !== 'part' && v !== undefined)
   .map(([k, v]) => ` ${k.replace(/_/g, '-')}="${esc(v)}"`).join('');
 
 export function shapeSvg(s) {
@@ -54,6 +55,7 @@ export function shapeErrors(list) {
     if (kinds[0] === 'text' && !(Array.isArray(s.at) && s.at.length === 2)) return [`[${i}]: a text needs at: [x, y]`];
     const r = s.repeat;
     if (r && !(r.count > 0 && Array.isArray(r.step) && r.step.length === 2)) return [`[${i}]: repeat needs a count and step: [dx, dy]`];
+    for (const k of ['description', 'part']) if (s[k] !== undefined && typeof s[k] !== 'string') return [`[${i}].${k}: needs a text`];
     return [];
   });
 }

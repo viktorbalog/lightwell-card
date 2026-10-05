@@ -5,7 +5,8 @@
 // Front to back: markers, the centres of lights, furniture, openings, the lights' glows, the drawing's shapes (top
 // slot first, and the last drawn first within a slot), the sun's blockers and spills (['sun', 'spill', 0]), rooms. The centres of lights come before the furniture and
 // their glows after it, so that a lamp's glow over a sofa doesn't hide the sofa.
-import {box} from '../geometry.js';
+import {box, turnPoly} from '../geometry.js';
+import {pieceCentre} from '../furniture.js';
 import {shutterRect} from '../openings.js';
 import {SLOTS} from '../home.js';
 
@@ -147,7 +148,7 @@ const spillGeometry = s => ({polys: [], lines: [], circles: [s].filter(x => [x?.
 export function pieceOutline({shape: {rect, turn = 0, circle, poly}}) {
   if (rect) return {poly: box(...rect, turn)};
   if (circle) return {circle};
-  return {poly};
+  return {poly: turnPoly(poly, turn)};
 }
 // Whether the point `p` is on a piece of furniture (within `tol` of its outline).
 export function onPiece(piece, p, tol = 0) {
@@ -159,8 +160,8 @@ export function onPiece(piece, p, tol = 0) {
 export const isExtra = path => Array.isArray(path) && path.length === 4 && path[0] === 'furniture' && path[2] === 'extra';
 // The transform that turns a piece and its extra shapes ('rotate(turn cx cy)', as furniture.js draws it), or ''.
 export const pieceTurn = piece => {
-  const {rect, turn} = piece?.shape || {};
-  return rect && turn ? `rotate(${turn} ${rect[0] + rect[2] / 2} ${rect[1] + rect[3] / 2})` : '';
+  const s = piece?.shape || {}, c = s.turn && pieceCentre(s);
+  return c ? `rotate(${s.turn} ${c[0]} ${c[1]})` : '';
 };
 // A piece's extra shape as it's drawn: under the piece's turn, then its own transform. Without a piece (or unturned),
 // the shape as it is.

@@ -4,7 +4,8 @@
 // or `required` are the ones it fails on.
 //
 // A field: {type, help, required, check, default, unit, ...}. Types:
-// - number (`unit`: u for the drawing's units, m, °, %, ms; `min`), string, bool, enum (`values`), color (CSS);
+// - number (`unit`: u for the drawing's units, m, °, %, ms; `min`), string, text (a string of several lines), bool,
+//   enum (`values`), color (CSS);
 // - entity (`domain`: the domain, or domains, that fit), room (a room's name), opening (an opening's position in the
 //   list), effect (an effect's name), icon (mdi:…),
 //   attribute (an attribute of the entity a marker's label reads);
@@ -16,6 +17,10 @@
 const n = (help, extra) => ({type: 'number', unit: 'u', help, ...extra});
 const m = (help, extra) => ({type: 'number', unit: 'm', help, ...extra});
 const RECT = ['x', 'y', 'w', 'h'];
+// A note on the home or an item (home.js): kept as data, so it survives where YAML comments don't (a dashboard).
+const DESCRIPTION = {type: 'text', check: true, help: 'A note about it, for whoever edits the home; the card ignores it'};
+// The Build object it was made as part of (home.js): the editor's Build view selects, moves and deletes them together.
+const PART = {type: 'string', check: true, help: "The Build view's object it is part of (a room's name, window_1…); the card ignores it"};
 
 export const SHAPE_KINDS = ['rect', 'circle', 'ellipse', 'poly', 'path', 'text', 'svg'];
 
@@ -33,6 +38,8 @@ export const SHAPE = {type: 'shape', check: true, help: 'A shape: one of rect, c
   rx: n('Round corners (a rect)'),
   repeat: {type: 'object', help: 'Draws the shape count times, each copy moved on by step', fields: {
     count: {type: 'number', help: 'How many copies', min: 1}, step: {type: 'numbers', labels: ['dx', 'dy'], unit: 'u', help: 'How far each copy moves on'}}},
+  description: DESCRIPTION,
+  part: PART,
 }};
 const SHAPES = help => ({type: 'list', of: SHAPE, help, check: true});
 
@@ -49,13 +56,15 @@ const OPENING = {type: 'object', check: true, help: 'A window or door, where the
   shutter: {type: 'entity', domain: 'cover', check: true, help: "A cover: its position darkens the opening and shortens the sun's patch"},
   room: {type: 'room', required: true, help: "The room the sun's patch falls in"},
   sky: {type: 'room', check: true, help: 'The room the daylight spreads over (default: room)'},
+  description: DESCRIPTION,
+  part: PART,
 }};
 
 const PIECE = {type: 'object', check: true, help: 'A piece of furniture: drawn, casting shadows, with daylight on its top', fields: {
   shape: {type: 'object', required: true, help: 'Its outline: a rect (turned by turn degrees), a circle or a poly', fields: {
     rect: {type: 'numbers', labels: RECT, unit: 'u', help: 'A rectangle [x, y, w, h]'},
     rx: n('Round corners'),
-    turn: {type: 'number', unit: '°', help: 'Turned by this many degrees around its centre (clockwise)'},
+    turn: {type: 'number', unit: '°', help: "Turned by this many degrees around its centre (clockwise): a rect's, or the middle of a poly's bounding box"},
     circle: {type: 'numbers', labels: ['cx', 'cy', 'r'], unit: 'u', help: 'A circle [cx, cy, r]'},
     poly: {type: 'points', unit: 'u', help: 'A polygon [[x, y], ...]'},
   }},
@@ -63,10 +72,13 @@ const PIECE = {type: 'object', check: true, help: 'A piece of furniture: drawn, 
   shadow_room: {type: 'room', check: true, help: 'The room its shadow in the sun stays in; without one it casts none in the sun'},
   class: {type: 'enum', values: ['furn', 'furn2'], default: 'furn', help: 'furn, or furn2 for smaller, darker pieces'},
   extra: {...SHAPES('Shapes drawn with it, in its own frame and turned with it: cushions, devices on it, lines')},
+  description: DESCRIPTION,
+  part: PART,
 }};
 
 const LIGHT = {type: 'object', check: true, help: 'A light drawn as a glow, in its entity\'s colour and brightness', fields: {
-  entities: {type: 'list', of: {type: 'entity', domain: ['light', 'switch', 'media_player', 'fan', 'input_boolean'], check: true, help: 'An entity'}, required: true, help: 'The first of them that is on lights it, in its colour'},
+  entities: {type: 'list', of: {type: 'entity', domain: ['light', 'switch', 'media_player', 'fan', 'input_boolean'], check: true, help: 'An entity'}, check: true, help: 'The first of them that is on lights it, in its colour (or, without any, lit says when)'},
+  lit: {type: 'enum', values: ['always', 'dark', 'never'], check: true, help: 'Without entities (a lamp that isn\'t smart): lit always, while the sun is down (dark), or never'},
   states: {type: 'list', of: {type: 'string', help: 'A state'}, default: ['on'], help: 'What counts as on'},
   color: {type: 'rgb', help: '[r, g, b], for entities without a colour of their own'},
   shape: {...SHAPES('Shapes, blurred into a glow'), required: true},
@@ -81,6 +93,8 @@ const LIGHT = {type: 'object', check: true, help: 'A light drawn as a glow, in i
   outdoor: {type: 'bool', help: 'Fades out by day'},
   effect: {type: 'effect', help: 'An effect it plays all the time it is lit'},
   multi: {type: 'bool', help: "Keeps the shapes' own colours (a string of coloured bulbs)"},
+  description: DESCRIPTION,
+  part: PART,
 }};
 
 const MARKER = {type: 'object', check: true, help: 'A marker over the plan: tap toggles a light or switch, or opens the details', fields: {
@@ -102,9 +116,12 @@ const MARKER = {type: 'object', check: true, help: 'A marker over the plan: tap 
   active: {type: 'list', of: {type: 'string', help: 'A state'}, check: true, help: 'The states in which it shows as on'},
   power: {type: 'entity', check: true, help: "An entity that greys it out while it's off"},
   wake: {type: 'entity', domain: 'button', check: true, help: 'A button pressed on tap while power is off'},
+  description: DESCRIPTION,
+  part: PART,
 }};
 
 export const SCHEMA = {type: 'object', help: 'A home', fields: {
+  description: {...DESCRIPTION, help: 'A note about the home, for whoever edits it; the card ignores it'},
   view: {type: 'object', required: true, help: 'The part of the drawing the card shows', fields: {
     x: n('Its left edge', {required: true}), y: n('Its top edge', {required: true}),
     w: n('Its width', {required: true}), h: n('Its height', {required: true})}},
@@ -136,7 +153,7 @@ export const SCHEMA = {type: 'object', help: 'A home', fields: {
     blockers: {type: 'list', check: true, help: 'Things outside that shade the openings', of: {type: 'object', check: true, help: 'A blocker', fields: {
       rect: {type: 'numbers', labels: RECT, unit: 'u', help: 'A rectangle [x, y, w, h]'},
       poly: {type: 'points', unit: 'u', help: 'A polygon [[x, y], ...]'},
-      height: m('Its height', {required: true})}}},
+      height: m('Its height', {required: true}), description: DESCRIPTION}}},
     trees: {type: 'object', help: 'A band of sky where the sun is dimmed', fields: {
       from: {type: 'number', unit: '°', help: 'From this azimuth'}, to: {type: 'number', unit: '°', help: 'To this azimuth'},
       top: {type: 'number', unit: '°', help: 'Up to this elevation'}, through: {type: 'number', help: 'How much of the sun gets through (0–1)'}}},
@@ -144,7 +161,7 @@ export const SCHEMA = {type: 'object', help: 'A home', fields: {
       cx: n('Its centre'), cy: n('Its centre'), rx: n('Its radius across'), ry: n('Its radius down'),
       clip: {type: 'room', check: true, help: 'The room it stays in'},
       from: {type: 'list', of: {type: 'opening', check: true, help: "An opening's position in the list"}, help: 'The openings whose shutters dim it'},
-      k: {type: 'number', help: 'How much of the daylight gets through (0–1)'}}}},
+      k: {type: 'number', help: 'How much of the daylight gets through (0–1)'}, description: DESCRIPTION}}},
     outdoor: {...SHAPES('Shapes in the sun whenever it comes in (a terrace)')},
   }},
   palette: {type: 'object', help: "Colours for the drawing's classes, in light and dark", fields: {

@@ -10,6 +10,8 @@ test('shapes become SVG, with their attributes', () => {
   assert.equal(shapesSvg([{path: 'M0,0 h5', stroke_width: 6}]), '<path stroke-width="6" d="M0,0 h5"/>');
   assert.equal(shapesSvg([{text: 'A & <B>', at: [5, 6], class: 'room'}]), '<text class="room" x="5" y="6">A &amp; &lt;B&gt;</text>');
   assert.equal(shapesSvg([{svg: '<g/>'}]), '<g/>');
+  // A description is a note, not an attribute.
+  assert.equal(shapesSvg([{rect: [1, 2, 3, 4], description: 'The sofa', part: 'living'}]), '<rect x="1" y="2" width="3" height="4"/>');
   assert.equal(shapesSvg('<g/>'), '<g/>');
   assert.equal(shapesSvg(undefined), '');
 });

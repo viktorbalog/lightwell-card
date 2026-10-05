@@ -2,11 +2,11 @@
 // definition of each piece.
 //
 // A piece: `shape` ({rect: [x, y, w, h], rx, turn}, turned by `turn` degrees around its centre; {circle: [cx, cy, r]};
-// or {poly: [[x, y], ...]}); `height` in metres (pieces without one cast no shadows); `shadow_room`, the room
+// or {poly: [[x, y], ...], turn}, turned around the middle of its bounding box); `height` in metres (pieces without one cast no shadows); `shadow_room`, the room
 // its shadow in the sun stays in (without one it casts none in the sun); `class`, furn (the default) or furn2 for
 // smaller, darker pieces; `extra`, shapes (shapes.js) drawn with it in the piece's own frame, turned with it:
 // devices on it, cushions, lines. Pieces are drawn in their order.
-import {box, round} from './geometry.js';
+import {box, polyMiddle, round, turnPoly} from './geometry.js';
 import {shapesSvg} from './shapes.js';
 
 // A piece's outline as an SVG element (with `attrs`, e.g. its class).
@@ -16,8 +16,12 @@ function outline({shape: {rect, rx, circle, poly}}, attrs = '') {
   return `<path${attrs} d="M${poly.map(p => p.join(',')).join(' L')} Z"/>`;
 }
 
-// The transform that turns a piece, if it is turned.
-const turn = ({shape: {rect, turn}}) => (turn ? `rotate(${turn} ${rect[0] + rect[2] / 2} ${rect[1] + rect[3] / 2})` : '');
+// The transform that turns a piece, if it is turned: around a rectangle's centre, or a polygon's middle.
+export const pieceCentre = ({rect, poly}) => (rect ? [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2] : poly ? polyMiddle(poly) : null);
+const turn = ({shape}) => {
+  const c = shape.turn && pieceCentre(shape);
+  return c ? `rotate(${shape.turn} ${c[0]} ${c[1]})` : '';
+};
 
 // Every piece, drawn.
 export const furnitureSvg = furniture => Object.values(furniture).map(p => {
@@ -34,7 +38,7 @@ export function caster(furniture, name) {
   const p = furniture[name];
   if (!p?.height) throw new Error(`no furniture casting shadows called ${name}`);
   const {rect, circle, poly, turn = 0} = p.shape;
-  return [rect ? box(...rect, turn) : circle ? round(...circle) : poly, p.height];
+  return [rect ? box(...rect, turn) : circle ? round(...circle) : turnPoly(poly, turn), p.height];
 }
 
 // The casters whose sun shadows stay in `room`.

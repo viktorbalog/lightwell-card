@@ -29,3 +29,12 @@ test('the sun shadows: the pieces with a shadow_room, by room', () => {
   assert.equal(castersIn('bedroom').length, 5);
   assert.equal(castersIn('terrace').length, 0);
 });
+
+test('a polygon piece turns around the middle of its bounding box, its insides and its shadow with it', () => {
+  const corner = {shape: {poly: [[0, 0], [200, 0], [200, 100], [100, 100], [100, 200], [0, 200]], turn: 90}, height: 0.8,
+    extra: [{rect: [0, 0, 200, 20], class: 'furn2'}]};
+  assert.match(furnitureSvg({corner}), /^<g transform="rotate\(90 100 100\)"><path class="furn" d="M0,0 L200,0/);
+  assert.match(furnitureClip({corner}), /transform="rotate\(90 100 100\)"/);
+  const [poly] = casterOf({corner}, 'corner');
+  assert.deepEqual(poly.map(p => p.map(v => Math.round(v) || 0)), [[200, 0], [200, 200], [100, 200], [100, 100], [0, 100], [0, 0]]);
+});

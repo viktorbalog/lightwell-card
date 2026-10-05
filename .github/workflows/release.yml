@@ -19,6 +19,11 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      # HACS installs every asset of a release, once one is named as the card (hacs.json's filename); HACS 1.x looks
+      # at the first asset only, so the card goes first. The card loads its editor in HA from next to itself.
       - run: gh release upload "${{ github.event.release.tag_name }}" dist/lightwell-card.js --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - run: gh release upload "${{ github.event.release.tag_name }}" dist/lightwell-card-editor.js --clobber
         env:
           GH_TOKEN: ${{ github.token }}
