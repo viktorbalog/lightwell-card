@@ -190,3 +190,8 @@ the room back; inside a table for 4, *Back to Table for 4* showed its settings a
   config): the overlay draws beyond the plan (`overflow: visible`), and on HA's preview the editor's column is beside
   it. `_place` clips it to the frame it's in (the card's box on HA's preview, the stage standalone). Checked in HA:
   lamp 3's reach stops at the card's edge.
+- **The glow round the card on each key** (the user): not a focus ring (nothing focused has one) but HA's `ha-card`,
+  which has `transition: all 0.3s` and takes its theme a moment after it's made: on each rebuilt preview card its
+  border ran from 3 px of the text colour down to 0 over 0.3 s. The card marks itself `editing` while it carries the
+  editor's layer, and its `ha-card` has no transition then (on dashboards, as before). Checked in HA, every frame after
+  a real key: 3 px → 0 over 0.3 s with the mark suppressed (in that tab), 0 px from the first frame with it.

@@ -85,6 +85,7 @@ versions [Semantic Versioning](https://semver.org/). Changes not released yet ar
   scrolled to while you edit the same thing.
 - **The editor in Home Assistant:** what the editor draws beyond the plan (a lamp's reach, a piece dragged off it) stays
   within the card, instead of reaching over the editor beside it.
+- **The editor in Home Assistant:** the card's frame no longer flashes a light border with each change.
 
 ## 0.2.0 (2026-10-04)
 

@@ -68,6 +68,9 @@ const style = palette => `
   #sun, #sun-on-furn { transition: opacity 1s; }
   #skylight { transition: opacity 1s; } #skylight > ellipse { transition: opacity 0.4s; }
   #shutters > rect { fill: #202020; transition: opacity 0.4s; }
+  /* Edited on (HA's preview, rebuilt on every change): HA's ha-card takes its theme just after it's made, and its
+     own transition faded its border in each time. */
+  :host([editing]) ha-card { transition: none; }
   .m { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column;
        align-items: center; cursor: pointer; -webkit-tap-highlight-color: transparent; }
   .m ha-icon { --mdc-icon-size: 4.6cqw; color: var(--state-inactive-color, #8a8a8a); padding: 0.6cqw;
@@ -162,6 +165,7 @@ class FloorplanCard extends HTMLElement {
   set editLayer(layer) {
     if (this._editLayer && this._editLayer !== layer) this._editLayer.remove();
     this._editLayer = layer;
+    this.toggleAttribute('editing', !!layer);
     // Over the card's own box: a block (an element is inline otherwise), positioned.
     if (layer) Object.assign(this.style, {display: 'block', position: 'relative'});
     if (layer && this.shadowRoot && layer.parentNode !== this.shadowRoot) this.shadowRoot.append(layer);
