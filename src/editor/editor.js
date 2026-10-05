@@ -819,7 +819,7 @@ export class LightwellEditor extends HTMLElement {
     if (!card) return;
     // Taking the layer out of the old card fires a focusout: whether it had the keys is taken before.
     const keys = !!this._layerFocus;
-    if (card === this._hosted) { card.editLayer = this._layer; this._refocus(); return; }
+    if (card === this._hosted) { card.editLayer = this._layer; this._refocus(); if (card.isConnected) this._placeTools(); return; }
     if (this._hosted) { this._hosted.editLayer = null; this._unplaceTools(this._hosted); }
     if (!this._layer) {
       // Focusable, so that a click on the plan there gives it the keys (the card has nothing else to focus), which it
@@ -833,6 +833,9 @@ export class LightwellEditor extends HTMLElement {
       this._layer.addEventListener('focusout', e => { if (!this._layer.contains(e.relatedTarget)) this._layerFocus = false; });
     }
     this._layer.append(this._el.overlay, this._el.ruler, this._el.toolbar);
+    // The room the toolbar had beside or above the card before (HA rebuilds the card on every change): kept from its
+    // first frame, so that the plan doesn't jump while it's measured again.
+    if (this._toolRoom) Object.assign(card.style, this._toolRoom);
     this._hosted = this._card = card;
     card.editLayer = this._layer;
     // The new card offers itself before HA puts it in the page (and again once it's there): the keys go back to the
@@ -864,6 +867,8 @@ export class LightwellEditor extends HTMLElement {
     const bar = this._el.toolbar, card = this._hosted, side = TOOLBAR_SIDE + TOOLBAR_GAP;
     let beside;
     if (card) {
+      // Not in the page yet (HA's new card offers itself before): it keeps the room it was given until it is.
+      if (!card.isConnected || !card.offsetWidth) return;
       // The column around the hui-card around our card, once HA has put it there (followed for its width).
       const column = card.parentElement?.parentElement;
       if (column && this._column !== column) { this._column = column; this._hostObserver.observe(column); }
@@ -873,7 +878,8 @@ export class LightwellEditor extends HTMLElement {
       const room = column ? (column.getBoundingClientRect().right - card.getBoundingClientRect().left) / k - pad : 0;
       beside = room >= width + side;
       bar.classList.toggle('beside', beside);
-      Object.assign(card.style, beside ? {marginLeft: `${side}px`, width: `${width}px`} : {marginTop: `${bar.offsetHeight + TOOLBAR_GAP}px`});
+      this._toolRoom = beside ? {marginLeft: `${side}px`, width: `${width}px`, marginTop: ''} : {marginTop: `${bar.offsetHeight + TOOLBAR_GAP}px`, marginLeft: '', width: ''};
+      Object.assign(card.style, this._toolRoom);
     } else {
       beside = this._el.preview.clientWidth >= 500;
       this._el.stage.classList.toggle('beside', beside);

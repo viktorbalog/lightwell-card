@@ -76,6 +76,8 @@ versions [Semantic Versioning](https://semver.org/). Changes not released yet ar
 - **The editor:** selecting or changing an item no longer scrolls the page (or Home Assistant's dialog) to the list.
 - **The editor in Home Assistant:** a lamp whose light list has long names no longer makes the panel wider than the
   editor (it ran under the preview, hiding its Delete button).
+- **The editor in Home Assistant:** the plan no longer jumps up and back with each change (an arrow key, a drag's end)
+  while the toolbar is above it.
 
 ## 0.2.0 (2026-10-04)
 

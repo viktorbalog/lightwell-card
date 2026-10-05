@@ -11119,6 +11119,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       if (card === this._hosted) {
         card.editLayer = this._layer;
         this._refocus();
+        if (card.isConnected) this._placeTools();
         return;
       }
       if (this._hosted) {
@@ -11139,6 +11140,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         });
       }
       this._layer.append(this._el.overlay, this._el.ruler, this._el.toolbar);
+      if (this._toolRoom) Object.assign(card.style, this._toolRoom);
       this._hosted = this._card = card;
       card.editLayer = this._layer;
       if (keys) this._focusDue = true;
@@ -11169,6 +11171,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       const bar = this._el.toolbar, card = this._hosted, side = TOOLBAR_SIDE + TOOLBAR_GAP;
       let beside;
       if (card) {
+        if (!card.isConnected || !card.offsetWidth) return;
         const column = card.parentElement?.parentElement;
         if (column && this._column !== column) {
           this._column = column;
@@ -11180,7 +11183,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         const room = column ? (column.getBoundingClientRect().right - card.getBoundingClientRect().left) / k - pad2 : 0;
         beside = room >= width + side;
         bar.classList.toggle("beside", beside);
-        Object.assign(card.style, beside ? { marginLeft: `${side}px`, width: `${width}px` } : { marginTop: `${bar.offsetHeight + TOOLBAR_GAP}px` });
+        this._toolRoom = beside ? { marginLeft: `${side}px`, width: `${width}px`, marginTop: "" } : { marginTop: `${bar.offsetHeight + TOOLBAR_GAP}px`, marginLeft: "", width: "" };
+        Object.assign(card.style, this._toolRoom);
       } else {
         beside = this._el.preview.clientWidth >= 500;
         this._el.stage.classList.toggle("beside", beside);

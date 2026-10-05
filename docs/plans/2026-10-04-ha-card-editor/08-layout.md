@@ -169,3 +169,10 @@ the room back; inside a table for 4, *Back to Table for 4* showed its settings a
   wall between the rooms); with the two rooms' floors overlapping under that wall, and the living room's top and
   bottom walls reaching 15 cm over the bedroom's, 44 pixels differ by more than 16 (max 35), all on the outer edge of
   the top and bottom walls where two pieces overlap. The README's pictures weren't made again.
+- **The plan jumping on each change** (the user: arrows in HA animate the card): HA's new preview card showed for a
+  frame without the toolbar's room (44 px higher with the toolbar above), as that room was measured only once the card
+  was in the page. The editor keeps the room it gave the last card (`_toolRoom`) and gives it to the new one at once,
+  measuring again once it's in the page (not before: it would measure nothing). The card's own fades were suspected
+  first and ruled out (a rebuilt card sets its values before its first paint, so nothing fades; checked with and
+  without them). Checked in HA, every frame for 3 s from real arrow presses: the card and the overlay never moved, in
+  the normal dialog (toolbar above) and in the large one (beside), while the lamp moved with each key.
