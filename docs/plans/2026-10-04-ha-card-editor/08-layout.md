@@ -212,5 +212,8 @@ the room back; inside a table for 4, *Back to Table for 4* showed its settings a
   the room, a click still selects the room as a group. Checked on the test page: in Edit, a click in an added
   rectangle selected it alone; in Build the room's group, and inside it the rectangle.
 - **A name twice in the folded lists** (the user: inside a group, the room as the fold's header, then again as the
-  form's heading): in a folded entry the form's own heading is hidden (its Duplicate and Delete stay, on the right);
-  renaming a room or a piece's key is done with it selected alone, or in the Edit view.
+  form's heading): in a folded entry the form's heading loses its kind ("Rooms: "), and goes where it holds no name
+  field; a room's or a piece's name field stays, as *Name* (the user missed it once it had gone with the heading).
+  Renaming a room there showed that its Build parts kept the old key as their `part`, losing the room its group:
+  `_rename` now carries a room's new key to its parts (and to the group being edited). Checked on the test page: the
+  stub's room renamed inside its group, its floor, walls and label following, its lamp's room too.

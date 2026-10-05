@@ -212,8 +212,12 @@ const STYLE = `${OVERLAY_STYLE}
   .props details.multi > summary { cursor: pointer; padding: 7px 2px; font-weight: 600; }
   .props details.multi > .body { padding: 0 0 10px 14px; }
   .props .title .grow { flex: 1; }
-  /* In a folded list the fold's header names it: the form's own heading goes, its buttons stay on the right. */
-  .props details.multi > .body > .title { justify-content: flex-end; } .props details.multi > .body > .title > h2 { display: none; }
+  /* In a folded list the fold's header names it: the form's own heading goes (but its name field, which renames it),
+     its buttons stay on the right. */
+  .props details.multi > .body > .title { justify-content: flex-end; }
+  .props details.multi > .body > .title > h2:not(:has(input.name)) { display: none; }
+  .props details.multi > .body > .title > h2 .kind { display: none; }
+  .props details.multi > .body > .title > h2:has(input.name)::before { content: 'Name'; font-weight: normal; color: var(--lw-muted); margin-right: 6px; }
   dialog h2 { margin: 0 0 12px; font-size: 16px; }
   dialog .choice { display: grid; gap: 4px; margin: 0 0 14px; }
   dialog .choice p { margin: 0; color: var(--lw-muted); font-size: 13px; }
@@ -2649,12 +2653,17 @@ export class LightwellEditor extends HTMLElement {
   }
 
   // Renames a room or a piece of furniture; the fields naming it follow.
+  // A room's key is also the id of its Build object: its floor, walls and label (`part`) follow too.
   _rename(path, name) {
-    const refs = this._references(path[0] === 'rooms' ? 'room' : 'furniture', path[1]);
+    const data = this.model.data, refs = this._references(path[0] === 'rooms' ? 'room' : 'furniture', path[1]);
+    const parts = path[0] === 'rooms' ? partsOf(data, path[1]).filter(p => p[0] !== 'rooms') : [];
+    const group = this._group === path[1] && path[0] === 'rooms';
     this._edit(() => this.model.edit(doc => {
       renameIn(doc, path, name);
       for (const p of refs) doc.setIn(p, name);
+      for (const p of parts) doc.setIn([...p, 'part'], name);
     }));
+    if (group) this._group = name;
     if (this.model.get([path[0], name]) !== undefined) this.select([path[0], name]);
   }
 

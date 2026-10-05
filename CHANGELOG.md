@@ -91,6 +91,7 @@ versions [Semantic Versioning](https://semver.org/). Changes not released yet ar
   room's rectangle just added moved the floor over it).
 - **The editor:** in a room of several rectangles a click picks the rectangle under the pointer (in the Build view,
   inside the room), rather than the whole room.
+- **The editor:** renaming a room made in the Build view keeps it one object (its walls, floor and name follow).
 
 ## 0.2.0 (2026-10-04)
 

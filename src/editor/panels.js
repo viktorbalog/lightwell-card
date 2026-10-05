@@ -449,7 +449,7 @@ export function renderProperties(box, data, selected, ctx) {
     const value = selected.reduce((o, k) => o?.[k], d), field = fieldAt(selected);
     const extra = selected.length === 4 && selected[0] === 'furniture' && selected[2] === 'extra';
     const group = itemGroups(d).find(g => samePath(g.path, selected.slice(0, -1)));
-    const title = el('h2', {textContent: group ? `${group.title}: ` : ''});
+    const title = el('h2', {}, el('span', {className: 'kind', textContent: group ? `${group.title}: ` : ''}));
     if (extra) {
       // On a piece: its name goes back to it.
       const back = el('button', {type: 'button', className: 'link', textContent: selected[1], title: `Back to ${selected[1]} (Esc)`});
