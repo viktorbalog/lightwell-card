@@ -164,13 +164,31 @@ build) and `tools/editor/ha.html` to see it.
 | 2. Rooms and walls | done 2026-10-04 | `build.js`; cuts by click or drag, resized by their ends, slid; doorways and thresholds get a floor. |
 | 3. Furniture | done 2026-10-04 | `prefabs.js`, 23 pieces in 4 rooms; placed by click or drag, turned by R, the handle or Ctrl+drag. |
 | 4. Lamps, devices, north | done 2026-10-04 | `devices.js`; a cover dropped on a window is its shutter; New → Empty starts in Build. |
-| 5. Home Assistant | built, tried in HA by the user | `ha.js`, `loader.js`, `stub.js`, the Release workflow; editing on HA's preview; selecting and dragging there confirmed by the user (2026-10-04); the keyboard there still unreliable (step 8). The dev build stays on the test dashboard. |
+| 5. Home Assistant | built, in use by the user on the test dashboard | `ha.js`, `loader.js`, `stub.js`, the Release workflow; editing on HA's preview; selecting and dragging there confirmed by the user (2026-10-04); the keyboard fixed in step 8. The dev build stays on the test dashboard. Not yet: a card added from the picker and saved, reloaded (the plan's HA verification), a phone-sized window. |
 | 6. Descriptions, docs | done 2026-10-04 | README (the editor in HA, Build, notes and parts), CHANGELOG, CLAUDE.md. |
-| 7. Groups | done 2026-10-05 | Checked on the test page, not in HA yet. A lamp's entity set on one part reaches all (the user's lamp issue). |
-| 8. Toolbar, panel, keys | done 2026-10-05 | Toolbar beside or above HA's 500 px preview; details panel; no YAML tab in HA; keys on HA's preview fixed and checked in HA with real key presses. |
+| 7. Groups | done 2026-10-05 | Tried in HA by the user since. A lamp's entity set on one part reaches all (the user's lamp issue). A moved lamp keeps its shadows (changed after, see its outcome). |
+| 8. Toolbar, panel, keys | done 2026-10-05, then many follow-ups the same day | Toolbar beside or above HA's 500 px preview; details panel; no YAML tab in HA; keys on HA's preview fixed and checked in HA with real key presses. Then, from the user trying it in HA: New in HA, the `home_url` notice, Back to the group, several selected and a group's parts listed folded, groups in the Items list, windows and doors side by side (two-pane windows, balcony door and window pairs, found in hand-drawn homes too), the example homes grouped, and fixes (the panel's width and height, the plan jumping and the card's frame flashing on each change, the overlay over the editor, a moved lamp's shadows, dragging the selection, a room's rectangles picked one by one, Alt+click simulating a group's light). Each is in its outcome. |
 
-Steps 1–7 are committed on `feature/card-editor` (62368ac, 2026-10-05); step 8 is in the working tree. 122 tests
-pass.
+## State (2026-10-05)
+
+All of it is committed on `feature/card-editor`, from 62368ac (steps 1–7) to ba36054, not pushed or merged; 128
+tests pass. The development build of every commit is on the user's HA (the "Lightwell test" dashboard, the card as
+`lightwell-card-dev`, `/config/www/lightwell-dev/`), redeployed by `deploy-dev.sh` (in the session's scratchpad: it
+builds the card under the development tag, copies both files over SSH and bumps the resource's `?v=`). The HACS card
+and the user's own dashboard are untouched; the flat (`floorplan/taksony.yaml`) gained only its `part` tags (step 2).
+
+Open:
+
+- The plan's HA verification isn't all done: a card added from the picker, built on and saved, then reloaded; a
+  phone-sized window. The user is testing the editor in HA.
+- From step 8: a window's kind and a room's being outdoors aren't changed from the panel; the README's picture of the
+  editor shows the old tools.
+- A light's layer (on the floor, over the fittings, over the furniture) is only in a light's fields: offered as a
+  setting of a lamp in Build, not asked for yet.
+- A hand-drawn door at floor level with an opening is adopted as a door, not a glass door (only the label: left as
+  it is, as the flat's doors are tagged).
+- Before a release: the development card and dashboard removed from the user's HA (or kept for the next round); the
+  version, the CHANGELOG's Unreleased turned into it; the release itself is the user's.
 
 ## Answers from the user
 
@@ -185,3 +203,10 @@ pieces are); a **room moves** too, its walls remade where it lands; HA's preview
 beside it as icons (above it when there's no room); the tools **simplified** to a toolbar; the panel for **details**,
 showing the tool's choices (the catalogue, the devices) **when nothing is selected**; **no YAML tab** in HA; a lamp's
 **pool lit** with it. As steps of this plan.
+
+2026-10-05, while trying it in HA (each in step 8's outcome): **New** in HA to start from scratch; a **Back** button
+inside a group; **several selected** listed folded, and **a group's parts** listed with the selected one open; the
+**groups in the Items list**; **windows and doors side by side** with no wall between, resized by their ends and
+shared boundary, and found in hand-drawn homes; the **example homes grouped**; the panel **one height**, scrolling;
+**Alt+click** on a group switches its light (on HA's preview only simulated); **the selection is what a drag moves**;
+**a room's rectangles** picked one by one.

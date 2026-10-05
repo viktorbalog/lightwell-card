@@ -93,3 +93,7 @@ room selected the room. 120 tests pass. Not tried in HA itself yet.
 
 Found on the way: a double-click's "what was selected before" fell back to what its second click had stepped to when
 nothing was selected before; it now goes by the selection before the clicks.
+
+Changed after (2026-10-05, at the user's word): a moved lamp no longer has its shadows reset to its new room's pieces
+(a round trip lost the ones the user had chosen); it keeps them, and only its `clip` follows. Moved pieces still join
+their new room's lamps. See [step 8](08-layout.md).

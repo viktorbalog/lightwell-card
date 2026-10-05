@@ -46,3 +46,7 @@ own, but doesn't slide it (a window and a door side by side share one gap). The 
 (`floorplan/taksony.yaml` in the homeassistant repo) was adopted through the model (comments kept, nothing but `part`
 added: 34 tags, 9 lamps, 2 windows and 2 doors with their shutters, 5 names, the bathroom's floor) and deployed;
 checked in the editor: a window, the living room and a lamp are each picked as one.
+
+Since (2026-10-05, [step 8](08-layout.md)): windows and doors side by side in one gap (rows: `runOf` and the functions
+around it) are slid, resized by their ends and the boundary they share, split and deleted in Build, so the flat's
+balcony pairs (a window and a door in one gap) no longer need the Edit view.
