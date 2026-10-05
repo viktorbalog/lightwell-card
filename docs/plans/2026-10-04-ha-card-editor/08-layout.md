@@ -217,3 +217,6 @@ the room back; inside a table for 4, *Back to Table for 4* showed its settings a
   Renaming a room there showed that its Build parts kept the old key as their `part`, losing the room its group:
   `_rename` now carries a room's new key to its parts (and to the group being edited). Checked on the test page: the
   stub's room renamed inside its group, its floor, walls and label following, its lamp's room too.
+- **The list's clicks in HA** (the user): a click in the Items list selects and stays on the list; a double-click (two
+  clicks on the same line, counted by the editor, `_fromList`: the list is drawn again between them) opens the
+  details. A selection on the plan still shows the details. Checked on the test page in both views.

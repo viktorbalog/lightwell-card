@@ -12173,9 +12173,34 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       g.innerHTML = lines(step, "minor") + lines(metre, "major");
     }
     _renderPanels() {
-      renderList(this._el.list, this.model.data, this._sel, { ...this._ctx, inside: this._inside, group: this._group, objects: this._objects() }, this._sels);
+      const c = this._ctx, key = (v) => JSON.stringify(v);
+      renderList(this._el.list, this.model.data, this._sel, {
+        ...c,
+        inside: this._inside,
+        group: this._group,
+        objects: this._objects(),
+        select: (p) => this._fromList(key(["s", p]), () => c.select(p)),
+        toggle: (p) => this._fromList(key(["t", p]), () => c.toggle(p)),
+        selectObject: (id) => this._fromList(key(["o", id]), () => c.selectObject(id)),
+        toggleObject: (id) => this._fromList(key(["T", id]), () => c.toggleObject(id)),
+        enterObject: (id, p) => this._fromList(key(["e", p]), () => c.enterObject(id, p))
+      }, this._sels);
       this._renderDetails();
       this._renderOverlay();
+    }
+    // A pick in the list (`fn`; `key`: which line, and how). In HA, where the list and the details share the tabs, a click
+    // selects and stays on the list, and a second one on the same line (a double-click: the list is drawn again between
+    // them, so it's counted here) opens the details.
+    _fromList(key, fn) {
+      const now = performance.now(), again = this._listClick?.key === key && now - this._listClick.t < CLICKS;
+      this._listClick = again ? null : { key, t: now };
+      this._stayOnList = true;
+      try {
+        fn();
+      } finally {
+        this._stayOnList = false;
+      }
+      if (again && this._ha) this._tab("props");
     }
     // Selects the item at `path` (null: the home itself) in the list, on the plan and in the text.
     select(path) {
@@ -12200,7 +12225,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       this._sel = this._sels.at(-1) || null;
       this._folded = null;
       if (was !== this._inside || group !== this._group) this._renderTools();
-      if (this._ha && this._sel && this._tabNow === "list") this._tab("props");
+      if (this._ha && this._sel && this._tabNow === "list" && !this._stayOnList) this._tab("props");
       this._renderPanels();
     }
     // Adds an item to the selection, or takes it out.
