@@ -10463,6 +10463,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
   .props details.multi > summary { cursor: pointer; padding: 7px 2px; font-weight: 600; }
   .props details.multi > .body { padding: 0 0 10px 14px; }
   .props .title .grow { flex: 1; }
+  /* In a folded list the fold's header names it: the form's own heading goes, its buttons stay on the right. */
+  .props details.multi > .body > .title { justify-content: flex-end; } .props details.multi > .body > .title > h2 { display: none; }
   dialog h2 { margin: 0 0 12px; font-size: 16px; }
   dialog .choice { display: grid; gap: 4px; margin: 0 0 14px; }
   dialog .choice p { margin: 0; color: var(--lw-muted); font-size: 13px; }

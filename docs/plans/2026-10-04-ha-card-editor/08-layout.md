@@ -211,3 +211,6 @@ the room back; inside a table for 4, *Back to Table for 4* showed its settings a
   the pointer instead of the room (the room whole is its group in Build, and its line in the list); in Build outside
   the room, a click still selects the room as a group. Checked on the test page: in Edit, a click in an added
   rectangle selected it alone; in Build the room's group, and inside it the rectangle.
+- **A name twice in the folded lists** (the user: inside a group, the room as the fold's header, then again as the
+  form's heading): in a folded entry the form's own heading is hidden (its Duplicate and Delete stay, on the right);
+  renaming a room or a piece's key is done with it selected alone, or in the Edit view.
