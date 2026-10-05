@@ -1426,6 +1426,17 @@ export class LightwellEditor extends HTMLElement {
     }
   }
 
+  // Whether the item at `path` is under point `p` (`hits`: what's there): among them, or (a room's rectangle, which they
+  // name as the room) inside it.
+  _isUnder(path, hits, p) {
+    if (hits.some(h => samePath(h, path))) return true;
+    if (path[0] === 'rooms' && path.length === 3) {
+      const poly = partPoly(itemAt(this.model.data, path));
+      return !!poly && inPoly(poly, p);
+    }
+    return false;
+  }
+
   // In the Build view, the object (made there) the item at `path` is part of: its id, or undefined.
   _objectAt(path) {
     if (this._view !== 'build' || !path) return undefined;
@@ -1535,8 +1546,13 @@ export class LightwellEditor extends HTMLElement {
       const {item, id} = startHandle(this._sel, itemAt(data, this._sel), press.handle.id, this._withPiece(this._sel, data));
       return {kind: 'handle', path: this._sel, item, id, from: press.handle.at, frame, targets: targets([this._sel])};
     }
-    // In the Build view: a window or door slides along its wall; a room stays (its walls are shared).
-    const object = this._objectAt(hits[0]);
+    // What's selected, where it is under the pointer, is what a drag moves (not what lies on top of it there): a room's
+    // rectangle just added, a part under another's. Selected whole, a Build object moves as one.
+    const under = this._sels.some(p => this._isUnder(p, hits, at.p));
+    const chosen = under ? this._objectOf(this._sels) : undefined;
+    const whole = chosen && partsOf(data, chosen).length === this._sels.length;
+    // In the Build view: a window or door slides along its wall; a room moves with its walls made again.
+    const object = under ? (whole ? chosen : undefined) : this._objectAt(hits[0]);
     if (object) {
       this._selectObject(object);
       const gap = gapOf(data, object);
@@ -1553,7 +1569,8 @@ export class LightwellEditor extends HTMLElement {
         return {kind: 'room', id: object, from: at.p};
       }
     }
-    if (!hits.some(h => this._sels.some(p => samePath(p, h)))) frame ? this._selectAll(hits.slice(0, 1)) : this.select(hits[0]);
+    // Otherwise what's on top there (a Build object's parts were selected above).
+    if (!under && !object) frame ? this._selectAll(hits.slice(0, 1)) : this.select(hits[0]);
     const paths = this._sels, items = paths.map(p => itemAt(data, p));
     // Anchors in the piece's frame inside it (without the piece, they're in its frame).
     return {kind: 'move', paths, items, from: at.p, frame, pts: paths.flatMap((p, i) => anchors(p, items[i], view, frame ? {} : this._withPiece(p, data))),

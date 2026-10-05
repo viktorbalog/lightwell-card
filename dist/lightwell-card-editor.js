@@ -11682,6 +11682,16 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         this._message(`${entity} is switched on the preview only: nothing is switched in your home.`, "info");
       }
     }
+    // Whether the item at `path` is under point `p` (`hits`: what's there): among them, or (a room's rectangle, which they
+    // name as the room) inside it.
+    _isUnder(path, hits, p) {
+      if (hits.some((h2) => samePath2(h2, path))) return true;
+      if (path[0] === "rooms" && path.length === 3) {
+        const poly = partPoly(itemAt(this.model.data, path));
+        return !!poly && inPoly(poly, p);
+      }
+      return false;
+    }
     // In the Build view, the object (made there) the item at `path` is part of: its id, or undefined.
     _objectAt(path) {
       if (this._view !== "build" || !path) return void 0;
@@ -11779,7 +11789,10 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         const { item, id } = startHandle(this._sel, itemAt(data, this._sel), press.handle.id, this._withPiece(this._sel, data));
         return { kind: "handle", path: this._sel, item, id, from: press.handle.at, frame, targets: targets([this._sel]) };
       }
-      const object = this._objectAt(hits[0]);
+      const under = this._sels.some((p) => this._isUnder(p, hits, at.p));
+      const chosen = under ? this._objectOf(this._sels) : void 0;
+      const whole = chosen && partsOf(data, chosen).length === this._sels.length;
+      const object = under ? whole ? chosen : void 0 : this._objectAt(hits[0]);
       if (object) {
         this._selectObject(object);
         const gap = gapOf(data, object);
@@ -11796,7 +11809,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
           return { kind: "room", id: object, from: at.p };
         }
       }
-      if (!hits.some((h2) => this._sels.some((p) => samePath2(p, h2)))) frame ? this._selectAll(hits.slice(0, 1)) : this.select(hits[0]);
+      if (!under && !object) frame ? this._selectAll(hits.slice(0, 1)) : this.select(hits[0]);
       const paths = this._sels, items = paths.map((p) => itemAt(data, p));
       return {
         kind: "move",

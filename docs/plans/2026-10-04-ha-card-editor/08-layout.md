@@ -200,3 +200,10 @@ the room back; inside a table for 4, *Back to Table for 4* showed its settings a
   brought the bed in, which the user had left out (the flat's strip: desk, desk chair, wardrobe, dresser). A moved lamp
   now keeps its shadows (another room's pieces' don't show: its light stays in its room); a moved piece still joins
   its new room's lamps. Tested: to the hall and back, the same shadows.
+- **The selection is what a drag moves** (the user: a rectangle added to a room was selected, but a drag on it moved
+  the floor over it): a drag moved the selection only when it was among the hits, and a room's rectangle is hit as the
+  room; in Build the object on top won before the selection was looked at. `_isUnder` (the selection among the hits,
+  or a room's rectangle containing the point) now decides first: the selection moves (a Build object selected whole
+  as one: a room with its walls, a window along its wall); otherwise what's on top, as before. Checked on the test
+  page in both views: an added rectangle moved alone; a lamp dragged while a window was selected moved whole; a room
+  selected whole moved as a room; the sofa dragged with nothing selected.
