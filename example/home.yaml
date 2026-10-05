@@ -15,39 +15,48 @@ rooms:
 
 # The static drawing, slot by slot. Lightwell's own layers (daylight, lamps, shadows, shutters) go between the slots.
 drawing:
+  # Each room's floor (both reaching under the wall between them, so that no edge of theirs shows along it), and the
+  # floor through the doorway between them. `part` (on these and on the walls, the glass, the lamps and the markers)
+  # is the object the editor's Build view picks as one: a room, a window, a lamp.
   floors:
-    - {rect: [25, 25, 800, 600], class: floor}
-    - {rect: [25, 650, 800, 150], class: terrace}
+    - {rect: [25, 25, 490, 600], class: floor, part: living}
+    - {rect: [500, 25, 325, 600], class: floor, part: bedroom}
+    - {rect: [500, 250, 15, 90], class: floor, part: doorway_1}
+    - {rect: [25, 650, 800, 150], class: terrace, part: terrace}
     - {path: 'M25,790 H825', class: line}
+  # Each room's walls, as the Build view makes them; the one between the rooms is the bedroom's. The living room's top
+  # and bottom walls reach over the bedroom's ends a little (again, so that no edge shows where they meet).
   walls:
-    - {rect: [0, 0, 850, 25], class: wall}
-    - {rect: [0, 0, 25, 650], class: wall}
+    - {rect: [0, 0, 515, 25], class: wall, part: living}
+    - {rect: [0, 0, 25, 650], class: wall, part: living}
     # The bottom wall, with the terrace door (x 140–360).
-    - {rect: [0, 625, 140, 25], class: wall}
-    - {rect: [360, 625, 490, 25], class: wall}
+    - {rect: [0, 625, 140, 25], class: wall, part: living}
+    - {rect: [360, 625, 155, 25], class: wall, part: living}
+    - {rect: [500, 0, 350, 25], class: wall, part: bedroom}
+    - {rect: [500, 625, 350, 25], class: wall, part: bedroom}
     # The right wall, with the bedroom window (y 230–410).
-    - {rect: [825, 0, 25, 230], class: wall}
-    - {rect: [825, 410, 25, 240], class: wall}
-    # Between the rooms, with a door (y 250–340).
-    - {rect: [500, 25, 15, 225], class: iwall}
-    - {rect: [500, 340, 15, 285], class: iwall}
+    - {rect: [825, 0, 25, 230], class: wall, part: bedroom}
+    - {rect: [825, 410, 25, 240], class: wall, part: bedroom}
+    # Between the rooms, with a doorway (y 250–340).
+    - {rect: [500, 25, 15, 225], class: iwall, part: bedroom}
+    - {rect: [500, 340, 15, 285], class: iwall, part: bedroom}
   glazing:
-    - {rect: [140, 632, 220, 10], class: glass}
-    - {rect: [832, 230, 10, 180], class: glass}
+    - {rect: [140, 632, 220, 10], class: glass, part: glass_door_1}
+    - {rect: [832, 230, 10, 180], class: glass, part: window_1}
   # The kitchen counter, with the sink and the hob.
   fittings:
     - {rect: [25, 25, 260, 60], class: fix}
     - {rect: [60, 35, 70, 40], class: fix2, rx: 6}
     - {rect: [170, 35, 80, 40], class: fix2}
   labels:
-    - {text: Living room, at: [300, 600], class: room}
-    - {text: Bedroom, at: [670, 300], class: room}
-    - {text: Terrace, at: [600, 735], class: room}
+    - {text: Living room, at: [300, 600], class: room, part: living}
+    - {text: Bedroom, at: [670, 300], class: room, part: bedroom}
+    - {text: Terrace, at: [600, 735], class: room, part: terrace}
 
 # Windows and doors: where the sun and daylight come in. `at` is the wall's outer face, `depth` its thickness.
 openings:
-  - {wall: bottom, at: 650, depth: 25, x: 140, w: 220, lo: 0, hi: 2.3, shutter: cover.living_room_blind, room: living, sky: living}
-  - {wall: right, at: 850, depth: 25, y: 230, h: 180, lo: 0.8, hi: 2.2, shutter: cover.bedroom_blind, room: bedroom, sky: bedroom}
+  - {wall: bottom, at: 650, depth: 25, x: 140, w: 220, lo: 0, hi: 2.3, shutter: cover.living_room_blind, room: living, sky: living, part: glass_door_1}
+  - {wall: right, at: 850, depth: 25, y: 230, h: 180, lo: 0.8, hi: 2.2, shutter: cover.bedroom_blind, room: bedroom, sky: bedroom, part: window_1}
 
 # Each piece once: its drawing, the shadows it casts (with a height, in metres) and the daylight on its top.
 furniture:
@@ -91,6 +100,7 @@ lights:
     over: true
     clip: living
     pool: {x: 70, y: 340, r: 380, height: 1.6, shadows: [sofa, coffeeTable, diningTable]}
+    part: lamp_1
   # The TV only reports whether it's on: cool light that flickers while it is.
   - entities: [media_player.tv]
     states: ['on', playing, paused]
@@ -100,15 +110,18 @@ lights:
     over: true
     clip: living
     pool: {x: 470, y: 480, r: 350, height: 1, shadows: [coffeeTable, sofa]}
+    part: lamp_2
   - entities: [light.kitchen_strip]
     shape: [{path: 'M35,90 H275', stroke_width: 20, fill: none}]
     top: true
     clip: living
+    part: lamp_3
   - entities: [light.bedroom_lamp]
     shape: [{circle: [555, 565, 50]}]
     over: true
     clip: bedroom
     pool: {x: 555, y: 565, r: 330, height: 0.9, shadows: [bed, wardrobe, desk]}
+    part: lamp_4
   # On/off string lights: bulbs in a repeating set of colours, each with a faint pool, fading out by day.
   - entities: [light.terrace_lights]
     multi: true
@@ -117,6 +130,7 @@ lights:
     shape:
       - {circle: [60, 775, 60], repeat: {count: 12, step: [65, 0]}, fill: ['#ff5a5a', '#ffd23b', '#5aff8a', '#5ac8ff'], fill_opacity: 0.08}
       - {circle: [60, 775, 10], repeat: {count: 12, step: [65, 0]}, fill: ['#ff5a5a', '#ffd23b', '#5aff8a', '#5ac8ff']}
+    part: lamp_5
 
 # Effects by name, played while a light reports them: steps of [hue, saturation, brightness %, hold ms]. `flicker`
 # (the TV's) is built in.
@@ -124,16 +138,16 @@ effects:
   Sunset glow: [[25, 90, 90, 5000], [10, 85, 70, 5000], [40, 80, 100, 5000]]
 
 markers:
-  - {entity: light.living_room_lamp, x: 110, y: 330, icon: 'mdi:floor-lamp', tap: toggle}
-  - {entity: light.kitchen_strip, x: 150, y: 120, icon: 'mdi:led-strip-variant', tap: toggle}
+  - {entity: light.living_room_lamp, x: 110, y: 330, icon: 'mdi:floor-lamp', tap: toggle, part: lamp_1}
+  - {entity: light.kitchen_strip, x: 150, y: 120, icon: 'mdi:led-strip-variant', tap: toggle, part: lamp_3}
   - {entity: climate.living_room, x: 400, y: 60, icon: 'mdi:air-conditioner', label: {attribute: temperature, round: 0, unit: '°'}}
-  - {entity: media_player.tv, x: 440, y: 480, icon: 'mdi:television', label: {attribute: source, when: ['on']}}
-  - {entity: light.bedroom_lamp, x: 555, y: 565, icon: 'mdi:lamp', tap: toggle}
+  - {entity: media_player.tv, x: 440, y: 480, icon: 'mdi:television', label: {attribute: source, when: ['on']}, part: lamp_2}
+  - {entity: light.bedroom_lamp, x: 555, y: 565, icon: 'mdi:lamp', tap: toggle, part: lamp_4}
   - {entity: sensor.bedroom_temperature, x: 760, y: 200, icon: 'mdi:thermometer', small: true, side: true, label: {round: 1, unit: '°'}}
-  - {entity: cover.bedroom_blind, x: 790, y: 320, icon: 'mdi:blinds', small: true, label: {attribute: current_position, unit: '%'}}
-  - {entity: cover.living_room_blind, x: 250, y: 690, icon: 'mdi:blinds', small: true, label: {attribute: current_position, unit: '%'}}
+  - {entity: cover.bedroom_blind, x: 790, y: 320, icon: 'mdi:blinds', small: true, label: {attribute: current_position, unit: '%'}, part: window_1}
+  - {entity: cover.living_room_blind, x: 250, y: 690, icon: 'mdi:blinds', small: true, label: {attribute: current_position, unit: '%'}, part: glass_door_1}
   - {entity: weather.home, x: 100, y: 720, icon: 'mdi:weather-partly-cloudy', label: {attribute: temperature, round: 0, unit: '°'}}
-  - {entity: light.terrace_lights, x: 760, y: 720, icon: 'mdi:string-lights', tap: toggle}
+  - {entity: light.terrace_lights, x: 760, y: 720, icon: 'mdi:string-lights', tap: toggle, part: lamp_5}
 
 sun:
   # The compass bearing of the top of the plan.

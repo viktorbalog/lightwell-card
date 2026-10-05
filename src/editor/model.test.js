@@ -36,8 +36,8 @@ test('moving a piece changes only its numbers, and its comments stay', () => {
   m.set(['furniture', 'coffeeTable', 'shape', 'rect'], [200, 440, 90, 60]);
   assert.deepEqual(changedLines(EXAMPLE, m.text),
     ['  coffeeTable: {shape: {rect: [200, 440, 90, 60], rx: 6, turn: 20}, height: 0.45, shadow_room: living}']);
-  m.set(['drawing', 'walls', 3, 'rect'], [360, 625, 480, 25]);
-  assert.match(m.text, /# The bottom wall, with the terrace door \(x 140–360\)\.\n {4}- \{rect: \[0, 625, 140, 25\], class: wall\}\n {4}- \{rect: \[360, 625, 480, 25\], class: wall\}/);
+  m.set(['drawing', 'walls', 3, 'rect'], [360, 625, 150, 25]);
+  assert.match(m.text, /# The bottom wall, with the terrace door \(x 140–360\)\.\n {4}- \{rect: \[0, 625, 140, 25\], class: wall, part: living\}\n {4}- \{rect: \[360, 625, 150, 25\], class: wall, part: living\}/);
   assert.equal(m.home.furniture.coffeeTable.shape.rect[0], 200);
 });
 

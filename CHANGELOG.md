@@ -46,6 +46,8 @@ versions [Semantic Versioning](https://semver.org/). Changes not released yet ar
 - **The editor's Build view:** windows and doors side by side, with no wall between them: a window or door cut next to
   another meets it, *Split in two* makes a two-pane window, and pairs drawn by hand (a balcony door beside its window)
   are found as such. They slide together, and the end they share is dragged (or a width typed) to resize both.
+- **The example homes** are drawn as the Build view makes homes: each room with its own walls and floor, the doorway,
+  the window and the glass door, and the lamps tagged (`part`), so that Build picks each as one.
 - A piece of furniture that is a polygon can be turned (`turn`, around the middle of its bounding box), as a
   rectangle can; in the editor by its turn handle, Ctrl (⌘) and a drag, or R in the Build view.
 

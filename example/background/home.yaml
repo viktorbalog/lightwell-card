@@ -14,8 +14,8 @@ rooms:
   studio: [[20, 20, 560, 460]]
 
 openings:
-  - {wall: top, at: 0, depth: 20, x: 220, w: 160, lo: 0.9, hi: 2.2, room: studio, sky: studio}
-  - {wall: left, at: 0, depth: 20, y: 180, h: 140, lo: 0.9, hi: 2.2, room: studio, sky: studio}
+  - {wall: top, at: 0, depth: 20, x: 220, w: 160, lo: 0.9, hi: 2.2, room: studio, sky: studio, part: window_1}
+  - {wall: left, at: 0, depth: 20, y: 180, h: 140, lo: 0.9, hi: 2.2, room: studio, sky: studio, part: window_2}
 
 furniture:
   sofa: {shape: {rect: [60, 360, 200, 80], rx: 10}, height: 0.8, shadow_room: studio}
@@ -28,9 +28,10 @@ lights:
     over: true
     clip: studio
     pool: {x: 300, y: 380, r: 320, height: 1.5, shadows: [sofa, table, bed]}
+    part: lamp_1
 
 markers:
-  - {entity: light.studio_lamp, x: 300, y: 380, icon: 'mdi:floor-lamp', tap: toggle}
+  - {entity: light.studio_lamp, x: 300, y: 380, icon: 'mdi:floor-lamp', tap: toggle, part: lamp_1}
   - {entity: weather.home, x: 90, y: 60, icon: 'mdi:weather-partly-cloudy', label: {attribute: temperature, round: 0, unit: '°'}}
 
 sun:

@@ -160,3 +160,12 @@ the room back; inside a table for 4, *Back to Table for 4* showed its settings a
   device name) set its width, and HA's one column (`1fr`) grew to fit it: 545 px of panel in a 486 px editor, under
   the preview. The column is `minmax(0, 1fr)`, the sides may shrink, the picker takes the row's width. Checked in HA:
   lamp 3, the TV's lamp, a window and the living room each 484 px in the 486 px editor.
+- **The example homes grouped** (the user, the same day): `example/home.yaml` redrawn as Build makes homes (each
+  room's walls and floor, the wall between the rooms the bedroom's, the doorway with its floor), then adopted through
+  the model (the lamps, the window and the glass door with their glass and shutters, the room names; all 39 comments
+  kept); `example/background/home.yaml` adopted (its two windows and its lamp). In Build the example lists 3 rooms,
+  3 windows and doors (each found in its gap) and 5 lamps, with nothing left to *Find*. `ref.html` against the
+  build before: split pieces showed anti-aliased seams where they met (122 pixels over 16, in thin lines along the
+  wall between the rooms); with the two rooms' floors overlapping under that wall, and the living room's top and
+  bottom walls reaching 15 cm over the bedroom's, 44 pixels differ by more than 16 (max 35), all on the outer edge of
+  the top and bottom walls where two pieces overlap. The README's pictures weren't made again.
