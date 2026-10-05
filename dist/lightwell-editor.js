@@ -1,4 +1,4 @@
-// Lightwell 0.2.0's editor for homes (MIT licence; includes the yaml library, ISC licence).
+// Lightwell 0.3.0's editor for homes (MIT licence; includes the yaml library, ISC licence).
 // Built from src/editor/ by npm run build.
 (() => {
   var __defProp = Object.defineProperty;
@@ -433,7 +433,7 @@ ${errors.join("\n")}`);
 
   // src/loader.js
   var EDITOR = "lightwell-card-editor.js";
-  var VERSION = true ? "0.2.0" : void 0;
+  var VERSION = true ? "0.3.0" : void 0;
   function scriptUrl(stack) {
     const m2 = String(stack || "").match(/(https?:\/\/[^\s()'"@]+?\.js)(\?[^\s():'"]*)?/);
     return m2 ? m2[1] + (m2[2] || "") : void 0;

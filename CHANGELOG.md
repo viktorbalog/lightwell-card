@@ -5,6 +5,11 @@ versions [Semantic Versioning](https://semver.org/). Changes not released yet ar
 
 ## Unreleased
 
+## 0.3.0 (2026-10-05)
+
+The card's editor in Home Assistant, with a Build view for making a home step by step. The card gains lights without
+an entity, turned polygon pieces, and notes (`description`) and Build's objects (`part`) in a home.
+
 ### Added
 
 - **The card's editor in Home Assistant:** Edit card shows the editor, and a new card from the card picker starts

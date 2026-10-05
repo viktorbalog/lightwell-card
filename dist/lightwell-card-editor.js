@@ -1,4 +1,4 @@
-// Lightwell 0.2.0's card editor for Home Assistant (MIT licence; includes the yaml library, ISC licence).
+// Lightwell 0.3.0's card editor for Home Assistant (MIT licence; includes the yaml library, ISC licence).
 // Built from src/editor/ by npm run build; the card loads it when its editor is opened.
 (() => {
   var __defProp = Object.defineProperty;

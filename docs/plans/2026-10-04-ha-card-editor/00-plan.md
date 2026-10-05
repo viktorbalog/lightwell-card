@@ -210,3 +210,21 @@ inside a group; **several selected** listed folded, and **a group's parts** list
 shared boundary, and found in hand-drawn homes; the **example homes grouped**; the panel **one height**, scrolling;
 **Alt+click** on a group switches its light (on HA's preview only simulated); **the selection is what a drag moves**;
 **a room's rectangles** picked one by one.
+
+## Outcome
+
+2026-10-05, released as 0.3.0 (the release commit on `feature/card-editor`, fast-forwarded into `main`, tagged
+`v0.3.0`; the GitHub release, which runs the Release workflow attaching `lightwell-card.js` and then
+`lightwell-card-editor.js` for HACS, is published by the user).
+
+What changed, in the steps' outcomes: the editor in Home Assistant's card editor (its own bundle, loaded on demand,
+`getStubConfig`, `home_url` homes), editing on HA's own preview with a toolbar beside or above it and a details panel;
+the Build view (rooms with their walls, windows and doors in rows, a furniture and lamp catalogue, devices from HA,
+north), its objects as groups (selected, moved, entered, listed); `description`, `part`, `lit` and turned polygons in
+the card and `defineHome`; the example homes grouped as Build makes them. 128 tests pass; `ref.html` was compared at
+each change to the card (the example's regrouping: 44 pixels over 16 levels at two walls' outer edge).
+
+Verified in HA on the user's test dashboard throughout (the user editing there; selecting, dragging and the keys with
+real input). Not done, and left open in the State section above: a card added from the picker, saved and reloaded; a
+phone-sized window; the README's picture of the editor; a window's kind and a room's being outdoors from the panel;
+removing the development card and dashboard from the user's HA.
