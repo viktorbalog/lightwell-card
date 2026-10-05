@@ -86,7 +86,9 @@ devices, a window's width). It has two views:
   with its floor, its name and its walls, and a room drawn against another's wall shares it (rooms outdoors, a terrace
   or a balcony, get no walls). *Windows and doors*: click on a wall (or drag along it for the width); windows and
   glass doors let the sun in, a door between rooms is a doorway; drag one's end to resize it, or the whole of it to
-  slide it along the wall. *Furniture*: a catalogue of real sizes (living room, bedroom, kitchen and dining,
+  slide it along the wall. Cut one next to another and they meet, side by side with no wall between (a balcony door
+  beside its window); *Split in two* makes a two-pane window. Side by side, they slide together, and dragging the end
+  they share resizes both. *Furniture*: a catalogue of real sizes (living room, bedroom, kitchen and dining,
   bathroom, and lights: ceiling, pendant, floor and table lamps, light strips): drag one onto the plan, or choose it
   and Shift+click where it goes; R turns it. A light asks which of your lights it is, or, for a lamp that isn't
   smart, whether it's lit always, after dark or never. *Lamps and devices*: your lights, blinds, sensors and the rest,

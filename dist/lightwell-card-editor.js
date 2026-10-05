@@ -8513,24 +8513,6 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     }
     return gaps;
   }
-  function gapEndAt(data, p, tol = 0) {
-    let best;
-    for (const gap of gapsOf(data)) {
-      const across = p[1 - gap.axis];
-      if (across < gap.band[0] - tol || across > gap.band[1] + tol) continue;
-      for (const end of ["from", "to"]) {
-        const d = Math.abs(p[gap.axis] - gap[end]);
-        if (d <= tol && (!best || d < best.d)) best = { gap, end, d };
-      }
-    }
-    return best && { gap: best.gap, end: best.end };
-  }
-  function gapRange(data, gap, end) {
-    const walls = data.drawing.walls, min = 0.3 * upm(data);
-    if (end === "from") return [walls[gap.a].rect[gap.axis] + CRUMB, gap.to - min];
-    const b = walls[gap.b].rect;
-    return [gap.from + min, b[gap.axis] + b[gap.axis + 2] - CRUMB];
-  }
   function resizeGapOps(data, gap, from, to) {
     [from, to] = [tidy(from), tidy(to)];
     const ax = gap.axis, ops = [], same = (u, v) => Math.abs(u - v) < 0.01;
@@ -8592,15 +8574,134 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     for (const [name, p] of Object.entries(data?.furniture || {})) if (p?.part === id) paths.push(["furniture", name]);
     return paths;
   }
+  function cutSpanIn(data, id, gap) {
+    const ax = gap.axis, slack = 0.02 * upm(data), ends = [];
+    const across = (lo, hi) => lo >= gap.band[0] - slack && hi <= gap.band[1] + slack;
+    for (const slot of ["glazing", "floors"]) {
+      for (const sh of data?.drawing?.[slot] || []) {
+        const r = sh?.rect;
+        if (sh?.part === id && Array.isArray(r) && across(r[1 - ax], r[1 - ax] + r[3 - ax])) ends.push([r[ax], r[ax] + r[ax + 2]]);
+      }
+    }
+    const [pos, len] = ax === 0 ? ["x", "w"] : ["y", "h"], sides = ax === 0 ? ["top", "bottom"] : ["left", "right"];
+    for (const o of data?.openings || []) {
+      if (o?.part === id && sides.includes(o.wall) && o.at >= gap.band[0] - slack && o.at <= gap.band[1] + slack) ends.push([o[pos], o[pos] + o[len]]);
+    }
+    if (!ends.length) return null;
+    const span = [Math.min(...ends.map((e) => e[0])), Math.max(...ends.map((e) => e[1]))];
+    return span[0] >= gap.from - slack && span[1] <= gap.to + slack ? span : null;
+  }
+  function runOf(data, gap, ids = partIds(data)) {
+    const slack = 0.02 * upm(data), cuts = [];
+    for (const id of ids) {
+      if (data?.rooms?.[id] !== void 0) continue;
+      const span = cutSpanIn(data, id, gap);
+      if (span) cuts.push({ id, from: span[0], to: span[1] });
+    }
+    cuts.sort((a, b) => a.from - b.from);
+    const whole = { gap, cuts: [], bounds: [gap.from, gap.to] };
+    if (!cuts.length) return whole;
+    if (cuts.length > 1 && (Math.abs(cuts[0].from - gap.from) > slack || Math.abs(cuts.at(-1).to - gap.to) > slack || cuts.some((c, k) => k && Math.abs(c.from - cuts[k - 1].to) > slack))) return whole;
+    return { gap, cuts, bounds: [gap.from, ...cuts.slice(1).map((c) => c.from), gap.to] };
+  }
+  function cutRunOf(data, id) {
+    const ids = partIds(data);
+    for (const gap of gapsOf(data)) {
+      const run = runOf(data, gap, ids), index = run.cuts.findIndex((c) => c.id === id);
+      if (index >= 0) return { run, index };
+    }
+    return void 0;
+  }
   function gapOf(data, id) {
-    const fillers = [...data?.drawing?.glazing || [], ...data?.drawing?.floors || []].filter((s) => s?.part === id && Array.isArray(s.rect));
-    return gapsOf(data).find((g) => fillers.some(({ rect: r }) => Math.abs(r[g.axis] - g.from) < 0.01 && Math.abs(r[g.axis] + r[g.axis + 2] - g.to) < 0.01 && r[1 - g.axis] >= g.band[0] - 0.01 && r[1 - g.axis] + r[3 - g.axis] <= g.band[1] + 0.01));
+    return cutRunOf(data, id)?.run.gap;
+  }
+  function runOps(data, run, bounds) {
+    bounds = bounds.map(tidy);
+    if (!run.cuts.length) return resizeGapOps(data, run.gap, bounds[0], bounds.at(-1));
+    const { gap } = run, ax = gap.axis, ops = [], slack = 0.02 * upm(data);
+    const along = (rect, lo, hi) => {
+      const r = [...rect];
+      r[ax] = tidy(lo);
+      r[ax + 2] = tidy(hi - lo);
+      return r;
+    };
+    const a = data.drawing.walls[gap.a].rect, b = data.drawing.walls[gap.b].rect;
+    ops.push({ set: ["drawing", "walls", gap.a, "rect"], value: along(a, a[ax], bounds[0]) });
+    ops.push({ set: ["drawing", "walls", gap.b, "rect"], value: along(b, bounds.at(-1), b[ax] + b[ax + 2]) });
+    const [pos, len] = ax === 0 ? ["x", "w"] : ["y", "h"], sides = ax === 0 ? ["top", "bottom"] : ["left", "right"];
+    run.cuts.forEach(({ id }, k) => {
+      const [lo, hi] = [bounds[k], bounds[k + 1]];
+      for (const slot of ["glazing", "floors"]) {
+        (data.drawing[slot] || []).forEach((sh, i) => {
+          const r = sh?.rect;
+          if (sh?.part !== id || !Array.isArray(r) || r[1 - ax] < gap.band[0] - slack || r[1 - ax] + r[3 - ax] > gap.band[1] + slack) return;
+          ops.push({ set: ["drawing", slot, i, "rect"], value: along(r, lo, hi) });
+        });
+      }
+      (data.openings || []).forEach((o, i) => {
+        if (o?.part !== id || !sides.includes(o.wall)) return;
+        ops.push({ set: ["openings", i, pos], value: tidy(lo) }, { set: ["openings", i, len], value: tidy(hi - lo) });
+      });
+    });
+    return ops;
+  }
+  function boundaryAt(data, p, tol = 0) {
+    let best;
+    const ids = partIds(data);
+    for (const gap of gapsOf(data)) {
+      const across = p[1 - gap.axis];
+      if (across < gap.band[0] - tol || across > gap.band[1] + tol) continue;
+      const run = runOf(data, gap, ids);
+      run.bounds.forEach((v, k) => {
+        const d = Math.abs(p[gap.axis] - v);
+        if (d <= tol && (!best || d < best.d)) best = { run, k, d };
+      });
+    }
+    return best && { run: best.run, k: best.k };
+  }
+  function boundaryRange(data, run, k) {
+    const { gap, bounds } = run, walls = data.drawing.walls, min = 0.3 * upm(data), ax = gap.axis;
+    const lo = k === 0 ? walls[gap.a].rect[ax] + CRUMB : bounds[k - 1] + min;
+    const b = walls[gap.b].rect, hi = k === bounds.length - 1 ? b[ax] + b[ax + 2] - CRUMB : bounds[k + 1] - min;
+    return [lo, hi];
+  }
+  function moveBoundaryOps(data, run, k, v) {
+    const [lo, hi] = boundaryRange(data, run, k), bounds = [...run.bounds];
+    bounds[k] = Math.min(Math.max(v, lo), hi);
+    return runOps(data, run, bounds);
   }
   function slideOps(data, gap, d) {
-    const walls = data.drawing.walls, a = walls[gap.a].rect, b = walls[gap.b].rect, ax = gap.axis;
-    const lo = a[ax] + CRUMB - gap.from, hi = b[ax] + b[ax + 2] - CRUMB - gap.to;
+    const run = runOf(data, gap), walls = data.drawing.walls, a = walls[gap.a].rect, b = walls[gap.b].rect, ax = gap.axis;
+    const lo = a[ax] + CRUMB - run.bounds[0], hi = b[ax] + b[ax + 2] - CRUMB - run.bounds.at(-1);
     const move = Math.min(Math.max(d, lo), hi);
-    return resizeGapOps(data, gap, gap.from + move, gap.to + move);
+    return runOps(data, run, run.bounds.map((v) => v + move));
+  }
+  function resizeCutOps(data, id, width) {
+    const found = cutRunOf(data, id);
+    if (!found) return [];
+    const { run, index: i } = found, bounds = [...run.bounds], mid = (bounds[i] + bounds[i + 1]) / 2;
+    const [lo] = boundaryRange(data, run, i), [, hi] = boundaryRange(data, run, i + 1);
+    bounds[i] = Math.max(mid - width / 2, lo);
+    bounds[i + 1] = Math.min(mid + width / 2, hi);
+    return runOps(data, run, bounds);
+  }
+  function splitCutOps(data, id) {
+    const found = cutRunOf(data, id);
+    if (!found) return null;
+    const { run, index: i } = found, { gap } = run, ax = gap.axis, [lo, hi] = [run.bounds[i], run.bounds[i + 1]], mid = tidy((lo + hi) / 2);
+    if (mid - lo < 0.3 * upm(data)) return null;
+    const part = partKey(data, id.replace(/_\d+$/, "")), [pos, len] = ax === 0 ? ["x", "w"] : ["y", "h"];
+    const ops = runOps(data, { ...run, cuts: [run.cuts[i]] }, [lo, mid]).filter((op) => op.set[0] !== "drawing" || op.set[1] !== "walls");
+    for (const p of partsOf(data, id)) {
+      const item = p.reduce((o, k) => o?.[k], data);
+      if (p[0] === "drawing" && Array.isArray(item?.rect)) {
+        const r = [...item.rect];
+        r[ax] = mid;
+        r[ax + 2] = tidy(hi - mid);
+        ops.push({ insert: p.slice(0, -1), value: { ...item, rect: r, part } });
+      } else if (p[0] === "openings") ops.push({ insert: ["openings"], value: { ...item, [pos]: mid, [len]: tidy(hi - mid), part } });
+    }
+    return { ops, part };
   }
   function ordered(sets, removals) {
     const seen = /* @__PURE__ */ new Set(), list = removals.filter((p) => !seen.has(JSON.stringify(p)) && seen.add(JSON.stringify(p)));
@@ -8614,12 +8715,27 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
   function deleteOps(data, id) {
     const sets = [], removals = partsOf(data, id);
     if (data?.rooms?.[id] === void 0) {
-      const gap = gapOf(data, id);
-      if (gap) {
-        const a = data.drawing.walls[gap.a].rect, b = data.drawing.walls[gap.b].rect, r = [...a];
-        r[gap.axis + 2] = tidy(b[gap.axis] + b[gap.axis + 2] - a[gap.axis]);
-        sets.push({ set: ["drawing", "walls", gap.a, "rect"], value: r });
-        removals.push(["drawing", "walls", gap.b]);
+      const found = cutRunOf(data, id);
+      if (found) {
+        const { run: { gap, cuts, bounds }, index: i } = found, ax = gap.axis, [lo, hi] = [bounds[i], bounds[i + 1]];
+        const a = data.drawing.walls[gap.a], b = data.drawing.walls[gap.b], r = [...a.rect];
+        if (cuts.length === 1) {
+          r[ax + 2] = tidy(b.rect[ax] + b.rect[ax + 2] - a.rect[ax]);
+          sets.push({ set: ["drawing", "walls", gap.a, "rect"], value: r });
+          removals.push(["drawing", "walls", gap.b]);
+        } else if (i === 0) {
+          r[ax + 2] = tidy(hi - a.rect[ax]);
+          sets.push({ set: ["drawing", "walls", gap.a, "rect"], value: r });
+        } else if (i === cuts.length - 1) {
+          const q = [...b.rect];
+          q[ax + 2] = tidy(b.rect[ax] + b.rect[ax + 2] - lo);
+          q[ax] = tidy(lo);
+          sets.push({ set: ["drawing", "walls", gap.b, "rect"], value: q });
+        } else {
+          r[ax] = tidy(lo);
+          r[ax + 2] = tidy(hi - lo);
+          sets.push({ insert: ["drawing", "walls"], value: { ...a, rect: r } });
+        }
       }
       const pieces = removals.filter((p) => p[0] === "furniture").map((p) => p[1]);
       (data?.lights || []).forEach((g, i) => {
@@ -8719,12 +8835,25 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     });
     return ops;
   }
+  function snapCut(data, wall, span, move = true) {
+    const r = wall.rect, a = r[2] >= r[3] ? 0 : 1, near = move ? 0.25 * upm(data) : CRUMB, gaps = gapsOf(data), end = r[a] + r[a + 2];
+    if (gaps.some((g) => g.b === wall.i) && span[0] - r[a] <= near) {
+      if (move) span[1] = tidy(span[1] - (span[0] - r[a]));
+      span[0] = r[a];
+    }
+    if (gaps.some((g) => g.a === wall.i) && end - span[1] <= near) {
+      if (move) span[0] = tidy(span[0] + (end - span[1]));
+      span[1] = tidy(end);
+    }
+    return span;
+  }
   function cutOps(data, p, { kind = "window", metres = 1, tol = 0, until } = {}) {
     const wall = wallAt(data, p, tol);
     if (!wall) return null;
     const r = wall.rect, a = r[2] >= r[3] ? 0 : 1;
     const span = until ? [Math.max(Math.min(p[a], until[a]), r[a]), Math.min(Math.max(p[a], until[a]), r[a] + r[a + 2])].map(tidy) : cutSpan(r, p[a], tidy(metres * upm(data)));
     if (!span || span[1] - span[0] < 0.3 * upm(data)) return null;
+    snapCut(data, wall, span, !until);
     if (!span) return null;
     const [from, to] = span, mid = r[1 - a] + r[3 - a] / 2;
     const at = (v) => a === 0 ? [v, mid] : [mid, v];
@@ -8815,8 +8944,10 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     const outdoor = outdoors(data, id), kept = /* @__PURE__ */ new Set(["floors", "labels"]);
     const own = new Set((data.drawing?.walls || []).flatMap((w, i) => w?.part === id ? [i] : []));
     const cuts = [...partIds(data)].filter((pid) => pid !== id && data.rooms?.[pid] === void 0).flatMap((pid) => {
-      const gap = gapOf(data, pid);
-      return gap && own.has(gap.a) && own.has(gap.b) ? [{ pid, gap, parts: partsOf(data, pid).map((p) => [p, p.reduce((o, k) => o?.[k], data)]) }] : [];
+      const found = cutRunOf(data, pid), gap = found?.run.gap;
+      if (!gap || !own.has(gap.a) || !own.has(gap.b)) return [];
+      const span = { ...gap, from: found.run.bounds[found.index], to: found.run.bounds[found.index + 1] };
+      return [{ pid, gap: span, parts: partsOf(data, pid).map((p) => [p, p.reduce((o, k) => o?.[k], data)]) }];
     });
     const del = deleteOps(data, id).filter((op) => !(op.remove && (op.remove[0] === "rooms" || op.remove[0] === "drawing" && kept.has(op.remove[1]) && op.remove.reduce((o, k) => o?.[k], data)?.part === id)));
     const stage1 = applyOps(data, del);
@@ -11409,7 +11540,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     // before this, to resize it; a room is picked by a click in Rooms, as a drag there draws one.)
     _buildGrab(at) {
       const t = this._tool, data = this.model.data;
-      if (!["build-cut", "build-piece", "build-device"].includes(t) || !data || t === "build-cut" && gapEndAt(data, at.p, at.tol + HANDLE * this._px() / 2)) return void 0;
+      if (!["build-cut", "build-piece", "build-device"].includes(t) || !data || t === "build-cut" && boundaryAt(data, at.p, at.tol + HANDLE * this._px() / 2)) return void 0;
       return this._hitsAt(at).hits.find((h2) => t === "build-piece" ? h2[0] === "furniture" && h2.length === 2 : t === "build-device" ? h2[0] === "lights" || h2[0] === "markers" : this._isCut(this._objectAt(h2)));
     }
     // Whether object `id` is a window or door: a gap of its own, or (adopted from a home not made in Build) an opening
@@ -11424,9 +11555,9 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     _cutPreview(at) {
       const data = this.model.data, f = (v) => +v.toFixed(1);
       if (!data) return;
-      const grab = gapEndAt(data, at.p, at.tol + HANDLE * this._px() / 2);
+      const grab = boundaryAt(data, at.p, at.tol + HANDLE * this._px() / 2);
       if (grab) {
-        const { gap, end } = grab, w = 3 * this._px(), r2 = gap.axis === 0 ? [gap[end] - w, gap.band[0], 2 * w, gap.band[1] - gap.band[0]] : [gap.band[0], gap[end] - w, gap.band[1] - gap.band[0], 2 * w];
+        const { gap, bounds } = grab.run, v = bounds[grab.k], w = 3 * this._px(), r2 = gap.axis === 0 ? [v - w, gap.band[0], 2 * w, gap.band[1] - gap.band[0]] : [gap.band[0], v - w, gap.band[1] - gap.band[0], 2 * w];
         this._el.overlay.classList.toggle("grab-x", gap.axis === 0);
         this._el.overlay.classList.toggle("grab-y", gap.axis === 1);
         this._el.draft.innerHTML = `<rect class="cut grab" x="${f(r2[0])}" y="${f(r2[1])}" width="${f(r2[2])}" height="${f(r2[3])}"/>`;
@@ -11444,6 +11575,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       const r = [...wall.rect], a = r[2] >= r[3] ? 0 : 1;
       const span = to ? [Math.max(Math.min(at.p[a], to[a]), r[a]), Math.min(Math.max(at.p[a], to[a]), r[a] + r[a + 2])] : cutSpan(r, at.p[a], this._opts.cutWidth * (data.units_per_metre || 100));
       if (!span) return null;
+      snapCut(data, wall, span, !to);
       r[a] = span[0];
       r[a + 2] = span[1] - span[0];
       return { rect: r, length: r[a + 2] };
@@ -11462,7 +11594,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       this._press.grab = !this._press.handle && this._buildGrab(at);
       const placing = !["build-piece", "build-device"].includes(this._tool) || e.shiftKey;
       if (this._tool !== "select" && !this._press.grab && !this._press.handle && placing) Object.assign(this._press, { create: true, start: this._snap(e, at, this._poly?.points.at(-1)) });
-      if (this._tool === "build-cut") this._press.gapEnd = gapEndAt(this.model.data, at.p, at.tol + HANDLE * this._px() / 2);
+      if (this._tool === "build-cut") this._press.gapEnd = boundaryAt(this.model.data, at.p, at.tol + HANDLE * this._px() / 2);
     }
     _up(e) {
       const press = this._press;
@@ -11607,7 +11739,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         const gap = gapOf(data, object);
         if (gap) return { kind: "slide", gap, from: at.p };
         if (this._isCut(object)) {
-          this._message("This window or door isn't in a gap of its own in the wall (a window and a door side by side, as drawn by hand): move it in the Edit view.", "info");
+          this._message("This window or door isn't in a gap that it and its neighbours fill side by side (drawn by hand): move it in the Edit view.", "info");
           return { kind: "none" };
         }
         if (data.rooms?.[object] !== void 0) {
@@ -11973,16 +12105,24 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         } else box2.append(h("p", { className: "help", textContent: "A room of several rectangles, or a polygon: its shape is changed in the Edit view." }));
       }
       if (cut) {
-        const gap = gapOf(data, id);
-        if (gap) {
-          const width = number(metres(gap.to - gap.from), (v) => {
-            const g = gapOf(this.model.data, id), mid = (g.from + g.to) / 2, [lo] = gapRange(this.model.data, g, "from"), [, hi] = gapRange(this.model.data, g, "to");
-            const [a, b] = [Math.max(mid - v * u / 2, lo), Math.min(mid + v * u / 2, hi)];
-            if (b - a >= 0.3 * u) this._edit(() => this.model.batch(resizeGapOps(this.model.data, g, a, b)));
+        const found2 = cutRunOf(data, id);
+        if (found2) {
+          const { bounds, cuts } = found2.run, i = found2.index;
+          const width = number(metres(bounds[i + 1] - bounds[i]), (v) => {
+            if (v * u >= 0.3 * u) this._edit(() => this.model.batch(resizeCutOps(this.model.data, id, v * u)));
             keep();
           }, { min: 0.3 });
           box2.append(row2("Width", width, unit("m")));
-        } else box2.append(h("p", { className: "help", textContent: "Not in a gap of its own in the wall (drawn by hand, beside another): its size is changed in the Edit view." }));
+          if (cuts.length > 1) box2.append(h("p", { className: "help", textContent: `Side by side with ${cuts.filter((c) => c.id !== id).map((c) => this._groupName(c.id)).join(", ")}: they slide together, and the end they share moves both.` }));
+          const split = h("button", { type: "button", textContent: "Split in two", title: "Two side by side in its place: a two-pane window, or a door beside a door" });
+          split.onclick = () => {
+            const made = splitCutOps(this.model.data, id);
+            if (!made) return this._message("Too narrow to split: each needs 30 cm at least.", "info");
+            this._edit(() => this.model.batch(made.ops));
+            this._selectObject(made.part);
+          };
+          box2.append(row2("", split));
+        } else box2.append(h("p", { className: "help", textContent: "Not in a gap in the wall that it and its neighbours fill side by side (drawn by hand): its size is changed in the Edit view." }));
         const opening = parts.find((p) => p[0] === "openings"), o = opening && itemAt(data, opening);
         if (o) {
           const set2 = (key, v) => {
@@ -12320,16 +12460,16 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     }
     // The end of a window, door or doorway dragged along its wall (to the grid; Alt: not): the card follows, with the
     // wall, the glass and the opening.
+    // (In a row of them, where two meet: both follow.) The ruler shows the widths either side of it.
     _resizeGap(e, at, press) {
-      const data = this.model.data, { gap, end } = press.gapEnd, ax = gap.axis, grid = this._grid();
-      const [lo, hi] = gapRange(data, gap, end);
-      const v = Math.min(Math.max(e.altKey ? at.p[ax] : Math.round(at.p[ax] / grid) * grid, lo), hi);
-      const [from, to] = end === "from" ? [v, gap.to] : [gap.from, v];
-      press.gapOps = resizeGapOps(data, gap, from, to);
+      const data = this.model.data, { run, k } = press.gapEnd, ax = run.gap.axis, grid = this._grid(), [lo, hi] = boundaryRange(data, run, k);
+      const v = Math.min(Math.max(e.altKey ? at.p[ax] : Math.round(at.p[ax] / grid) * grid, lo), hi), b = run.bounds;
+      press.gapOps = moveBoundaryOps(data, run, k, v);
       this._showPreview(press.gapOps.map((op) => [op.set, op.value]));
+      const sides = [k > 0 ? v - b[k - 1] : 0, k < b.length - 1 ? b[k + 1] - v : 0].filter((x) => x > 0);
       const [fx, fy] = this._inFrame(e.clientX, e.clientY);
       Object.assign(this._el.ruler.style, { left: `${fx + 16}px`, top: `${fy + 16}px` });
-      this._el.ruler.textContent = rulerText({ length: to - from }, data.units_per_metre || 100);
+      this._el.ruler.textContent = sides.map((x) => rulerText({ length: x }, data.units_per_metre || 100)).join(" | ");
     }
     // The pointer was let go while drawing: the new item, from the drag (or the click).
     _drawEnd(e, press) {

@@ -143,3 +143,16 @@ the room back; inside a table for 4, *Back to Table for 4* showed its settings a
   (switching views redraws it now; it had kept the other view's). Checked on the test page: a room, a window, a table
   for 4 and a lamp listed, the sofa under *Not in a group*; the table selected whole from its line, a chair from its
   part's line (inside the table, the line marked); Edit's list by slot.
+- **Windows and doors side by side** (the user, 2026-10-05: openings where one side isn't a wall, two-pane windows,
+  balcony door and window pairs; also found in homes not made in Build, and resized by their ends): a gap in the walls
+  holds a *row* (`runOf` in `build.js`: the cut objects whose glass, floor or opening lie in the gap, tiling it side by
+  side within 2 cm, or one alone), each its own object, with boundaries between them. `boundaryAt`, `boundaryRange`
+  and `moveBoundaryOps` drag an end (its wall piece follows) or a shared boundary (both follow); `slideOps` slides the
+  row; `resizeCutOps` sets one's width round its middle; `splitCutOps` (*Split in two* in a window's details) makes
+  two of one; `deleteOps` gives a deleted one's place back to the wall (the hole closes, the wall piece beside reaches
+  over it, or a piece of wall goes between two others); `cutOps` and the preview snap a new cut against one within
+  25 cm (`snapCut`); a moved room re-cuts each at its own span. Tested (five new tests: cut beside, boundaries, slide,
+  resize, split, deletes, a moved room, a hand-drawn pair a unit off adopted and found). The user's flat: both balcony
+  pairs (`window_1` + `door_1`, `window_2` + `door_2`, already tagged) are found as rows, and slide and resize to
+  homes that pass `defineHome`. Checked on the test page: a glass door cut 15 cm from the stub's window met it (the
+  preview too), their shared boundary dragged, the door's details naming the window beside it.

@@ -24,7 +24,8 @@ import {HaConnection, cannotReach, finishSignIn, haUrl, savedTokens, signIn, sig
 import {OPENING_KINDS, emptyHome, lightFrom, openingFrom, pictureHome, pieceFrom, scaleFrom, wallFrom} from './create.js';
 import {PREFABS, placePrefab, prefab, prefabOf, prefabSvg, turnedPiece} from './prefabs.js';
 import {devicesIn, iconOf, placeDevice, placedIn} from './devices.js';
-import {CUTS, adoptOps, applyOps, cutOps, cutSpan, deleteOps, gapEndAt, gapOf, gapRange, lampEntityOps, moveRoomOps, partOf, partsOf, regroupOps, resizeGapOps, roomOps, slideOps, snapRoom, wallAt} from './build.js';
+import {CUTS, adoptOps, applyOps, boundaryAt, boundaryRange, cutOps, cutRunOf, cutSpan, deleteOps, snapCut, gapOf, lampEntityOps, moveBoundaryOps, moveRoomOps, partOf, partsOf, regroupOps,
+  resizeCutOps, roomOps, slideOps, snapRoom, splitCutOps, wallAt} from './build.js';
 import {applyTransform, hitInside, hitTest, inPoly, invertTransform, isExtra, itemAt, lightCentre, onPiece, outlineSvg, parseTransform, partPoly,
   pieceOutline, pieceTurn} from './hit.js';
 import {anchors, axesOf, boundsOf, dragHandle, handles, insideTargets, moveItem, removeCorner, rulerText, snapMove, snapPoint, snapTargets,
@@ -1263,7 +1264,7 @@ export class LightwellEditor extends HTMLElement {
   // before this, to resize it; a room is picked by a click in Rooms, as a drag there draws one.)
   _buildGrab(at) {
     const t = this._tool, data = this.model.data;
-    if (!['build-cut', 'build-piece', 'build-device'].includes(t) || !data || (t === 'build-cut' && gapEndAt(data, at.p, at.tol + HANDLE * this._px() / 2))) return undefined;
+    if (!['build-cut', 'build-piece', 'build-device'].includes(t) || !data || (t === 'build-cut' && boundaryAt(data, at.p, at.tol + HANDLE * this._px() / 2))) return undefined;
     return this._hitsAt(at).hits.find(h => (t === 'build-piece' ? h[0] === 'furniture' && h.length === 2
       : t === 'build-device' ? h[0] === 'lights' || h[0] === 'markers'
       : this._isCut(this._objectAt(h))));
@@ -1282,10 +1283,11 @@ export class LightwellEditor extends HTMLElement {
   _cutPreview(at) {
     const data = this.model.data, f = v => +v.toFixed(1);
     if (!data) return;
-    const grab = gapEndAt(data, at.p, at.tol + HANDLE * this._px() / 2);
+    // An end of a window or door, or where two side by side meet.
+    const grab = boundaryAt(data, at.p, at.tol + HANDLE * this._px() / 2);
     if (grab) {
-      const {gap, end} = grab, w = 3 * this._px(), r = gap.axis === 0 ? [gap[end] - w, gap.band[0], 2 * w, gap.band[1] - gap.band[0]]
-        : [gap.band[0], gap[end] - w, gap.band[1] - gap.band[0], 2 * w];
+      const {gap, bounds} = grab.run, v = bounds[grab.k], w = 3 * this._px(), r = gap.axis === 0 ? [v - w, gap.band[0], 2 * w, gap.band[1] - gap.band[0]]
+        : [gap.band[0], v - w, gap.band[1] - gap.band[0], 2 * w];
       this._el.overlay.classList.toggle('grab-x', gap.axis === 0);
       this._el.overlay.classList.toggle('grab-y', gap.axis === 1);
       this._el.draft.innerHTML = `<rect class="cut grab" x="${f(r[0])}" y="${f(r[1])}" width="${f(r[2])}" height="${f(r[3])}"/>`;
@@ -1305,6 +1307,8 @@ export class LightwellEditor extends HTMLElement {
     const span = to ? [Math.max(Math.min(at.p[a], to[a]), r[a]), Math.min(Math.max(at.p[a], to[a]), r[a] + r[a + 2])]
       : cutSpan(r, at.p[a], this._opts.cutWidth * (data.units_per_metre || 100));
     if (!span) return null;
+    // Against a window or door beside it, as the cut will be.
+    snapCut(data, wall, span, !to);
     r[a] = span[0];
     r[a + 2] = span[1] - span[0];
     return {rect: r, length: r[a + 2]};
@@ -1324,7 +1328,7 @@ export class LightwellEditor extends HTMLElement {
     // selects, as Select does.
     const placing = !['build-piece', 'build-device'].includes(this._tool) || e.shiftKey;
     if (this._tool !== 'select' && !this._press.grab && !this._press.handle && placing) Object.assign(this._press, {create: true, start: this._snap(e, at, this._poly?.points.at(-1))});
-    if (this._tool === 'build-cut') this._press.gapEnd = gapEndAt(this.model.data, at.p, at.tol + HANDLE * this._px() / 2);
+    if (this._tool === 'build-cut') this._press.gapEnd = boundaryAt(this.model.data, at.p, at.tol + HANDLE * this._px() / 2);
   }
 
   _up(e) {
@@ -1489,7 +1493,7 @@ export class LightwellEditor extends HTMLElement {
       const gap = gapOf(data, object);
       if (gap) return {kind: 'slide', gap, from: at.p};
       if (this._isCut(object)) {
-        this._message("This window or door isn't in a gap of its own in the wall (a window and a door side by side, as drawn by hand): move it in the Edit view.", 'info');
+        this._message("This window or door isn't in a gap that it and its neighbours fill side by side (drawn by hand): move it in the Edit view.", 'info');
         return {kind: 'none'};
       }
       if (data.rooms?.[object] !== undefined) {
@@ -1839,16 +1843,25 @@ export class LightwellEditor extends HTMLElement {
       } else box.append(h('p', {className: 'help', textContent: 'A room of several rectangles, or a polygon: its shape is changed in the Edit view.'}));
     }
     if (cut) {
-      const gap = gapOf(data, id);
-      if (gap) {
-        const width = number(metres(gap.to - gap.from), v => {
-          const g = gapOf(this.model.data, id), mid = (g.from + g.to) / 2, [lo] = gapRange(this.model.data, g, 'from'), [, hi] = gapRange(this.model.data, g, 'to');
-          const [a, b] = [Math.max(mid - v * u / 2, lo), Math.min(mid + v * u / 2, hi)];
-          if (b - a >= 0.3 * u) this._edit(() => this.model.batch(resizeGapOps(this.model.data, g, a, b)));
+      const found = cutRunOf(data, id);
+      if (found) {
+        const {bounds, cuts} = found.run, i = found.index;
+        const width = number(metres(bounds[i + 1] - bounds[i]), v => {
+          if (v * u >= 0.3 * u) this._edit(() => this.model.batch(resizeCutOps(this.model.data, id, v * u)));
           keep();
         }, {min: 0.3});
         box.append(row('Width', width, unit('m')));
-      } else box.append(h('p', {className: 'help', textContent: "Not in a gap of its own in the wall (drawn by hand, beside another): its size is changed in the Edit view."}));
+        if (cuts.length > 1) box.append(h('p', {className: 'help', textContent: `Side by side with ${cuts.filter(c => c.id !== id).map(c => this._groupName(c.id)).join(', ')}: they slide together, and the end they share moves both.`}));
+        // Two panes (or a door beside a door): the second a copy of it.
+        const split = h('button', {type: 'button', textContent: 'Split in two', title: 'Two side by side in its place: a two-pane window, or a door beside a door'});
+        split.onclick = () => {
+          const made = splitCutOps(this.model.data, id);
+          if (!made) return this._message('Too narrow to split: each needs 30 cm at least.', 'info');
+          this._edit(() => this.model.batch(made.ops));
+          this._selectObject(made.part);
+        };
+        box.append(row('', split));
+      } else box.append(h('p', {className: 'help', textContent: "Not in a gap in the wall that it and its neighbours fill side by side (drawn by hand): its size is changed in the Edit view."}));
       const opening = parts.find(p => p[0] === 'openings'), o = opening && itemAt(data, opening);
       if (o) {
         const set = (key, v) => { this._edit(() => this.model.set([...opening, key], v)); keep(); };
@@ -2202,16 +2215,16 @@ export class LightwellEditor extends HTMLElement {
 
   // The end of a window, door or doorway dragged along its wall (to the grid; Alt: not): the card follows, with the
   // wall, the glass and the opening.
+  // (In a row of them, where two meet: both follow.) The ruler shows the widths either side of it.
   _resizeGap(e, at, press) {
-    const data = this.model.data, {gap, end} = press.gapEnd, ax = gap.axis, grid = this._grid();
-    const [lo, hi] = gapRange(data, gap, end);
-    const v = Math.min(Math.max(e.altKey ? at.p[ax] : Math.round(at.p[ax] / grid) * grid, lo), hi);
-    const [from, to] = end === 'from' ? [v, gap.to] : [gap.from, v];
-    press.gapOps = resizeGapOps(data, gap, from, to);
+    const data = this.model.data, {run, k} = press.gapEnd, ax = run.gap.axis, grid = this._grid(), [lo, hi] = boundaryRange(data, run, k);
+    const v = Math.min(Math.max(e.altKey ? at.p[ax] : Math.round(at.p[ax] / grid) * grid, lo), hi), b = run.bounds;
+    press.gapOps = moveBoundaryOps(data, run, k, v);
     this._showPreview(press.gapOps.map(op => [op.set, op.value]));
+    const sides = [k > 0 ? v - b[k - 1] : 0, k < b.length - 1 ? b[k + 1] - v : 0].filter(x => x > 0);
     const [fx, fy] = this._inFrame(e.clientX, e.clientY);
     Object.assign(this._el.ruler.style, {left: `${fx + 16}px`, top: `${fy + 16}px`});
-    this._el.ruler.textContent = rulerText({length: to - from}, data.units_per_metre || 100);
+    this._el.ruler.textContent = sides.map(x => rulerText({length: x}, data.units_per_metre || 100)).join(' | ');
   }
 
   // The pointer was let go while drawing: the new item, from the drag (or the click).

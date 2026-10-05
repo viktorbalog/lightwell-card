@@ -252,19 +252,164 @@ export function partsOf(data, id) {
   return paths;
 }
 
-// The gap a cut object (window_1…) fills: the gap whose span its filler (glass or floor) has, or undefined.
-export function gapOf(data, id) {
-  const fillers = [...(data?.drawing?.glazing || []), ...(data?.drawing?.floors || [])].filter(s => s?.part === id && Array.isArray(s.rect));
-  return gapsOf(data).find(g => fillers.some(({rect: r}) => Math.abs(r[g.axis] - g.from) < 0.01 && Math.abs(r[g.axis] + r[g.axis + 2] - g.to) < 0.01
-    && r[1 - g.axis] >= g.band[0] - 0.01 && r[1 - g.axis] + r[3 - g.axis] <= g.band[1] + 0.01));
+// A cut object's span along gap `gap`'s wall: from its glass and floors (in the gap's band) and its opening, as far
+// as they're within the gap (a little beyond counts: hand-drawn homes are a unit off here and there). [from, to], or
+// null when it has nothing there.
+function cutSpanIn(data, id, gap) {
+  const ax = gap.axis, slack = 0.02 * upm(data), ends = [];
+  const across = (lo, hi) => lo >= gap.band[0] - slack && hi <= gap.band[1] + slack;
+  for (const slot of ['glazing', 'floors']) {
+    for (const sh of data?.drawing?.[slot] || []) {
+      const r = sh?.rect;
+      if (sh?.part === id && Array.isArray(r) && across(r[1 - ax], r[1 - ax] + r[3 - ax])) ends.push([r[ax], r[ax] + r[ax + 2]]);
+    }
+  }
+  const [pos, len] = ax === 0 ? ['x', 'w'] : ['y', 'h'], sides = ax === 0 ? ['top', 'bottom'] : ['left', 'right'];
+  for (const o of data?.openings || []) {
+    if (o?.part === id && sides.includes(o.wall) && o.at >= gap.band[0] - slack && o.at <= gap.band[1] + slack) ends.push([o[pos], o[pos] + o[len]]);
+  }
+  if (!ends.length) return null;
+  const span = [Math.min(...ends.map(e => e[0])), Math.max(...ends.map(e => e[1]))];
+  return span[0] >= gap.from - slack && span[1] <= gap.to + slack ? span : null;
 }
 
-// A cut object slid `d` units along its wall (kept inside it): its gap's changes.
+// The row of windows and doors in a gap: those side by side in it, with nothing between them, from one wall piece to
+// the other (a two-pane window, a balcony door beside its window, or one alone). {gap, cuts: [{id, from, to}],
+// bounds} (bounds: where each begins, and where the last ends: the gap's ends, and the boundaries between them).
+// A gap they don't fill side by side (or with nothing tagged in it) has no cuts: it's resized as a whole.
+export function runOf(data, gap, ids = partIds(data)) {
+  const slack = 0.02 * upm(data), cuts = [];
+  for (const id of ids) {
+    if (data?.rooms?.[id] !== undefined) continue;
+    const span = cutSpanIn(data, id, gap);
+    if (span) cuts.push({id, from: span[0], to: span[1]});
+  }
+  cuts.sort((a, b) => a.from - b.from);
+  const whole = {gap, cuts: [], bounds: [gap.from, gap.to]};
+  if (!cuts.length) return whole;
+  // One alone fills its gap; several meet each other, the first and last the wall pieces.
+  if (cuts.length > 1 && (Math.abs(cuts[0].from - gap.from) > slack || Math.abs(cuts.at(-1).to - gap.to) > slack
+    || cuts.some((c, k) => k && Math.abs(c.from - cuts[k - 1].to) > slack))) return whole;
+  return {gap, cuts, bounds: [gap.from, ...cuts.slice(1).map(c => c.from), gap.to]};
+}
+
+// The row a cut object (window_1…) is in, and where in it: {run, index}, or undefined.
+export function cutRunOf(data, id) {
+  const ids = partIds(data);
+  for (const gap of gapsOf(data)) {
+    const run = runOf(data, gap, ids), index = run.cuts.findIndex(c => c.id === id);
+    if (index >= 0) return {run, index};
+  }
+  return undefined;
+}
+
+// The gap a cut object (window_1…) is in (alone, or in a row with others), or undefined.
+export function gapOf(data, id) {
+  return cutRunOf(data, id)?.run.gap;
+}
+
+// A row with its boundaries moved to `bounds`: the wall pieces either side end and begin at its ends, and each window
+// or door takes its place between two of them (its glass, its floor and its opening along the wall). A gap without a
+// row is resized as a whole (what spans it exactly follows).
+export function runOps(data, run, bounds) {
+  bounds = bounds.map(tidy);
+  if (!run.cuts.length) return resizeGapOps(data, run.gap, bounds[0], bounds.at(-1));
+  const {gap} = run, ax = gap.axis, ops = [], slack = 0.02 * upm(data);
+  const along = (rect, lo, hi) => { const r = [...rect]; r[ax] = tidy(lo); r[ax + 2] = tidy(hi - lo); return r; };
+  const a = data.drawing.walls[gap.a].rect, b = data.drawing.walls[gap.b].rect;
+  ops.push({set: ['drawing', 'walls', gap.a, 'rect'], value: along(a, a[ax], bounds[0])});
+  ops.push({set: ['drawing', 'walls', gap.b, 'rect'], value: along(b, bounds.at(-1), b[ax] + b[ax + 2])});
+  const [pos, len] = ax === 0 ? ['x', 'w'] : ['y', 'h'], sides = ax === 0 ? ['top', 'bottom'] : ['left', 'right'];
+  run.cuts.forEach(({id}, k) => {
+    const [lo, hi] = [bounds[k], bounds[k + 1]];
+    for (const slot of ['glazing', 'floors']) {
+      (data.drawing[slot] || []).forEach((sh, i) => {
+        const r = sh?.rect;
+        if (sh?.part !== id || !Array.isArray(r) || r[1 - ax] < gap.band[0] - slack || r[1 - ax] + r[3 - ax] > gap.band[1] + slack) return;
+        ops.push({set: ['drawing', slot, i, 'rect'], value: along(r, lo, hi)});
+      });
+    }
+    (data.openings || []).forEach((o, i) => {
+      if (o?.part !== id || !sides.includes(o.wall)) return;
+      ops.push({set: ['openings', i, pos], value: tidy(lo)}, {set: ['openings', i, len], value: tidy(hi - lo)});
+    });
+  });
+  return ops;
+}
+
+// The boundary of a row under `p` (its ends, or where two of its windows and doors meet), within `tol`: {run, k}
+// (k: which of its bounds), or undefined.
+export function boundaryAt(data, p, tol = 0) {
+  let best;
+  const ids = partIds(data);
+  for (const gap of gapsOf(data)) {
+    const across = p[1 - gap.axis];
+    if (across < gap.band[0] - tol || across > gap.band[1] + tol) continue;
+    const run = runOf(data, gap, ids);
+    run.bounds.forEach((v, k) => {
+      const d = Math.abs(p[gap.axis] - v);
+      if (d <= tol && (!best || d < best.d)) best = {run, k, d};
+    });
+  }
+  return best && {run: best.run, k: best.k};
+}
+
+// How far boundary `k` of a row can go: [lo, hi], keeping the wall pieces either side and each window or door at
+// least 30 cm.
+export function boundaryRange(data, run, k) {
+  const {gap, bounds} = run, walls = data.drawing.walls, min = 0.3 * upm(data), ax = gap.axis;
+  const lo = k === 0 ? walls[gap.a].rect[ax] + CRUMB : bounds[k - 1] + min;
+  const b = walls[gap.b].rect, hi = k === bounds.length - 1 ? b[ax] + b[ax + 2] - CRUMB : bounds[k + 1] - min;
+  return [lo, hi];
+}
+
+// A row's boundary `k` moved to `v` (kept in its range): one end of a window or door, or where two meet (both follow).
+export function moveBoundaryOps(data, run, k, v) {
+  const [lo, hi] = boundaryRange(data, run, k), bounds = [...run.bounds];
+  bounds[k] = Math.min(Math.max(v, lo), hi);
+  return runOps(data, run, bounds);
+}
+
+// The row in `gap` slid `d` units along its wall, all of it (kept inside the wall).
 export function slideOps(data, gap, d) {
-  const walls = data.drawing.walls, a = walls[gap.a].rect, b = walls[gap.b].rect, ax = gap.axis;
-  const lo = a[ax] + CRUMB - gap.from, hi = b[ax] + b[ax + 2] - CRUMB - gap.to;
+  const run = runOf(data, gap), walls = data.drawing.walls, a = walls[gap.a].rect, b = walls[gap.b].rect, ax = gap.axis;
+  const lo = a[ax] + CRUMB - run.bounds[0], hi = b[ax] + b[ax + 2] - CRUMB - run.bounds.at(-1);
   const move = Math.min(Math.max(d, lo), hi);
-  return resizeGapOps(data, gap, gap.from + move, gap.to + move);
+  return runOps(data, run, run.bounds.map(v => v + move));
+}
+
+// Cut object `id` made `width` units wide around its middle (its ends kept in their ranges; a neighbour in its row
+// gives way, or takes the room).
+export function resizeCutOps(data, id, width) {
+  const found = cutRunOf(data, id);
+  if (!found) return [];
+  const {run, index: i} = found, bounds = [...run.bounds], mid = (bounds[i] + bounds[i + 1]) / 2;
+  const [lo] = boundaryRange(data, run, i), [, hi] = boundaryRange(data, run, i + 1);
+  bounds[i] = Math.max(mid - width / 2, lo);
+  bounds[i + 1] = Math.min(mid + width / 2, hi);
+  return runOps(data, run, bounds);
+}
+
+// Cut object `id` split in two side by side: a two-pane window, or a door beside a door. The new one (`window_2`…) is
+// a copy of it, its glass, floor and opening in the second half. {ops, part}, or null when it's in no row.
+export function splitCutOps(data, id) {
+  const found = cutRunOf(data, id);
+  if (!found) return null;
+  const {run, index: i} = found, {gap} = run, ax = gap.axis, [lo, hi] = [run.bounds[i], run.bounds[i + 1]], mid = tidy((lo + hi) / 2);
+  if (mid - lo < 0.3 * upm(data)) return null;
+  const part = partKey(data, id.replace(/_\d+$/, '')), [pos, len] = ax === 0 ? ['x', 'w'] : ['y', 'h'];
+  // It keeps the first half (its wall pieces as they are), the copy takes the second.
+  const ops = runOps(data, {...run, cuts: [run.cuts[i]]}, [lo, mid]).filter(op => op.set[0] !== 'drawing' || op.set[1] !== 'walls');
+  for (const p of partsOf(data, id)) {
+    const item = p.reduce((o, k) => o?.[k], data);
+    if (p[0] === 'drawing' && Array.isArray(item?.rect)) {
+      const r = [...item.rect];
+      r[ax] = mid;
+      r[ax + 2] = tidy(hi - mid);
+      ops.push({insert: p.slice(0, -1), value: {...item, rect: r, part}});
+    } else if (p[0] === 'openings') ops.push({insert: ['openings'], value: {...item, [pos]: mid, [len]: tidy(hi - mid), part}});
+  }
+  return {ops, part};
 }
 
 // Removals and changes in an order that keeps the indexes right: changes first, then removals, the last first.
@@ -284,12 +429,29 @@ function ordered(sets, removals) {
 export function deleteOps(data, id) {
   const sets = [], removals = partsOf(data, id);
   if (data?.rooms?.[id] === undefined) {
-    const gap = gapOf(data, id);
-    if (gap) {
-      const a = data.drawing.walls[gap.a].rect, b = data.drawing.walls[gap.b].rect, r = [...a];
-      r[gap.axis + 2] = tidy(b[gap.axis] + b[gap.axis + 2] - a[gap.axis]);
-      sets.push({set: ['drawing', 'walls', gap.a, 'rect'], value: r});
-      removals.push(['drawing', 'walls', gap.b]);
+    const found = cutRunOf(data, id);
+    if (found) {
+      // Its place in the wall is wall again: the hole closes, or (in a row) the wall piece beside it reaches over it,
+      // or (between two others) a piece of wall goes there.
+      const {run: {gap, cuts, bounds}, index: i} = found, ax = gap.axis, [lo, hi] = [bounds[i], bounds[i + 1]];
+      const a = data.drawing.walls[gap.a], b = data.drawing.walls[gap.b], r = [...a.rect];
+      if (cuts.length === 1) {
+        r[ax + 2] = tidy(b.rect[ax] + b.rect[ax + 2] - a.rect[ax]);
+        sets.push({set: ['drawing', 'walls', gap.a, 'rect'], value: r});
+        removals.push(['drawing', 'walls', gap.b]);
+      } else if (i === 0) {
+        r[ax + 2] = tidy(hi - a.rect[ax]);
+        sets.push({set: ['drawing', 'walls', gap.a, 'rect'], value: r});
+      } else if (i === cuts.length - 1) {
+        const q = [...b.rect];
+        q[ax + 2] = tidy(b.rect[ax] + b.rect[ax + 2] - lo);
+        q[ax] = tidy(lo);
+        sets.push({set: ['drawing', 'walls', gap.b, 'rect'], value: q});
+      } else {
+        r[ax] = tidy(lo);
+        r[ax + 2] = tidy(hi - lo);
+        sets.push({insert: ['drawing', 'walls'], value: {...a, rect: r}});
+      }
     }
     // Its pieces leave the lamps' shadows (those of lamps going with it aside).
     const pieces = removals.filter(p => p[0] === 'furniture').map(p => p[1]);
@@ -399,6 +561,16 @@ export function adoptOps(data) {
   return ops;
 }
 
+// A cut's span [from, to] along wall `wall` ({i, rect}) next to a window or door (a gap at that end of the wall piece):
+// within 25 cm (`move`: when it was placed by a click, so it keeps its width), moved against it, side by side with no
+// sliver of wall between (a two-pane window, a door beside its window). Changes `span`, and returns it.
+export function snapCut(data, wall, span, move = true) {
+  const r = wall.rect, a = r[2] >= r[3] ? 0 : 1, near = move ? 0.25 * upm(data) : CRUMB, gaps = gapsOf(data), end = r[a] + r[a + 2];
+  if (gaps.some(g => g.b === wall.i) && span[0] - r[a] <= near) { if (move) span[1] = tidy(span[1] - (span[0] - r[a])); span[0] = r[a]; }
+  if (gaps.some(g => g.a === wall.i) && end - span[1] <= near) { if (move) span[0] = tidy(span[0] + (end - span[1])); span[1] = tidy(end); }
+  return span;
+}
+
 // A `kind` of cut (CUTS) `metres` wide in the wall under `p` (or from `p` to `until`, dragged along it): {ops, opening} (opening: whether one was made), or null
 // when there's no wall there, or it's too short. The wall is split in two around the gap; a window or glass door in
 // an outer wall gets its glass and its opening (its side, room and heights from the wall, as the opening tool), a
@@ -410,6 +582,7 @@ export function cutOps(data, p, {kind = 'window', metres = 1, tol = 0, until} = 
   // Dragged along the wall (to `until`): that span, kept inside the wall; otherwise `metres` around the click.
   const span = until ? [Math.max(Math.min(p[a], until[a]), r[a]), Math.min(Math.max(p[a], until[a]), r[a] + r[a + 2])].map(tidy) : cutSpan(r, p[a], tidy(metres * upm(data)));
   if (!span || span[1] - span[0] < 0.3 * upm(data)) return null;
+  snapCut(data, wall, span, !until);
   if (!span) return null;
   const [from, to] = span, mid = r[1 - a] + r[3 - a] / 2;
   const at = v => (a === 0 ? [v, mid] : [mid, v]);
@@ -514,8 +687,11 @@ export function moveRoomOps(data, id, dx, dy, tol = 0, size = null) {
   // The windows and doors in its own walls (both pieces either side of them its own): cut again where it lands.
   const own = new Set((data.drawing?.walls || []).flatMap((w, i) => (w?.part === id ? [i] : [])));
   const cuts = [...partIds(data)].filter(pid => pid !== id && data.rooms?.[pid] === undefined).flatMap(pid => {
-    const gap = gapOf(data, pid);
-    return gap && own.has(gap.a) && own.has(gap.b) ? [{pid, gap, parts: partsOf(data, pid).map(p => [p, p.reduce((o, k) => o?.[k], data)])}] : [];
+    const found = cutRunOf(data, pid), gap = found?.run.gap;
+    if (!gap || !own.has(gap.a) || !own.has(gap.b)) return [];
+    // Its own span in its row (beside another, a pane of a pair: not the whole gap).
+    const span = {...gap, from: found.run.bounds[found.index], to: found.run.bounds[found.index + 1]};
+    return [{pid, gap: span, parts: partsOf(data, pid).map(p => [p, p.reduce((o, k) => o?.[k], data)])}];
   });
   // 1. Its walls go (those others need stay theirs), the room's own floor and label aside.
   const del = deleteOps(data, id).filter(op => !(op.remove && (op.remove[0] === 'rooms'

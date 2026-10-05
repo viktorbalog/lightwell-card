@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {HomeModel, yamlOf} from './model.js';
-import {adoptOps, applyOps, cutOps, lampEntityOps, moveRoomOps, regroupOps, deleteOps, gapEndAt, gapOf, gapRange, gapsOf, partOf, partsOf, resizeGapOps, roomKey, roomOps, roomWalls, slideOps, snapRoom} from './build.js';
+import {adoptOps, applyOps, boundaryAt, cutOps, cutRunOf, lampEntityOps, moveBoundaryOps, moveRoomOps, regroupOps, resizeCutOps, runOf, splitCutOps, deleteOps, gapEndAt, gapOf, gapRange, gapsOf, partOf, partsOf, resizeGapOps, roomKey, roomOps, roomWalls, slideOps, snapRoom} from './build.js';
 
 // An empty home at 100 units a metre, and a model to apply the changes to.
 const EMPTY = {view: {x: -50, y: -50, w: 1200, h: 900}, units_per_metre: 100, rooms: {}, drawing: {floors: [], walls: [], glazing: [], labels: []},
@@ -272,4 +272,83 @@ test('a room made larger: its far walls and the window in its bottom wall move w
   assert.equal(big.openings[0].at, data.openings[0].at + 100);
   assert.equal(big.openings[0].x, data.openings[0].x);
   assert.ok(gapOf(big, 'window_1'));
+});
+
+// A living room with a 1.2 m window in its bottom wall (x 190–310), and a glass door cut beside it.
+const pair = () => build([room('Living', [0, 0, 500, 400]), d => cutOps(d, [250, 412], {kind: 'window', metres: 1.2}).ops,
+  d => cutOps(d, [360, 412], {kind: 'glass_door', metres: 0.9}).ops]);
+
+test('a window or door cut beside another meets it, in one row with it', () => {
+  const data = pair();
+  // Cut at 315–405, within 25 cm of the window: moved against it (310–400), no wall between.
+  const found = cutRunOf(data, 'glass_door_1');
+  assert.deepEqual(found.run.cuts.map(c => [c.id, c.from, c.to]), [['window_1', 190, 310], ['glass_door_1', 310, 400]]);
+  assert.deepEqual(found.run.bounds, [190, 310, 400]);
+  assert.equal(found.index, 1);
+  assert.ok(data.drawing.walls.every(w => !(w.rect[1] > 400 && w.rect[0] < 400 && w.rect[0] + w.rect[2] > 310)));
+  assert.equal(data.openings.length, 2);
+});
+
+test("a row's boundaries are dragged: where two meet both follow, an end takes its wall along", () => {
+  let data = pair();
+  const inner = boundaryAt(data, [312, 412], 5);
+  assert.equal(inner.k, 1);
+  data = build([d => moveBoundaryOps(d, inner.run, 1, 280)], data);
+  assert.deepEqual(runOf(data, inner.run.gap).bounds, [190, 280, 400]);
+  assert.equal(data.openings.find(o => o.part === 'window_1').w, 90);
+  assert.deepEqual(data.drawing.glazing.find(g => g.part === 'glass_door_1').rect.slice(0, 3), [280, 407.5, 120]);
+  // Kept 30 cm each: 200 is too far.
+  data = build([d => moveBoundaryOps(d, boundaryAt(d, [282, 412], 5).run, 1, 200)], data);
+  assert.equal(runOf(data, cutRunOf(data, 'window_1').run.gap).bounds[1], 220);
+  // The far end, with its wall piece.
+  const end = boundaryAt(data, [400, 412], 5);
+  data = build([d => moveBoundaryOps(d, end.run, end.k, 450)], data);
+  assert.equal(cutRunOf(data, 'glass_door_1').run.bounds.at(-1), 450);
+  assert.equal(data.openings.find(o => o.part === 'glass_door_1').w, 230);
+});
+
+test('a row slides as one, is resized by one of it, split, and loses one to the wall again', () => {
+  let data = pair();
+  const gap = cutRunOf(data, 'window_1').run.gap;
+  data = build([d => slideOps(d, gap, -50)], data);
+  assert.deepEqual(cutRunOf(data, 'glass_door_1').run.bounds, [140, 260, 350]);
+  // The window made 1 m wide round its middle: the glass door takes the room.
+  data = build([d => resizeCutOps(d, 'window_1', 100)], data);
+  assert.deepEqual(cutRunOf(data, 'window_1').run.bounds, [150, 250, 350]);
+  // Split in two: a two-pane window.
+  const split = splitCutOps(data, 'window_1');
+  assert.equal(split.part, 'window_2');
+  data = build([() => split.ops], data);
+  assert.deepEqual(cutRunOf(data, 'window_2').run.cuts.map(c => [c.id, c.from, c.to]), [['window_1', 150, 200], ['window_2', 200, 250], ['glass_door_1', 250, 350]]);
+  assert.equal(data.openings.filter(o => o.part?.startsWith('window')).length, 2);
+  // The middle one deleted: wall there; the first: the wall reaches over it; the last alone: the hole closes.
+  const before = area(walls(data));
+  data = build([d => deleteOps(d, 'window_2')], data);
+  assert.equal(area(walls(data)), before + 50 * 25);
+  data = build([d => deleteOps(d, 'window_1')], data);
+  assert.deepEqual(cutRunOf(data, 'glass_door_1').run.bounds, [250, 350]);
+  data = build([d => deleteOps(d, 'glass_door_1')], data);
+  assert.equal(area(walls(data)), 550 * 450 - 500 * 400);
+});
+
+test('a room moved takes a window and door side by side with it', () => {
+  const data = pair(), moved = build([d => moveRoomOps(d, 'living', 100, 0).ops], data);
+  assert.deepEqual(cutRunOf(moved, 'glass_door_1').run.bounds, [290, 410, 500]);
+  assert.equal(moved.openings.length, 2);
+});
+
+test('a window and a door side by side drawn by hand (a unit off) are adopted and found as a row', () => {
+  const data = build([room('Living', [0, 0, 500, 400]), d => cutOps(d, [250, 412], {kind: 'window', metres: 2}).ops]);
+  // As drawn by hand: no parts, a window and a door to the floor, the window's glass a unit short of the wall.
+  data.openings = [{wall: 'bottom', at: 425, depth: 25, x: 151, w: 99, lo: 0.9, hi: 2.2, room: 'living'},
+    {wall: 'bottom', at: 425, depth: 25, x: 250, w: 100, lo: 0, hi: 2.2, room: 'living'}];
+  data.drawing.glazing = [{rect: [151, 407.5, 99, 10], class: 'glass'}];
+  const adopted = build([d => adoptOps(d)], {...data, drawing: {...data.drawing, floors: data.drawing.floors.filter(f => !f.part?.startsWith('window'))}});
+  const found = cutRunOf(adopted, 'door_1');
+  assert.deepEqual(found.run.cuts.map(c => c.id), ['window_1', 'door_1']);
+  assert.deepEqual(found.run.bounds, [150, 250, 350]);
+  // Resized at the shared boundary: both, and the window's glass lined up with its wall.
+  const after = build([d => moveBoundaryOps(d, cutRunOf(d, 'door_1').run, 1, 260)], adopted);
+  assert.deepEqual(after.drawing.glazing[0].rect.slice(0, 3), [150, 407.5, 110]);
+  assert.equal(after.openings[1].x, 260);
 });
