@@ -186,3 +186,7 @@ the room back; inside a table for 4, *Back to Table for 4* showed its settings a
   carried to each rebuilt card), nothing sent to the house, and a first-time note saying so. The card is unchanged
   without it (`ref.html` not affected: `simulated` is null there). Checked in HA: lamp 3 (really on) off on the preview
   and back, its real state on throughout and no service called; still off on the card HA rebuilt after an edit.
+- **The overlay over the editor** (the user: things pulled off the plan, and a lamp's reach, showed over the
+  config): the overlay draws beyond the plan (`overflow: visible`), and on HA's preview the editor's column is beside
+  it. `_place` clips it to the frame it's in (the card's box on HA's preview, the stage standalone). Checked in HA:
+  lamp 3's reach stops at the card's edge.

@@ -83,6 +83,8 @@ versions [Semantic Versioning](https://semver.org/). Changes not released yet ar
   while the toolbar is above it.
 - **The editor in Home Assistant:** the details panel keeps one height, scrolling inside, and stays where it was
   scrolled to while you edit the same thing.
+- **The editor in Home Assistant:** what the editor draws beyond the plan (a lamp's reach, a piece dragged off it) stays
+  within the card, instead of reaching over the editor beside it.
 
 ## 0.2.0 (2026-10-04)
 

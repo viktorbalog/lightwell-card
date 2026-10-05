@@ -12012,7 +12012,14 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         return;
       }
       const o = this._el.overlay, [x, y] = this._inFrame(r.left, r.top), k = this._frameScale();
-      Object.assign(o.style, { left: `${x}px`, top: `${y}px`, width: `${r.width / k}px`, height: `${r.height / k}px` });
+      const f = this._frameEl(), [fw, fh] = [f.offsetWidth, f.offsetHeight];
+      Object.assign(o.style, {
+        left: `${x}px`,
+        top: `${y}px`,
+        width: `${r.width / k}px`,
+        height: `${r.height / k}px`,
+        clipPath: fw && fh ? `polygon(${-x}px ${-y}px, ${fw - x}px ${-y}px, ${fw - x}px ${fh - y}px, ${-x}px ${fh - y}px)` : ""
+      });
       o.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${view.h}`);
       this._renderOverlay();
     }
