@@ -224,6 +224,8 @@ const STYLE = `${OVERLAY_STYLE}
   /* The list */
   .list { padding: 6px 0 12px; font-size: 13px; }
   .list summary { display: flex; align-items: center; gap: 6px; padding: 5px 10px; cursor: pointer; font-weight: 600; }
+  .list .loose { margin: 12px 10px 2px; padding-top: 8px; border-top: 1px solid var(--lw-line); color: var(--lw-muted);
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
   .list summary small { color: var(--lw-faint); font-weight: normal; margin-right: auto; }
   .list summary .add { padding: 0 7px; line-height: 18px; font-weight: normal; }
   .items { list-style: none; margin: 0; padding: 0; }
@@ -636,6 +638,12 @@ export class LightwellEditor extends HTMLElement {
       move: (path, from, to) => this._move(path, from, to),
       template: path => this._template(path),
       enter: name => this._enter(name),
+      selectObject: id => { this._out(); this._selectObject(id); },
+      toggleObject: id => {
+        const parts = partsOf(this.model.data, id), all = parts.every(q => this._sels.some(r => samePath(q, r)));
+        this._selectAll(all ? this._sels.filter(r => !parts.some(q => samePath(q, r))) : [...this._sels, ...parts]);
+      },
+      enterObject: (id, path) => { if (this._group !== id) this._out(); this._enterGroup(id, [path]); },
       shapeTemplate: (kind, old) => this._shapeTemplate(kind, old),
     };
     this.setView(this.getAttribute('view') || (this._ha ? 'build' : 'edit'));
@@ -1068,7 +1076,7 @@ export class LightwellEditor extends HTMLElement {
   }
 
   _renderPanels() {
-    renderList(this._el.list, this.model.data, this._sel, {...this._ctx, inside: this._inside}, this._sels);
+    renderList(this._el.list, this.model.data, this._sel, {...this._ctx, inside: this._inside, group: this._group, objects: this._objects()}, this._sels);
     this._renderDetails();
     this._renderOverlay();
   }
@@ -1684,6 +1692,8 @@ export class LightwellEditor extends HTMLElement {
     this._tab(view === 'build' ? 'props' : 'list');
     this.setTool('select');
     this._placeTools();
+    // The list is the view's own (Build's leads with its objects).
+    if (this.model) this._renderPanels();
   }
 
   // The details panel: a Build object's settings when one is selected whole; with nothing selected, the tool's choices
@@ -1858,6 +1868,15 @@ export class LightwellEditor extends HTMLElement {
       turn.onclick = () => this._turnPieces(90, parts);
       box.append(row('Which', select), row('', turn));
     }
+  }
+
+  // In the Build view, the home's objects for the list: [{id, kind, name, parts}], in the order their items come.
+  _objects() {
+    const data = this.model?.data;
+    if (this._view !== 'build' || !data) return null;
+    const ids = [...new Set(itemGroups(data).flatMap(g => g.items.map(it => partOf(data, it.path))).filter(Boolean))];
+    return ids.map(id => ({id, parts: partsOf(data, id)})).filter(o => o.parts.length)
+      .map(o => ({...o, kind: this._groupKind(o.id), name: this._groupName(o.id)}));
   }
 
   // What kind of Build object `id` is, in words.

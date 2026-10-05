@@ -136,3 +136,10 @@ the room back; inside a table for 4, *Back to Table for 4* showed its settings a
   selection changes (`_folds`, shared with the list of several selected). Checked on the test page: inside a table for
   4 with a chair selected, that chair open; the table opened by hand stayed open when another chair was selected, which
   opened as the first folded; a field changed in the open form left the list as it was.
+- **Groups in the Items list** (the user, the same day, for symmetry with the details): in the Build view the list
+  leads with the home's objects by kind (Rooms, Windows and doors, Furniture, Lamps, Other things), each folding open
+  to its parts; a click on one selects it whole (Shift: in or out), a click on a part goes inside it with that part
+  selected; the items in no object follow under *Not in a group*, by slot as before. The Edit view's list is as it was
+  (switching views redraws it now; it had kept the other view's). Checked on the test page: a room, a window, a table
+  for 4 and a lamp listed, the sofa under *Not in a group*; the table selected whole from its line, a chair from its
+  part's line (inside the table, the line marked); Edit's list by slot.

@@ -41,7 +41,8 @@ versions [Semantic Versioning](https://semver.org/). Changes not released yet ar
   Build object, *Back to …* returns to it whole.
 - **The editor:** with several things selected, the details list all of them, folded, each opening to its settings or
   its fields. In the Build view, Shift+click adds or takes out a whole object.
-- **The editor's Build view:** inside an object, the details list all its parts, the selected one unfolded.
+- **The editor's Build view:** inside an object, the details list all its parts, the selected one unfolded. The Items
+  list leads with the objects, by kind, each unfolding to its parts; what's in none follows.
 - A piece of furniture that is a polygon can be turned (`turn`, around the middle of its bounding box), as a
   rectangle can; in the editor by its turn handle, Ctrl (⌘) and a drag, or R in the Build view.
 

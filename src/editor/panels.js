@@ -2,7 +2,9 @@
 // schema (src/schema.js). They only read the home and call back: `ctx.commit(path, value)` (undefined removes it),
 // `ctx.select(path)`, `ctx.toggle(path)` (Shift+click: in or out of the selection), `ctx.add(group)`,
 // `ctx.remove(path)`, `ctx.duplicate()` (the selection), `ctx.rename(path, name)`, `ctx.move(path, from, to)`,
-// `ctx.enter(name)` (edit a piece's insides; `ctx.inside`: the piece being edited).
+// `ctx.enter(name)` (edit a piece's insides; `ctx.inside`: the piece being edited). In the Build view the list leads
+// with its objects (`ctx.objects`: [{id, kind, name, parts}]; `ctx.group`: the one being edited part by part), picked
+// whole (`ctx.selectObject(id)`, `ctx.toggleObject(id)`) or by a part (`ctx.enterObject(id, path)`).
 import YAML from 'yaml';
 import {SCHEMA, SHAPE_KINDS, fieldAt} from '../schema.js';
 import {SLOTS} from '../home.js';
@@ -11,6 +13,10 @@ import {attributesOf, datalist, effectsEditor, el, entityInput, entityList, icon
 const flow = v => (v === undefined ? '' : YAML.stringify(v, {collectionStyle: 'flow', lineWidth: 0, flowCollectionPadding: false}).trim());
 const samePath = (a, b) => !!a && !!b && a.length === b.length && a.every((k, i) => k === b[i]);
 export const pathKey = path => JSON.stringify(path);
+
+// The Build view's objects in the list, by kind (the last: those of no other).
+const OBJECT_KINDS = [{title: 'Rooms', kinds: ['Room']}, {title: 'Windows and doors', kinds: ['Window', 'Glass door', 'Door', 'Doorway', 'Window or door']},
+  {title: 'Furniture', kinds: ['Furniture']}, {title: 'Lamps', kinds: ['Lamp']}, {title: 'Other things'}];
 
 const SLOT_NAMES = {floors: 'Floors', walls: 'Walls', glazing: 'Glazing', fittings: 'Fittings',
   under_furniture: 'Under the furniture', on_furniture: 'On the furniture', labels: 'Labels'};
@@ -81,7 +87,25 @@ export function renderList(box, data, selected, ctx, also = []) {
   const home = el('li', {className: `item home${selected ? '' : ' on'}`, textContent: 'The home'});
   home.onclick = () => ctx.select(null);
   box.append(el('ul', {className: 'items'}, home));
-  for (const g of itemGroups(data)) {
+  const all = itemGroups(data), inObject = new Set();
+  if (ctx.objects) for (const section of OBJECT_KINDS) {
+    const objects = ctx.objects.filter(o => (section.kinds ? section.kinds.includes(o.kind) : !OBJECT_KINDS.some(k => k.kinds?.includes(o.kind))));
+    for (const o of objects) for (const p of o.parts) inObject.add(pathKey(p));
+    if (!objects.length) continue;
+    const key = `object:${section.title}`, details = el('details', {open: !box._shut?.has(key)});
+    details.ontoggle = () => { box._shut ??= new Set(); details.open ? box._shut.delete(key) : box._shut.add(key); };
+    details.append(el('summary', {}, el('span', {textContent: section.title}), el('small', {textContent: objects.length})));
+    const ul = el('ul', {className: 'items'});
+    for (const o of objects) ul.append(...objectLines(o));
+    details.append(ul);
+    box.append(details);
+  }
+  let loose = false;
+  for (const g0 of all) {
+    // In the Build view, what's in an object is listed with it; the rest after, under a heading of its own.
+    const g = ctx.objects ? {...g0, items: g0.items.filter(it => !inObject.has(pathKey(it.path)))} : g0;
+    if (ctx.objects && !g.items.length) continue;
+    if (ctx.objects && !loose && (loose = true)) box.append(el('p', {className: 'loose', textContent: 'Not in a group'}));
     const has = g.items.some(it => [selected, ...also].some(sel => sel && samePath(it.path, sel.slice(0, it.path.length))));
     const details = el('details', {open: open.has(g.title) || has});
     details.ontoggle = () => (details.open ? open.add(g.title) : open.delete(g.title));
@@ -124,6 +148,29 @@ export function renderList(box, data, selected, ctx, also = []) {
     const b = box.getBoundingClientRect(), r = on.getBoundingClientRect();
     if (r.top < b.top) box.scrollTop += r.top - b.top;
     else if (r.bottom > b.bottom) box.scrollTop += r.bottom - b.bottom;
+  }
+
+  // An object's line, and (unfolded) its parts': the object whole is selected by a click, a part by going inside it.
+  function objectLines(o) {
+    const whole = o.parts.length && o.parts.every(isOn), inside = ctx.group === o.id, key = `object:${o.id}`;
+    const li = el('li', {className: `item${whole ? ' on' : ''}${inside ? ' in' : ''}`, textContent: o.name, title: o.kind});
+    li.onclick = e => (e.shiftKey ? ctx.toggleObject(o.id) : ctx.selectObject(o.id));
+    const shown = unfolded.has(key) || inside;
+    const fold = el('span', {className: 'fold', textContent: shown ? '▾' : '▸', title: shown ? 'Hide its parts' : `Show its parts (${o.parts.length})`});
+    fold.onclick = e => {
+      e.stopPropagation();
+      if (!unfolded.delete(key)) unfolded.add(key);
+      renderList(box, data, selected, ctx, also);
+    };
+    li.prepend(fold);
+    if (!shown) return [li];
+    return [li, ...o.parts.map(p => {
+      const g = all.find(x => samePath(x.path, p.slice(0, -1))), label = g?.items.find(it => samePath(it.path, p))?.label ?? p.join('.');
+      const cli = el('li', {className: `item extra${inside && isOn(p) ? ' on' : ''}`, textContent: `${g ? `${g.title}: ` : ''}${label}`});
+      cli.dataset.path = pathKey(p);
+      cli.onclick = () => ctx.enterObject(o.id, p);
+      return cli;
+    })];
   }
 
   // A piece's insides or a room's rectangles, under its line `li` (with the fold that shows them): selecting one of a

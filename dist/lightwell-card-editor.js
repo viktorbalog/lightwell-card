@@ -9628,6 +9628,13 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
   var flow = (v) => v === void 0 ? "" : browser_default.stringify(v, { collectionStyle: "flow", lineWidth: 0, flowCollectionPadding: false }).trim();
   var samePath = (a, b) => !!a && !!b && a.length === b.length && a.every((k, i) => k === b[i]);
   var pathKey = (path) => JSON.stringify(path);
+  var OBJECT_KINDS = [
+    { title: "Rooms", kinds: ["Room"] },
+    { title: "Windows and doors", kinds: ["Window", "Glass door", "Door", "Doorway", "Window or door"] },
+    { title: "Furniture", kinds: ["Furniture"] },
+    { title: "Lamps", kinds: ["Lamp"] },
+    { title: "Other things" }
+  ];
   var SLOT_NAMES = {
     floors: "Floors",
     walls: "Walls",
@@ -9737,7 +9744,27 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     const home = el("li", { className: `item home${selected ? "" : " on"}`, textContent: "The home" });
     home.onclick = () => ctx.select(null);
     box2.append(el("ul", { className: "items" }, home));
-    for (const g of itemGroups(data)) {
+    const all = itemGroups(data), inObject = /* @__PURE__ */ new Set();
+    if (ctx.objects) for (const section of OBJECT_KINDS) {
+      const objects = ctx.objects.filter((o) => section.kinds ? section.kinds.includes(o.kind) : !OBJECT_KINDS.some((k) => k.kinds?.includes(o.kind)));
+      for (const o of objects) for (const p of o.parts) inObject.add(pathKey(p));
+      if (!objects.length) continue;
+      const key = `object:${section.title}`, details = el("details", { open: !box2._shut?.has(key) });
+      details.ontoggle = () => {
+        box2._shut ?? (box2._shut = /* @__PURE__ */ new Set());
+        details.open ? box2._shut.delete(key) : box2._shut.add(key);
+      };
+      details.append(el("summary", {}, el("span", { textContent: section.title }), el("small", { textContent: objects.length })));
+      const ul = el("ul", { className: "items" });
+      for (const o of objects) ul.append(...objectLines(o));
+      details.append(ul);
+      box2.append(details);
+    }
+    let loose = false;
+    for (const g0 of all) {
+      const g = ctx.objects ? { ...g0, items: g0.items.filter((it) => !inObject.has(pathKey(it.path))) } : g0;
+      if (ctx.objects && !g.items.length) continue;
+      if (ctx.objects && !loose && (loose = true)) box2.append(el("p", { className: "loose", textContent: "Not in a group" }));
       const has = g.items.some((it) => [selected, ...also].some((sel) => sel && samePath(it.path, sel.slice(0, it.path.length))));
       const details = el("details", { open: open.has(g.title) || has });
       details.ontoggle = () => details.open ? open.add(g.title) : open.delete(g.title);
@@ -9794,6 +9821,27 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       const b = box2.getBoundingClientRect(), r = on.getBoundingClientRect();
       if (r.top < b.top) box2.scrollTop += r.top - b.top;
       else if (r.bottom > b.bottom) box2.scrollTop += r.bottom - b.bottom;
+    }
+    function objectLines(o) {
+      const whole = o.parts.length && o.parts.every(isOn), inside = ctx.group === o.id, key = `object:${o.id}`;
+      const li = el("li", { className: `item${whole ? " on" : ""}${inside ? " in" : ""}`, textContent: o.name, title: o.kind });
+      li.onclick = (e) => e.shiftKey ? ctx.toggleObject(o.id) : ctx.selectObject(o.id);
+      const shown = unfolded.has(key) || inside;
+      const fold = el("span", { className: "fold", textContent: shown ? "\u25BE" : "\u25B8", title: shown ? "Hide its parts" : `Show its parts (${o.parts.length})` });
+      fold.onclick = (e) => {
+        e.stopPropagation();
+        if (!unfolded.delete(key)) unfolded.add(key);
+        renderList(box2, data, selected, ctx, also);
+      };
+      li.prepend(fold);
+      if (!shown) return [li];
+      return [li, ...o.parts.map((p) => {
+        const g = all.find((x) => samePath(x.path, p.slice(0, -1))), label = g?.items.find((it) => samePath(it.path, p))?.label ?? p.join(".");
+        const cli = el("li", { className: `item extra${inside && isOn(p) ? " on" : ""}`, textContent: `${g ? `${g.title}: ` : ""}${label}` });
+        cli.dataset.path = pathKey(p);
+        cli.onclick = () => ctx.enterObject(o.id, p);
+        return cli;
+      })];
     }
     function insides(it, li) {
       const key = pathKey(it.path), within = selected?.length > it.path.length && samePath(selected.slice(0, it.path.length), it.path);
@@ -10298,6 +10346,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
   /* The list */
   .list { padding: 6px 0 12px; font-size: 13px; }
   .list summary { display: flex; align-items: center; gap: 6px; padding: 5px 10px; cursor: pointer; font-weight: 600; }
+  .list .loose { margin: 12px 10px 2px; padding-top: 8px; border-top: 1px solid var(--lw-line); color: var(--lw-muted);
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
   .list summary small { color: var(--lw-faint); font-weight: normal; margin-right: auto; }
   .list summary .add { padding: 0 7px; line-height: 18px; font-weight: normal; }
   .items { list-style: none; margin: 0; padding: 0; }
@@ -10752,6 +10802,18 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         move: (path, from, to) => this._move(path, from, to),
         template: (path) => this._template(path),
         enter: (name) => this._enter(name),
+        selectObject: (id) => {
+          this._out();
+          this._selectObject(id);
+        },
+        toggleObject: (id) => {
+          const parts = partsOf(this.model.data, id), all = parts.every((q) => this._sels.some((r) => samePath2(q, r)));
+          this._selectAll(all ? this._sels.filter((r) => !parts.some((q) => samePath2(q, r))) : [...this._sels, ...parts]);
+        },
+        enterObject: (id, path) => {
+          if (this._group !== id) this._out();
+          this._enterGroup(id, [path]);
+        },
         shapeTemplate: (kind, old) => this._shapeTemplate(kind, old)
       };
       this.setView(this.getAttribute("view") || (this._ha ? "build" : "edit"));
@@ -11164,7 +11226,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       g.innerHTML = lines(step, "minor") + lines(metre, "major");
     }
     _renderPanels() {
-      renderList(this._el.list, this.model.data, this._sel, { ...this._ctx, inside: this._inside }, this._sels);
+      renderList(this._el.list, this.model.data, this._sel, { ...this._ctx, inside: this._inside, group: this._group, objects: this._objects() }, this._sels);
       this._renderDetails();
       this._renderOverlay();
     }
@@ -11739,6 +11801,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       this._tab(view === "build" ? "props" : "list");
       this.setTool("select");
       this._placeTools();
+      if (this.model) this._renderPanels();
     }
     // The details panel: a Build object's settings when one is selected whole; with nothing selected, the tool's choices
     // (in Build's Select, the home's); otherwise the selected item's properties.
@@ -11942,6 +12005,13 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
         turn.onclick = () => this._turnPieces(90, parts);
         box2.append(row2("Which", select), row2("", turn));
       }
+    }
+    // In the Build view, the home's objects for the list: [{id, kind, name, parts}], in the order their items come.
+    _objects() {
+      const data = this.model?.data;
+      if (this._view !== "build" || !data) return null;
+      const ids = [...new Set(itemGroups(data).flatMap((g) => g.items.map((it) => partOf2(data, it.path))).filter(Boolean))];
+      return ids.map((id) => ({ id, parts: partsOf(data, id) })).filter((o) => o.parts.length).map((o) => ({ ...o, kind: this._groupKind(o.id), name: this._groupName(o.id) }));
     }
     // What kind of Build object `id` is, in words.
     _groupKind(id) {
