@@ -176,3 +176,13 @@ the room back; inside a table for 4, *Back to Table for 4* showed its settings a
   first and ruled out (a rebuilt card sets its values before its first paint, so nothing fades; checked with and
   without them). Checked in HA, every frame for 3 s from real arrow presses: the card and the overlay never moved, in
   the normal dialog (toolbar above) and in the large one (beside), while the lamp moved with each key.
+- **A steady panel** (the user, in HA: it jumps as it's edited): HA's panes are 420 px high (`flex: none`: as flex
+  items their basis had overridden the height), scrolling inside; the details keep their scroll while they show the
+  same selection and tool, and start at the top for another. Checked in HA: 446 px for a lamp, a room, a window and a
+  piece's form; the form's scroll kept through an edit; at the top for another piece.
+- **Alt+click switches a group's light** (the user): `_switchAt` finds what an Alt+click switches (a lamp, a Build
+  object's lamp, or a marker of a light, switch, fan or media player), `_simulate` switches it: in the simulator
+  standalone; on HA's preview through the card's new `simulated` states (laid over HA's own, set only by the editor,
+  carried to each rebuilt card), nothing sent to the house, and a first-time note saying so. The card is unchanged
+  without it (`ref.html` not affected: `simulated` is null there). Checked in HA: lamp 3 (really on) off on the preview
+  and back, its real state on throughout and no service called; still off on the card HA rebuilt after an edit.

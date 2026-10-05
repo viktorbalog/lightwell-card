@@ -666,6 +666,11 @@ ${errors.join("\n")}`);
     get editLayer() {
       return this._editLayer;
     }
+    // States the editor shows on this card instead of HA's ({entity_id: state}), or null.
+    set simulated(states) {
+      this._simulated = states;
+      if (this._hass) this.hass = this._hass;
+    }
     setConfig(config) {
       this._config = config;
       this._seen = null;
@@ -802,9 +807,10 @@ ${errors.join("\n")}`);
       this._sky = openings.map((o) => ellipse(...skyEllipse(o, this._home.units_per_metre), o.sky));
       this._spills = spill.map((p) => ellipse(p.cx, p.cy, p.rx, p.ry, p.clip));
     }
-    set hass(hass) {
-      this._hass = hass;
+    set hass(given) {
+      this._hass = given;
       if (!this._home) return;
+      const hass = this._simulated ? { ...given, states: { ...given.states, ...this._simulated } } : given;
       const dark = !!hass.themes?.darkMode, states = this._entities.map((id) => hass.states[id]);
       const seen = this._seen;
       if (seen && seen.dark === dark && seen.config === this._config && states.every((s, i) => s === seen.states[i])) return;
@@ -11385,7 +11391,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
   :host([shell=ha]) .preview { grid-area: preview; padding: 8px; border-bottom: 1px solid var(--lw-line); }
   :host([shell=ha]) .side { background: none; } :host([shell=ha]) .side.left { grid-area: left; border-right: 0; }
   :host([shell=ha]) .side.right { grid-area: right; border-left: 0; }
-  :host([shell=ha]) .pane { max-height: 420px; overflow: auto; }
+  :host([shell=ha]) .pane { flex: none; height: 420px; overflow: auto; }
   :host([shell=ha]) .text textarea { min-height: 300px; }
   :host([shell=ha]) footer { background: none; border: 0; max-height: none; }
   .preview:not(.dark) ha-card { --card-background-color: #fff; }
@@ -11926,6 +11932,7 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       if (this._toolRoom) Object.assign(card.style, this._toolRoom);
       this._hosted = this._card = card;
       card.editLayer = this._layer;
+      if (this._simulated && Object.keys(this._simulated).length) card.simulated = this._simulated;
       if (keys) this._focusDue = true;
       this._refocus();
       requestAnimationFrame(() => this._refocus());
@@ -12396,9 +12403,11 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     // Shift+click adds it to the selection (or takes it out). Alt+click taps the card underneath instead (lights toggle,
     // the weather changes). A click on a handle does nothing.
     _click(e, press) {
-      if (e.altKey && !this._hosted) {
-        const marker = this._card.shadowRoot?.elementsFromPoint(e.clientX, e.clientY).find((x) => x.classList?.contains("m"));
-        marker?.click();
+      if (e.altKey) {
+        const marker = !this._hosted && this._card.shadowRoot?.elementsFromPoint(e.clientX, e.clientY).find((x) => x.classList?.contains("m"));
+        if (marker) return marker.click();
+        const entity = this._switchAt(press.at);
+        if (entity) this._simulate(entity);
         return;
       }
       const now = performance.now();
@@ -12423,6 +12432,38 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
       if (inside) this._selectAll(hits.slice(0, 1));
       else if (this._objectAt(hits[0])) this._selectObject(this._objectAt(hits[0]));
       else this.select(hits[0] || null);
+    }
+    // What an Alt+click at `at` switches: the entity of the lamp under it (or of a Build object's lamp, or a marker that
+    // switches: a switch, a fan, a media player), or undefined.
+    _switchAt(at) {
+      const data = this.model.data, switches = (id) => /^(light|switch|fan|input_boolean|media_player)\./.test(id || "");
+      const entityOf = (path) => {
+        const item = itemAt(data, path);
+        if (path[0] === "lights") return item?.entities?.find(switches);
+        if (path[0] === "markers") return switches(item?.entity) ? item.entity : void 0;
+        return void 0;
+      };
+      for (const hit of this._hitsAt(at).hits) {
+        const id = this._view === "build" ? partOf2(data, hit) : void 0, paths = id && data.rooms?.[id] === void 0 ? partsOf(data, id) : [hit];
+        const entity = [...paths.filter((p) => p[0] === "lights"), ...paths.filter((p) => p[0] === "markers")].map(entityOf).find(Boolean);
+        if (entity) return entity;
+      }
+      return void 0;
+    }
+    // Switches `entity` in the simulation: the simulator's (standalone), or on HA's preview only, over HA's own states
+    // (it goes when the editor closes; switched back, HA's own state shows again).
+    _simulate(entity) {
+      if (!this._hosted) return this._controls.callService("homeassistant", "toggle", { entity_id: entity });
+      const real = this._hass?.states?.[entity], now = this._simulated?.[entity] || real;
+      const on = ["on", "playing", "open"].includes(now?.state), next = { entity_id: entity, attributes: {}, ...real, state: on ? "off" : "on" };
+      this._simulated = { ...this._simulated };
+      if (real && real.state === next.state) delete this._simulated[entity];
+      else this._simulated[entity] = next;
+      this._hosted.simulated = Object.keys(this._simulated).length ? this._simulated : null;
+      if (!this._toldSimulated) {
+        this._toldSimulated = true;
+        this._message(`${entity} is switched on the preview only: nothing is switched in your home.`, "info");
+      }
     }
     // In the Build view, the object (made there) the item at `path` is part of: its id, or undefined.
     _objectAt(path) {
@@ -12726,6 +12767,13 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     // The details panel: a Build object's settings when one is selected whole; with nothing selected, the tool's choices
     // (in Build's Select, the home's); otherwise the selected item's properties.
     _renderDetails() {
+      const box2 = this._el.props, shows = [this._view, this._tool, this._group, ...this._sels.map(pathKey)].join("|");
+      const top = shows === this._detailsShow ? box2.scrollTop : 0;
+      this._detailsShow = shows;
+      this._details();
+      if (box2.scrollTop !== top) box2.scrollTop = top;
+    }
+    _details() {
       const box2 = this._el.props, data = this.model?.data;
       const id = this._view === "build" && this._group === null && this._inside === null && data ? this._objectOf(this._sels) : void 0;
       if (id && partsOf(data, id).length === this._sels.length) return this._groupDetails(box2, id);

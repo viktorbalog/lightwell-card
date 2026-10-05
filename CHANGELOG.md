@@ -46,6 +46,9 @@ versions [Semantic Versioning](https://semver.org/). Changes not released yet ar
 - **The editor's Build view:** windows and doors side by side, with no wall between them: a window or door cut next to
   another meets it, *Split in two* makes a two-pane window, and pairs drawn by hand (a balcony door beside its window)
   are found as such. They slide together, and the end they share is dragged (or a width typed) to resize both.
+- **The editor:** Alt+click on a lamp, or on a Build object with a light or switch in it, switches it in the
+  simulation; in Home Assistant on the preview only (nothing is switched in your home), until you switch it back or
+  close the editor.
 - **The example homes** are drawn as the Build view makes homes: each room with its own walls and floor, the doorway,
   the window and the glass door, and the lamps tagged (`part`), so that Build picks each as one.
 - A piece of furniture that is a polygon can be turned (`turn`, around the middle of its bounding box), as a
@@ -78,6 +81,8 @@ versions [Semantic Versioning](https://semver.org/). Changes not released yet ar
   editor (it ran under the preview, hiding its Delete button).
 - **The editor in Home Assistant:** the plan no longer jumps up and back with each change (an arrow key, a drag's end)
   while the toolbar is above it.
+- **The editor in Home Assistant:** the details panel keeps one height, scrolling inside, and stays where it was
+  scrolled to while you edit the same thing.
 
 ## 0.2.0 (2026-10-04)
 

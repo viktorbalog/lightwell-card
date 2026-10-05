@@ -169,6 +169,12 @@ class FloorplanCard extends HTMLElement {
 
   get editLayer() { return this._editLayer; }
 
+  // States the editor shows on this card instead of HA's ({entity_id: state}), or null.
+  set simulated(states) {
+    this._simulated = states;
+    if (this._hass) this.hass = this._hass;
+  }
+
   setConfig(config) {
     this._config = config;
     this._seen = null;
@@ -296,9 +302,11 @@ class FloorplanCard extends HTMLElement {
     this._spills = spill.map(p => ellipse(p.cx, p.cy, p.rx, p.ry, p.clip));
   }
 
-  set hass(hass) {
-    this._hass = hass;
+  set hass(given) {
+    this._hass = given;
     if (!this._home) return;
+    // On HA's preview, the editor's simulated states over HA's own (its Alt+click toggles a lamp there, not in the house).
+    const hass = this._simulated ? {...given, states: {...given.states, ...this._simulated}} : given;
     const dark = !!hass.themes?.darkMode, states = this._entities.map(id => hass.states[id]);
     const seen = this._seen;
     if (seen && seen.dark === dark && seen.config === this._config && states.every((s, i) => s === seen.states[i])) return;
