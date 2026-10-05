@@ -220,3 +220,6 @@ the room back; inside a table for 4, *Back to Table for 4* showed its settings a
 - **The list's clicks in HA** (the user): a click in the Items list selects and stays on the list; a double-click (two
   clicks on the same line, counted by the editor, `_fromList`: the list is drawn again between them) opens the
   details. A selection on the plan still shows the details. Checked on the test page in both views.
+- **The view switch on the right** (the user): Build/Edit at the right end of the header, in both shells (HA's tip
+  stays a line of its own under it). (Before it, the home's sun settings were put in Build's details and taken out
+  again, the user having meant something else: ab7935d, reverted by 774db8b.)

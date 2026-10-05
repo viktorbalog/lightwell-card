@@ -10554,7 +10554,8 @@ units_per_metre: 100`).replace(/^# A home for Lightwell.*\n# described.*\n/, `# 
     .text textarea { min-height: 50vh; }
   }
   /* The views: Build's tools and tab, or Edit's. */
-  header .views { display: inline-flex; margin-right: 8px; }
+  /* The view switch at the right end of the header (the tip, a line of its own, after it). */
+  header .views { display: inline-flex; order: 1; margin-left: auto; } header .tip { order: 2; }
   header .views button { border-radius: 0; } header .views button:first-child { border-radius: 6px 0 0 6px; }
   header .views button:last-child { border-radius: 0 6px 6px 0; border-left: 0; }
   :host(:not([view=build])) .build-only, :host([view=build]) .edit-only { display: none; }
